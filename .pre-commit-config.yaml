@@ -1,0 +1,50 @@
+# See https://pre-commit.com for docs
+# Install with: make precommit-install
+
+repos:
+  - repo: local
+    hooks:
+      # ── Formatting ──────────────────────────────────────────────────
+      - id: format-backend
+        name: Format backend (ruff)
+        entry: poetry run ruff format backend/
+        language: system
+        pass_filenames: false
+        files: ^backend/
+
+      - id: format-frontend
+        name: Format frontend (prettier)
+        entry: bash -c 'cd frontend && npx prettier --write src/'
+        language: system
+        pass_filenames: false
+        files: ^frontend/src/
+
+      # ── Linting ─────────────────────────────────────────────────────
+      - id: lint-backend
+        name: Lint backend (ruff)
+        entry: bash -c 'poetry run ruff check --fix backend/ && poetry run ruff format --check backend/'
+        language: system
+        pass_filenames: false
+        files: ^backend/
+
+      - id: lint-frontend
+        name: Lint frontend (eslint)
+        entry: bash -c 'cd frontend && npx eslint --fix src/'
+        language: system
+        pass_filenames: false
+        files: ^frontend/src/
+
+      # ── Architecture tests ──────────────────────────────────────────
+      - id: test-arch-backend
+        name: Architecture tests — backend
+        entry: poetry run pytest backend/tests/test_architecture.py -v
+        language: system
+        pass_filenames: false
+        files: ^backend/app/
+
+      - id: test-arch-frontend
+        name: Architecture tests — frontend
+        entry: bash -c 'cd frontend && npx vitest run src/test/architecture.test.ts'
+        language: system
+        pass_filenames: false
+        files: ^frontend/src/

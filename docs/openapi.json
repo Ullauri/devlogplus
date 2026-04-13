@@ -1,0 +1,3717 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DevLog+",
+    "description": "Single-user developer journal for technical learning and skill maintenance.\n\nDevLog+ has two engines:\n\n- **Learning engine** — builds a Knowledge Profile from journal entries, quizzes, and feedback. Understands what you know, where you're weak, and what to explore next.\n- **Practice engine** — generates weekly Go micro-projects calibrated to your practical level.\n\n## Core workflow\n\n1. **Journal** — write technical entries (typed or dictated) about what you learn.\n2. **Profile** — the system builds and maintains a Knowledge Profile nightly.\n3. **Quiz** — weekly free-text quizzes probe your understanding.\n4. **Readings** — curated reading recommendations from your allowlisted domains.\n5. **Projects** — weekly Go micro-projects with bugs, features, and refactors.\n6. **Feedback** — thumbs-up/down reactions and feedforward notes steer future content.\n7. **Triage** — items the system can't resolve are surfaced for your clarification.\n",
+    "license": {
+      "name": "Private — single-user local application"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/journal/entries": {
+      "post": {
+        "tags": [
+          "journal"
+        ],
+        "summary": "Create journal entry",
+        "description": "Create a new technical journal entry.\n\nThe entry content can be typed text or dictated via the browser Web Speech\nAPI.  An initial version is created automatically.  The entry will be\nprocessed by the nightly profile-update pipeline.",
+        "operationId": "create_entry_api_v1_journal_entries_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JournalEntryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The newly created journal entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalEntryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error — content is required and must be non-empty"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "journal"
+        ],
+        "summary": "List journal entries",
+        "description": "Return journal entries ordered by creation date (most recent first).\n\nSupports cursor-style pagination via `offset` and `limit`.\nEach entry includes its latest content snapshot.",
+        "operationId": "list_entries_api_v1_journal_entries_get",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of entries to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of entries to skip"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Maximum entries to return",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Maximum entries to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of journal entries, most recent first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JournalEntryResponse"
+                  },
+                  "title": "Response List Entries Api V1 Journal Entries Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/journal/entries/{entry_id}": {
+      "get": {
+        "tags": [
+          "journal"
+        ],
+        "summary": "Get journal entry with version history",
+        "description": "Retrieve a single journal entry including its full version history.\n\nVersions are append-only; the most recent version is the source of truth.",
+        "operationId": "get_entry_api_v1_journal_entries__entry_id__get",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The journal entry with all historical versions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalEntryDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Journal entry not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "journal"
+        ],
+        "summary": "Edit journal entry",
+        "description": "Edit a journal entry.\n\nCreates a new version instead of overwriting — the previous content is\npreserved in the version history.  The new version becomes the source of\ntruth for future profile updates.",
+        "operationId": "update_entry_api_v1_journal_entries__entry_id__put",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JournalEntryUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated journal entry (new version created)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalEntryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Journal entry not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "journal"
+        ],
+        "summary": "Delete journal entry",
+        "description": "Permanently delete a journal entry and all of its versions.",
+        "operationId": "delete_entry_api_v1_journal_entries__entry_id__delete",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmation message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Journal entry not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profile": {
+      "get": {
+        "tags": [
+          "profile"
+        ],
+        "summary": "Get Knowledge Profile",
+        "description": "Return the current Knowledge Profile.\n\nThe profile is an AI-derived, read-only view of the user's technical\nknowledge.  Topics are organized into:\n\n- **strengths** — topics with strong evidence\n- **weak_spots** — topics with limited evidence\n- **current_frontier** — topics actively being learned\n- **next_frontier** — adjacent topics recommended for exploration\n- **recurring_themes** — frequently mentioned topics\n- **unresolved** — topics pending triage\n\nUpdated nightly by the profile-update pipeline.",
+        "operationId": "get_profile_api_v1_profile_get",
+        "responses": {
+          "200": {
+            "description": "The full Knowledge Profile organized by evidence strength",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeProfileResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/profile/snapshots": {
+      "get": {
+        "tags": [
+          "profile"
+        ],
+        "summary": "List profile snapshots",
+        "description": "List historical profile snapshots in reverse-chronological order.\n\nEach snapshot captures the full Knowledge Profile state at a point in time,\nenabling the user to track knowledge growth over weeks and months.",
+        "operationId": "list_snapshots_api_v1_profile_snapshots_get",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of snapshots to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of snapshots to skip"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Maximum snapshots to return",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Maximum snapshots to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of historical profile snapshots",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProfileSnapshotResponse"
+                  },
+                  "title": "Response List Snapshots Api V1 Profile Snapshots Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quizzes/sessions": {
+      "get": {
+        "tags": [
+          "quizzes"
+        ],
+        "summary": "List quiz sessions",
+        "description": "Return quiz sessions ordered by creation date (most recent first).\n\nEach session represents a weekly quiz with a configurable number of\nfree-text questions generated from the Knowledge Profile.",
+        "operationId": "list_sessions_api_v1_quizzes_sessions_get",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of sessions to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of sessions to skip"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Maximum sessions to return",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Maximum sessions to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of quiz sessions, most recent first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/QuizSessionResponse"
+                  },
+                  "title": "Response List Sessions Api V1 Quizzes Sessions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quizzes/sessions/current": {
+      "get": {
+        "tags": [
+          "quizzes"
+        ],
+        "summary": "Get current quiz session",
+        "description": "Get the active (non-evaluated) quiz session, if any.\n\nReturns `null` when there is no pending session.  A new session is\ngenerated weekly by the quiz pipeline.",
+        "operationId": "get_current_session_api_v1_quizzes_sessions_current_get",
+        "responses": {
+          "200": {
+            "description": "The active quiz session with questions, or null if none exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/QuizSessionDetailResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Current Session Api V1 Quizzes Sessions Current Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quizzes/sessions/{session_id}": {
+      "get": {
+        "tags": [
+          "quizzes"
+        ],
+        "summary": "Get quiz session details",
+        "description": "Retrieve a specific quiz session with its questions, submitted answers,\nand LLM-generated evaluations.\n\nEvaluations include correctness (full / partial / incorrect), depth\nassessment, explanation, and confidence score.",
+        "operationId": "get_session_api_v1_quizzes_sessions__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Quiz session with all questions, answers, and evaluations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuizSessionDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Quiz session not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/quizzes/questions/{question_id}/answer": {
+      "post": {
+        "tags": [
+          "quizzes"
+        ],
+        "summary": "Submit quiz answer",
+        "description": "Submit a free-text answer to a quiz question.\n\nOnly free-text answers are accepted (no multiple choice).  Each question\ncan only be answered once.  The answer will be evaluated by an LLM judge\nwhen the session is completed.",
+        "operationId": "submit_answer_api_v1_quizzes_questions__question_id__answer_post",
+        "parameters": [
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Question Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuizAnswerCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The recorded answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuizAnswerResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Quiz question not found"
+          },
+          "422": {
+            "description": "Validation error — answer_text is required"
+          }
+        }
+      }
+    },
+    "/api/v1/quizzes/sessions/{session_id}/complete": {
+      "post": {
+        "tags": [
+          "quizzes"
+        ],
+        "summary": "Complete quiz session",
+        "description": "Mark a quiz session as completed.\n\nAll answers should be submitted before completing.  Once completed, the\nquiz evaluation pipeline will assess each answer and update the Knowledge\nProfile accordingly.",
+        "operationId": "complete_session_api_v1_quizzes_sessions__session_id__complete_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The completed quiz session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuizSessionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Quiz session not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/readings/recommendations": {
+      "get": {
+        "tags": [
+          "readings"
+        ],
+        "summary": "List reading recommendations",
+        "description": "Return reading recommendations ordered by batch date (most recent first).\n\nRecommendations are generated weekly from the Knowledge Profile and limited\nto domains on the user's allowlist.  Each batch typically contains 3–5 links.",
+        "operationId": "list_recommendations_api_v1_readings_recommendations_get",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of recommendations to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of recommendations to skip"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Maximum recommendations to return",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Maximum recommendations to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of reading recommendations, most recent batch first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReadingRecommendationResponse"
+                  },
+                  "title": "Response List Recommendations Api V1 Readings Recommendations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/readings/allowlist": {
+      "get": {
+        "tags": [
+          "readings"
+        ],
+        "summary": "List allowlisted domains",
+        "description": "Return every domain on the reading allowlist.\n\nThe allowlist controls which domains the reading-generation pipeline may\nlink to.  Default entries are pre-populated on first run.",
+        "operationId": "list_allowlist_api_v1_readings_allowlist_get",
+        "responses": {
+          "200": {
+            "description": "All domains currently on the reading allowlist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AllowlistEntryResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Allowlist Api V1 Readings Allowlist Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "readings"
+        ],
+        "summary": "Add allowlist domain",
+        "description": "Add a new domain to the reading allowlist.\n\nOnce added, the reading-generation pipeline may include links from this\ndomain in future weekly recommendations.",
+        "operationId": "add_allowlist_entry_api_v1_readings_allowlist_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowlistEntryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The newly created allowlist entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllowlistEntryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error — domain and name are required"
+          }
+        }
+      }
+    },
+    "/api/v1/readings/allowlist/{entry_id}": {
+      "put": {
+        "tags": [
+          "readings"
+        ],
+        "summary": "Update allowlist entry",
+        "description": "Update the name or description of an existing allowlist entry.",
+        "operationId": "update_allowlist_entry_api_v1_readings_allowlist__entry_id__put",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowlistEntryUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated allowlist entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllowlistEntryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Allowlist entry not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "readings"
+        ],
+        "summary": "Remove allowlist domain",
+        "description": "Remove a domain from the reading allowlist.\n\nFuture reading recommendations will no longer include links from this\ndomain.  Existing recommendations are not affected.",
+        "operationId": "delete_allowlist_entry_api_v1_readings_allowlist__entry_id__delete",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmation message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Allowlist entry not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List weekly projects",
+        "description": "Return weekly projects ordered by issue date (most recent first).\n\nEach project is a self-contained Go codebase with source files, tests,\nand a set of tasks (bugs, features, refactors, optimizations).",
+        "operationId": "list_projects_api_v1_projects_get",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of projects to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of projects to skip"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "Maximum projects to return",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Maximum projects to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of weekly Go projects, most recent first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WeeklyProjectResponse"
+                  },
+                  "title": "Response List Projects Api V1 Projects Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/current": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get current project",
+        "description": "Get the most recently issued weekly project.\n\nReturns `null` when no project has been issued yet.  Includes the full\ntask list, project metadata, and evaluation (if submitted).",
+        "operationId": "get_current_project_api_v1_projects_current_get",
+        "responses": {
+          "200": {
+            "description": "The most recently issued project with tasks and evaluation, or null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/WeeklyProjectDetailResponse"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Current Project Api V1 Projects Current Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get project details",
+        "description": "Retrieve a specific weekly project with its tasks and evaluation.",
+        "operationId": "get_project_api_v1_projects__project_id__get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project with tasks, metadata, and evaluation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyProjectDetailResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}/submit": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Submit project for evaluation",
+        "description": "Submit a completed project for AI evaluation.\n\nThe project evaluation pipeline will assess code quality, task completion,\nand test results.  The evaluation must complete before the next weekly\nproject is issued.",
+        "operationId": "submit_project_api_v1_projects__project_id__submit_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectSubmitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The project with updated status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyProjectResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Project not found or not in a submittable state"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/triage": {
+      "get": {
+        "tags": [
+          "triage"
+        ],
+        "summary": "List triage items",
+        "description": "Return triage items with optional status and severity filters.\n\nTriage items are created automatically by the profile-update,\nquiz-evaluation, and project-evaluation pipelines when the system\nencounters ambiguity it cannot resolve on its own.",
+        "operationId": "list_triage_items_api_v1_triage_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TriageStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by status (pending, accepted, rejected, edited, deferred)",
+              "title": "Status"
+            },
+            "description": "Filter by status (pending, accepted, rejected, edited, deferred)"
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TriageSeverity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by severity (low, medium, high, critical)",
+              "title": "Severity"
+            },
+            "description": "Filter by severity (low, medium, high, critical)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of items to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of items to skip"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Maximum items to return",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Maximum items to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of triage items matching the optional filters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TriageItemResponse"
+                  },
+                  "title": "Response List Triage Items Api V1 Triage Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/triage/blocking": {
+      "get": {
+        "tags": [
+          "triage"
+        ],
+        "summary": "Check for blocking triage items",
+        "description": "Check whether unresolved high or critical triage items exist.\n\nWhen blocking items are present, the nightly profile-update pipeline\nwill not run until they are resolved.  The frontend should surface a\nprominent warning in this case.",
+        "operationId": "check_blocking_triage_api_v1_triage_blocking_get",
+        "responses": {
+          "200": {
+            "description": "Object with a single boolean field `blocking`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Check Blocking Triage Api V1 Triage Blocking Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/triage/{item_id}": {
+      "get": {
+        "tags": [
+          "triage"
+        ],
+        "summary": "Get triage item",
+        "description": "Retrieve a specific triage item by ID.",
+        "operationId": "get_triage_item_api_v1_triage__item_id__get",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A single triage item with full details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Triage item not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/triage/{item_id}/resolve": {
+      "post": {
+        "tags": [
+          "triage"
+        ],
+        "summary": "Resolve triage item",
+        "description": "Resolve a triage item with a user action and optional clarification.\n\nAllowed actions: `accepted`, `rejected`, `edited`, `deferred`.  When the\naction is `edited`, `resolution_text` should contain the user's\nclarifying input.",
+        "operationId": "resolve_triage_item_api_v1_triage__item_id__resolve_post",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriageResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The resolved triage item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriageItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Triage item not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/feedback": {
+      "post": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "Submit feedback or feedforward",
+        "description": "Submit feedback and/or feedforward on a generated item.\n\nTwo distinct signal types are supported:\n\n- **Feedback** (`reaction`) — a thumbs-up or thumbs-down that corrects\n  the system's current understanding (e.g. “too easy”, “not relevant”).\n- **Feedforward** (`note`) — free-text that shapes what the system should\n  generate next (e.g. “more backend-oriented content”).\n\nAt least one of `reaction` or `note` should be provided.",
+        "operationId": "create_feedback_api_v1_feedback_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The recorded feedback entry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error — target_type and target_id are required"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "summary": "List feedback",
+        "description": "Return all feedback entries ordered by creation date (most recent first).",
+        "operationId": "list_feedback_api_v1_feedback_get",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of entries to skip",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Number of entries to skip"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Maximum entries to return",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Maximum entries to return"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of all feedback entries, most recent first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FeedbackResponse"
+                  },
+                  "title": "Response List Feedback Api V1 Feedback Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "List all settings",
+        "description": "Return every application setting as a key-value pair.\n\nSettings include model selection, quiz question count, cron schedules,\nand other tunables.  Values are stored as JSON objects.",
+        "operationId": "list_settings_api_v1_settings_get",
+        "responses": {
+          "200": {
+            "description": "All stored application settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SettingResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Settings Api V1 Settings Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/{key}": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get a setting by key",
+        "description": "Retrieve a single setting by its unique key.",
+        "operationId": "get_setting_api_v1_settings__key__get",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The requested setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Setting not found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Create or update a setting",
+        "description": "Create a new setting or update an existing one.\n\nThe `value` field accepts any JSON object.  If the key already exists,\nits value is replaced.",
+        "operationId": "set_setting_api_v1_settings__key__put",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created or updated setting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onboarding/status": {
+      "get": {
+        "tags": [
+          "onboarding"
+        ],
+        "summary": "Check onboarding status",
+        "description": "Check whether the first-run onboarding has been completed.\n\nReturns `{\"completed\": true}` after the onboarding flow finishes.\nThe frontend should redirect to the onboarding wizard when `false`.",
+        "operationId": "get_onboarding_status_api_v1_onboarding_status_get",
+        "responses": {
+          "200": {
+            "description": "Object with a single boolean field `completed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Onboarding Status Api V1 Onboarding Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onboarding/state": {
+      "get": {
+        "tags": [
+          "onboarding"
+        ],
+        "summary": "Get onboarding state",
+        "description": "Retrieve the full onboarding state.\n\nReturns the self-assessment answers, Go experience level, topic interests,\nand completion timestamp.  Returns empty/default values if onboarding\nhas not started.",
+        "operationId": "get_onboarding_state_api_v1_onboarding_state_get",
+        "responses": {
+          "200": {
+            "description": "Full onboarding state including self-assessment data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onboarding/complete": {
+      "post": {
+        "tags": [
+          "onboarding"
+        ],
+        "summary": "Complete onboarding",
+        "description": "Complete the first-run onboarding flow (~10–15 min).\n\nCollects:\n- **Self-assessment** — technical background, languages, experience\n- **Go experience level** — none / beginner / intermediate / advanced\n- **Topic interests** — optional list of topics to prioritise\n\nThis establishes baseline context before the normal nightly/weekly\nprocessing cycles begin.",
+        "operationId": "complete_onboarding_api_v1_onboarding_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The completed onboarding state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingStateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation error — self_assessment and go_experience required"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AllowlistEntryCreate": {
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Domain",
+            "description": "Domain name (e.g. 'go.dev', 'docs.python.org')",
+            "examples": [
+              "go.dev"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Name",
+            "description": "Human-friendly label for the domain",
+            "examples": [
+              "Go Official Blog"
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Optional description of what this source provides"
+          }
+        },
+        "type": "object",
+        "required": [
+          "domain",
+          "name"
+        ],
+        "title": "AllowlistEntryCreate",
+        "description": "Add a domain to the reading allowlist.\n\nOnly domains on the allowlist will be used for reading recommendations."
+      },
+      "AllowlistEntryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Entry ID"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain",
+            "description": "Allowlisted domain name"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Human-friendly label"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Optional description"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default",
+            "description": "Whether this is a built-in default entry (cannot be deleted)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the entry was added"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "domain",
+          "name",
+          "description",
+          "is_default",
+          "created_at"
+        ],
+        "title": "AllowlistEntryResponse",
+        "description": "A domain on the reading recommendation allowlist."
+      },
+      "AllowlistEntryUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Updated label (null to keep current)"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Updated description (null to keep current)"
+          }
+        },
+        "type": "object",
+        "title": "AllowlistEntryUpdate",
+        "description": "Update an existing allowlist entry's name or description."
+      },
+      "EvidenceStrength": {
+        "type": "string",
+        "enum": [
+          "strong",
+          "developing",
+          "limited"
+        ],
+        "title": "EvidenceStrength"
+      },
+      "FeedbackCreate": {
+        "properties": {
+          "target_type": {
+            "$ref": "#/components/schemas/FeedbackTargetType",
+            "description": "Type of item receiving feedback: quiz_question, reading, or project"
+          },
+          "target_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Id",
+            "description": "ID of the target item (question, reading, or project)"
+          },
+          "reaction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackReaction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quick reaction: thumbs_up or thumbs_down (feedback signal)"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Free-text feedforward note that shapes future generation (e.g. 'more backend-oriented content', 'harder debugging tasks')",
+            "examples": [
+              "This was too easy — I'd prefer more advanced concurrency challenges."
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "target_type",
+          "target_id"
+        ],
+        "title": "FeedbackCreate",
+        "description": "Submit feedback and/or feedforward on a generated item.\n\nAt least one of `reaction` or `note` should be provided."
+      },
+      "FeedbackReaction": {
+        "type": "string",
+        "enum": [
+          "thumbs_up",
+          "thumbs_down"
+        ],
+        "title": "FeedbackReaction"
+      },
+      "FeedbackResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Feedback entry ID"
+          },
+          "target_type": {
+            "$ref": "#/components/schemas/FeedbackTargetType",
+            "description": "Type of item this feedback targets"
+          },
+          "target_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Id",
+            "description": "ID of the targeted item"
+          },
+          "reaction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackReaction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Thumbs-up / thumbs-down reaction, if provided"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Free-text feedforward note, if provided"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the feedback was submitted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "target_type",
+          "target_id",
+          "reaction",
+          "note",
+          "created_at"
+        ],
+        "title": "FeedbackResponse",
+        "description": "A recorded feedback/feedforward entry."
+      },
+      "FeedbackTargetType": {
+        "type": "string",
+        "enum": [
+          "quiz_question",
+          "reading",
+          "project",
+          "project_task"
+        ],
+        "title": "FeedbackTargetType"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JournalEntryCreate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Optional short title for the entry",
+            "examples": [
+              "Learning Go concurrency patterns"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content",
+            "description": "Entry content (text only, no HTML)",
+            "examples": [
+              "Today I explored Go channels and goroutines. The select statement is particularly powerful for multiplexing channel operations."
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "JournalEntryCreate",
+        "description": "Create a new journal entry.\n\nContent is text-only and can be typed or dictated via the browser\nWeb Speech API.  Title is optional."
+      },
+      "JournalEntryDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Entry ID"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Optional title"
+          },
+          "is_processed": {
+            "type": "boolean",
+            "title": "Is Processed",
+            "description": "Whether the nightly pipeline has processed this entry"
+          },
+          "processed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processed At",
+            "description": "When the entry was last processed by the pipeline"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the entry was first created"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When the entry was last modified"
+          },
+          "current_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Content",
+            "description": "Content from the most recent version"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/JournalEntryVersionResponse"
+            },
+            "type": "array",
+            "title": "Versions",
+            "description": "All versions of this entry, ordered by version number",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "is_processed",
+          "processed_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JournalEntryDetailResponse",
+        "description": "Full journal entry with append-only version history."
+      },
+      "JournalEntryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Entry ID"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Optional title"
+          },
+          "is_processed": {
+            "type": "boolean",
+            "title": "Is Processed",
+            "description": "Whether the nightly pipeline has processed this entry"
+          },
+          "processed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processed At",
+            "description": "When the entry was last processed by the pipeline"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the entry was first created"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When the entry was last modified"
+          },
+          "current_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Content",
+            "description": "Content from the most recent version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "is_processed",
+          "processed_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JournalEntryResponse",
+        "description": "Journal entry summary (without version history)."
+      },
+      "JournalEntryUpdate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Updated title (null leaves unchanged)"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content",
+            "description": "Updated content (will become the new current version)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "JournalEntryUpdate",
+        "description": "Edit an existing entry — creates a new version, preserving history."
+      },
+      "JournalEntryVersionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Version ID"
+          },
+          "entry_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Entry Id",
+            "description": "Parent journal entry ID"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content",
+            "description": "Full text content of this version"
+          },
+          "version_number": {
+            "type": "integer",
+            "title": "Version Number",
+            "description": "Sequential version number (1-based)"
+          },
+          "is_current": {
+            "type": "boolean",
+            "title": "Is Current",
+            "description": "Whether this is the latest version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When this version was created"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "entry_id",
+          "content",
+          "version_number",
+          "is_current",
+          "created_at"
+        ],
+        "title": "JournalEntryVersionResponse",
+        "description": "A single version of a journal entry's content."
+      },
+      "KnowledgeProfileResponse": {
+        "properties": {
+          "strengths": {
+            "items": {
+              "$ref": "#/components/schemas/TopicResponse"
+            },
+            "type": "array",
+            "title": "Strengths",
+            "description": "Topics with strong evidence",
+            "default": []
+          },
+          "weak_spots": {
+            "items": {
+              "$ref": "#/components/schemas/TopicResponse"
+            },
+            "type": "array",
+            "title": "Weak Spots",
+            "description": "Topics with limited evidence",
+            "default": []
+          },
+          "current_frontier": {
+            "items": {
+              "$ref": "#/components/schemas/TopicResponse"
+            },
+            "type": "array",
+            "title": "Current Frontier",
+            "description": "Topics the user is actively learning or partially understands",
+            "default": []
+          },
+          "next_frontier": {
+            "items": {
+              "$ref": "#/components/schemas/TopicResponse"
+            },
+            "type": "array",
+            "title": "Next Frontier",
+            "description": "Adjacent topics the system recommends exploring next",
+            "default": []
+          },
+          "recurring_themes": {
+            "items": {
+              "$ref": "#/components/schemas/TopicResponse"
+            },
+            "type": "array",
+            "title": "Recurring Themes",
+            "description": "Frequently mentioned topics across journal entries",
+            "default": []
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/TopicResponse"
+            },
+            "type": "array",
+            "title": "Unresolved",
+            "description": "Topics pending triage resolution",
+            "default": []
+          },
+          "total_topics": {
+            "type": "integer",
+            "title": "Total Topics",
+            "description": "Total number of topics in the profile",
+            "default": 0
+          },
+          "last_updated": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated",
+            "description": "When the profile was last updated by the nightly pipeline"
+          }
+        },
+        "type": "object",
+        "title": "KnowledgeProfileResponse",
+        "description": "The full Knowledge Profile — an AI-derived, read-only view of the user's\ntechnical knowledge organized by evidence strength and learning state."
+      },
+      "MessageResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable result message",
+            "examples": [
+              "Entry deleted"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "MessageResponse",
+        "description": "Generic message response for operations that return no entity."
+      },
+      "OnboardingCompleteRequest": {
+        "properties": {
+          "self_assessment": {
+            "$ref": "#/components/schemas/OnboardingSelfAssessment",
+            "description": "Technical background self-assessment"
+          },
+          "go_experience": {
+            "$ref": "#/components/schemas/OnboardingGoExperience",
+            "description": "Go-specific experience level and optional details"
+          },
+          "topic_interests": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Interests",
+            "description": "Optional list of topics the user wants to prioritise",
+            "examples": [
+              [
+                "concurrency",
+                "testing",
+                "microservices"
+              ]
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "self_assessment",
+          "go_experience"
+        ],
+        "title": "OnboardingCompleteRequest",
+        "description": "Complete the first-run onboarding flow (~10–15 min)."
+      },
+      "OnboardingGoExperience": {
+        "properties": {
+          "level": {
+            "type": "string",
+            "title": "Level",
+            "description": "Self-reported Go experience level",
+            "examples": [
+              "none",
+              "beginner",
+              "intermediate",
+              "advanced"
+            ]
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details",
+            "description": "Optional free-text elaboration on Go experience",
+            "examples": [
+              "Built a few CLI tools and a small HTTP server."
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "level"
+        ],
+        "title": "OnboardingGoExperience",
+        "description": "Go-specific experience level for project difficulty calibration."
+      },
+      "OnboardingSelfAssessment": {
+        "properties": {
+          "primary_languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Primary Languages",
+            "description": "Programming languages the user is most comfortable with",
+            "default": [],
+            "examples": [
+              [
+                "Python",
+                "Go",
+                "TypeScript"
+              ]
+            ]
+          },
+          "years_experience": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Experience",
+            "description": "Total years of professional development experience"
+          },
+          "primary_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Domain",
+            "description": "Primary work domain",
+            "examples": [
+              "backend",
+              "full-stack",
+              "devops",
+              "data-engineering"
+            ]
+          },
+          "comfort_areas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Comfort Areas",
+            "description": "Technical areas the user feels confident in",
+            "default": [],
+            "examples": [
+              [
+                "REST APIs",
+                "SQL databases",
+                "Docker"
+              ]
+            ]
+          },
+          "growth_areas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Growth Areas",
+            "description": "Technical areas the user wants to improve",
+            "default": [],
+            "examples": [
+              [
+                "distributed systems",
+                "Go concurrency",
+                "performance tuning"
+              ]
+            ]
+          }
+        },
+        "type": "object",
+        "title": "OnboardingSelfAssessment",
+        "description": "First-run self-assessment of technical background."
+      },
+      "OnboardingStateResponse": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id",
+            "description": "Onboarding record ID"
+          },
+          "completed": {
+            "type": "boolean",
+            "title": "Completed",
+            "description": "Whether onboarding has been completed"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "When onboarding was completed"
+          },
+          "self_assessment": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Self Assessment",
+            "description": "Serialised self-assessment answers (JSONB)"
+          },
+          "go_experience_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Go Experience Level",
+            "description": "Go experience level string"
+          },
+          "topic_interests": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Interests",
+            "description": "Serialised topic interest list (JSONB)"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "Record creation timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "completed"
+        ],
+        "title": "OnboardingStateResponse",
+        "description": "Current state of the onboarding flow."
+      },
+      "ProfileSnapshotResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Snapshot ID"
+          },
+          "snapshot_data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Snapshot Data",
+            "description": "Full profile state serialised as JSON at snapshot time"
+          },
+          "trigger": {
+            "type": "string",
+            "title": "Trigger",
+            "description": "What triggered this snapshot (e.g. 'nightly_update')"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the snapshot was taken"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "snapshot_data",
+          "trigger",
+          "created_at"
+        ],
+        "title": "ProfileSnapshotResponse",
+        "description": "A historical snapshot of the Knowledge Profile at a point in time."
+      },
+      "ProjectEvaluationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Evaluation ID"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Project Id",
+            "description": "The project this evaluation applies to"
+          },
+          "code_quality_score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Code Quality Score",
+            "description": "Overall code quality score (0.0–1.0)"
+          },
+          "task_completion": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Task Completion",
+            "description": "Per-task completion status and assessment (JSONB)"
+          },
+          "test_results": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Results",
+            "description": "Summary of test execution results, if tests were run (JSONB)"
+          },
+          "overall_assessment": {
+            "type": "string",
+            "title": "Overall Assessment",
+            "description": "Free-text overall assessment of the submission"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "LLM confidence in this evaluation (0.0–1.0)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the evaluation was generated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "code_quality_score",
+          "task_completion",
+          "test_results",
+          "overall_assessment",
+          "confidence",
+          "created_at"
+        ],
+        "title": "ProjectEvaluationResponse",
+        "description": "AI-generated evaluation of a submitted project."
+      },
+      "ProjectStatus": {
+        "type": "string",
+        "enum": [
+          "issued",
+          "in_progress",
+          "submitted",
+          "evaluated",
+          "skipped"
+        ],
+        "title": "ProjectStatus"
+      },
+      "ProjectSubmitRequest": {
+        "properties": {
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes",
+            "description": "Optional notes about the submission (e.g. challenges faced, shortcuts taken)",
+            "examples": [
+              "Focused on the refactor task first; ran out of time on the optimization."
+            ]
+          }
+        },
+        "type": "object",
+        "title": "ProjectSubmitRequest",
+        "description": "Submit a completed project for AI evaluation."
+      },
+      "ProjectTaskResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Task ID"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Project Id",
+            "description": "Parent project ID"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Short task title",
+            "examples": [
+              "Fix goroutine leak in worker pool"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Detailed task description with acceptance criteria"
+          },
+          "task_type": {
+            "$ref": "#/components/schemas/ProjectTaskType",
+            "description": "Task type: bug, feature, refactor, or optimization"
+          },
+          "order_index": {
+            "type": "integer",
+            "title": "Order Index",
+            "description": "Display order within the project (0-based)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the task was generated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "title",
+          "description",
+          "task_type",
+          "order_index",
+          "created_at"
+        ],
+        "title": "ProjectTaskResponse",
+        "description": "A single task within a weekly project (bug fix, feature, refactor, etc.)."
+      },
+      "ProjectTaskType": {
+        "type": "string",
+        "enum": [
+          "bug_fix",
+          "feature",
+          "refactor",
+          "optimization"
+        ],
+        "title": "ProjectTaskType"
+      },
+      "QuizAnswerCreate": {
+        "properties": {
+          "answer_text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Answer Text",
+            "description": "The user's free-text answer (no multiple choice)",
+            "examples": [
+              "Goroutines are lightweight threads managed by the Go runtime..."
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "answer_text"
+        ],
+        "title": "QuizAnswerCreate",
+        "description": "Submit a free-text answer to a quiz question."
+      },
+      "QuizAnswerResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Answer ID"
+          },
+          "question_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Question Id",
+            "description": "The question this answers"
+          },
+          "answer_text": {
+            "type": "string",
+            "title": "Answer Text",
+            "description": "The submitted answer text"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the answer was submitted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "question_id",
+          "answer_text",
+          "created_at"
+        ],
+        "title": "QuizAnswerResponse",
+        "description": "A recorded answer to a quiz question."
+      },
+      "QuizCorrectness": {
+        "type": "string",
+        "enum": [
+          "full",
+          "partial",
+          "incorrect"
+        ],
+        "title": "QuizCorrectness"
+      },
+      "QuizEvaluationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Evaluation ID"
+          },
+          "question_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Question Id",
+            "description": "The question this evaluation applies to"
+          },
+          "correctness": {
+            "$ref": "#/components/schemas/QuizCorrectness",
+            "description": "Correctness verdict: full, partial, or incorrect"
+          },
+          "depth_assessment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Depth Assessment",
+            "description": "Qualitative assessment of the answer's depth and nuance"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "description": "Detailed explanation of why the answer was evaluated this way"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "LLM confidence in this evaluation (0.0–1.0)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the evaluation was generated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "question_id",
+          "correctness",
+          "depth_assessment",
+          "explanation",
+          "confidence",
+          "created_at"
+        ],
+        "title": "QuizEvaluationResponse",
+        "description": "LLM-generated evaluation of a quiz answer."
+      },
+      "QuizQuestionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Question ID"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id",
+            "description": "Parent quiz session ID"
+          },
+          "question_text": {
+            "type": "string",
+            "title": "Question Text",
+            "description": "The question text"
+          },
+          "question_type": {
+            "$ref": "#/components/schemas/QuizQuestionType",
+            "description": "Question type (always free_text)"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id",
+            "description": "ID of the Knowledge Profile topic this question targets"
+          },
+          "order_index": {
+            "type": "integer",
+            "title": "Order Index",
+            "description": "Position of the question within the session (0-based)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the question was generated"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuizAnswerResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The user's submitted answer, if any"
+          },
+          "evaluation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuizEvaluationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LLM evaluation of the answer, if completed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "question_text",
+          "question_type",
+          "topic_id",
+          "order_index",
+          "created_at"
+        ],
+        "title": "QuizQuestionResponse",
+        "description": "A single quiz question with optional answer and evaluation."
+      },
+      "QuizQuestionType": {
+        "type": "string",
+        "enum": [
+          "reinforcement",
+          "exploration"
+        ],
+        "title": "QuizQuestionType"
+      },
+      "QuizSessionDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Session ID"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QuizSessionStatus",
+            "description": "Session status: pending, completed, or evaluated"
+          },
+          "question_count": {
+            "type": "integer",
+            "title": "Question Count",
+            "description": "Number of questions in this session"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "When all answers were submitted (null if still pending)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the session was generated"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Last modification timestamp"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuizQuestionResponse"
+            },
+            "type": "array",
+            "title": "Questions",
+            "description": "All questions in this session, ordered by index",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "question_count",
+          "completed_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "QuizSessionDetailResponse",
+        "description": "Quiz session with all questions, submitted answers, and LLM evaluations."
+      },
+      "QuizSessionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Session ID"
+          },
+          "status": {
+            "$ref": "#/components/schemas/QuizSessionStatus",
+            "description": "Session status: pending, completed, or evaluated"
+          },
+          "question_count": {
+            "type": "integer",
+            "title": "Question Count",
+            "description": "Number of questions in this session"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "When all answers were submitted (null if still pending)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the session was generated"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Last modification timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "question_count",
+          "completed_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "QuizSessionResponse",
+        "description": "Quiz session summary."
+      },
+      "QuizSessionStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "in_progress",
+          "completed",
+          "evaluated"
+        ],
+        "title": "QuizSessionStatus"
+      },
+      "ReadingRecommendationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Recommendation ID"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Title of the recommended article or resource",
+            "examples": [
+              "Understanding Go's Concurrency Model"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Full URL to the recommended resource",
+            "examples": [
+              "https://go.dev/blog/concurrency-is-not-parallelism"
+            ]
+          },
+          "source_domain": {
+            "type": "string",
+            "title": "Source Domain",
+            "description": "Domain the URL belongs to (must be on the allowlist)",
+            "examples": [
+              "go.dev"
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "Brief AI-generated summary of why this was recommended"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id",
+            "description": "Knowledge Profile topic this recommendation relates to"
+          },
+          "recommendation_type": {
+            "$ref": "#/components/schemas/ReadingRecommendationType",
+            "description": "Type of recommendation (deepening, broadening, refresher)"
+          },
+          "batch_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Batch Date",
+            "description": "The weekly batch date this recommendation belongs to"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the recommendation was generated"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Last modification timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "url",
+          "source_domain",
+          "description",
+          "topic_id",
+          "recommendation_type",
+          "batch_date",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ReadingRecommendationResponse",
+        "description": "A curated reading recommendation generated from the Knowledge Profile."
+      },
+      "ReadingRecommendationType": {
+        "type": "string",
+        "enum": [
+          "next_frontier",
+          "weak_spot",
+          "deep_dive"
+        ],
+        "title": "ReadingRecommendationType"
+      },
+      "SettingResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Setting ID"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "Unique setting key",
+            "examples": [
+              "quiz_question_count"
+            ]
+          },
+          "value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Value",
+            "description": "Setting value as a JSON object"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When the setting was last changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "value",
+          "updated_at"
+        ],
+        "title": "SettingResponse",
+        "description": "A single application setting (key-value pair)."
+      },
+      "SettingUpdate": {
+        "properties": {
+          "value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Value",
+            "description": "Setting value as a JSON object",
+            "examples": [
+              {
+                "model": "anthropic/claude-sonnet-4",
+                "temperature": 0.7
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "SettingUpdate",
+        "description": "Set a configuration value."
+      },
+      "TopicCategory": {
+        "type": "string",
+        "enum": [
+          "demonstrated_strength",
+          "weak_spot",
+          "current_frontier",
+          "next_frontier",
+          "recurring_theme",
+          "unresolved"
+        ],
+        "title": "TopicCategory"
+      },
+      "TopicResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Topic ID"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Topic name (e.g. 'Go concurrency patterns')"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "AI-generated description of the topic"
+          },
+          "category": {
+            "$ref": "#/components/schemas/TopicCategory",
+            "description": "Topic category (language, framework, concept, tool, etc.)"
+          },
+          "evidence_strength": {
+            "$ref": "#/components/schemas/EvidenceStrength",
+            "description": "How much evidence supports this topic: strong, developing, or limited. Limited ≠ weakness."
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "description": "System confidence in this assessment (0.0–1.0)"
+          },
+          "evidence_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Summary",
+            "description": "Structured evidence supporting this topic assessment (JSONB)"
+          },
+          "parent_topic_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Topic Id",
+            "description": "ID of parent topic, if this is a sub-topic"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the topic was first identified"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "When the topic was last updated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "category",
+          "evidence_strength",
+          "confidence",
+          "evidence_summary",
+          "parent_topic_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TopicResponse",
+        "description": "A single topic in the Knowledge Profile."
+      },
+      "TriageItemResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Triage item ID"
+          },
+          "source": {
+            "$ref": "#/components/schemas/TriageSource",
+            "description": "Pipeline that created this item (profile_update, quiz_evaluation, project_evaluation)"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id",
+            "description": "ID of the source entity (e.g. topic, quiz question) that triggered this item"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Short title summarising the issue"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Detailed description of what needs resolution"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context",
+            "description": "Additional context from the pipeline (JSONB)"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/TriageSeverity",
+            "description": "Severity: low, medium, high, or critical. High/critical block the next cycle."
+          },
+          "status": {
+            "$ref": "#/components/schemas/TriageStatus",
+            "description": "Current status: pending, accepted, rejected, edited, or deferred"
+          },
+          "resolution_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Text",
+            "description": "User's clarification text (populated after resolution)"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At",
+            "description": "When the item was resolved (null if still pending)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "When the item was created"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Last modification timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "source_id",
+          "title",
+          "description",
+          "context",
+          "severity",
+          "status",
+          "resolution_text",
+          "resolved_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TriageItemResponse",
+        "description": "An item requiring user attention before the system can proceed."
+      },
+      "TriageResolveRequest": {
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/TriageStatus",
+            "description": "Resolution action: accepted, rejected, edited, or deferred"
+          },
+          "resolution_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Text",
+            "description": "Clarifying text from the user. Required when action is 'edited'; optional for other actions.",
+            "examples": [
+              "The topic should be 'Go error handling' not 'Go exceptions'."
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "title": "TriageResolveRequest",
+        "description": "Resolve a triage item with a user action and optional clarification text."
+      },
+      "TriageSeverity": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "title": "TriageSeverity"
+      },
+      "TriageSource": {
+        "type": "string",
+        "enum": [
+          "profile_update",
+          "quiz_evaluation",
+          "project_evaluation"
+        ],
+        "title": "TriageSource"
+      },
+      "TriageStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "accepted",
+          "rejected",
+          "edited",
+          "deferred"
+        ],
+        "title": "TriageStatus"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WeeklyProjectDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Project ID"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Project title",
+            "examples": [
+              "HTTP Rate Limiter"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Project overview and goals"
+          },
+          "difficulty_level": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Difficulty Level",
+            "description": "Difficulty level (1–5), calibrated to the user's profile"
+          },
+          "project_path": {
+            "type": "string",
+            "title": "Project Path",
+            "description": "Filesystem path to the generated project codebase",
+            "examples": [
+              "workspace/projects/2026-w15-rate-limiter"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectStatus",
+            "description": "Project status: issued, submitted, or evaluated"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Issued At",
+            "description": "When the project was issued"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At",
+            "description": "When the user submitted the project (null if not yet submitted)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Creation timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Last modification timestamp"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectTaskResponse"
+            },
+            "type": "array",
+            "title": "Tasks",
+            "description": "Ordered list of tasks to complete",
+            "default": []
+          },
+          "evaluation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectEvaluationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AI evaluation of the submission (null if not yet evaluated)"
+          },
+          "metadata_": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "Additional project metadata (JSONB)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "difficulty_level",
+          "project_path",
+          "status",
+          "issued_at",
+          "submitted_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WeeklyProjectDetailResponse",
+        "description": "Project with tasks, metadata, and optional AI evaluation."
+      },
+      "WeeklyProjectResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Project ID"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "description": "Project title",
+            "examples": [
+              "HTTP Rate Limiter"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Project overview and goals"
+          },
+          "difficulty_level": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Difficulty Level",
+            "description": "Difficulty level (1–5), calibrated to the user's profile"
+          },
+          "project_path": {
+            "type": "string",
+            "title": "Project Path",
+            "description": "Filesystem path to the generated project codebase",
+            "examples": [
+              "workspace/projects/2026-w15-rate-limiter"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ProjectStatus",
+            "description": "Project status: issued, submitted, or evaluated"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Issued At",
+            "description": "When the project was issued"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At",
+            "description": "When the user submitted the project (null if not yet submitted)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Creation timestamp"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Last modification timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "difficulty_level",
+          "project_path",
+          "status",
+          "issued_at",
+          "submitted_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WeeklyProjectResponse",
+        "description": "Weekly Go project summary."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "journal",
+      "description": "CRUD operations for technical journal entries. Entries are text-only (typed or dictated via browser Web Speech API). Edits are versioned — the most recent version is the source of truth. New entries are processed nightly by the profile-update pipeline."
+    },
+    {
+      "name": "profile",
+      "description": "Read-only view of the AI-derived Knowledge Profile. The profile organizes topics by evidence strength (strong / developing / limited), surfaces the current frontier (topics actively being learned) and the next frontier (recommended adjacent topics). Updated nightly."
+    },
+    {
+      "name": "quizzes",
+      "description": "Weekly free-text quizzes that probe understanding. Each session has 10 questions (configurable). Answers are evaluated by an LLM judge for correctness (full / partial / incorrect), depth, and confidence. Results feed back into the Knowledge Profile."
+    },
+    {
+      "name": "readings",
+      "description": "Weekly reading recommendations and domain allowlist management. Recommendations are generated from the Knowledge Profile and limited to domains on the user's allowlist. The allowlist ships with sensible defaults and is fully editable."
+    },
+    {
+      "name": "projects",
+      "description": "Weekly LLM-generated Go micro-projects. Each project is a self-contained codebase with source, tests, tasks (bugs, features, refactors, optimizations), and a README. Submit your solution and receive an AI evaluation before the next project is issued."
+    },
+    {
+      "name": "triage",
+      "description": "Items the system can't confidently resolve on its own. Created by the profile-update, quiz-evaluation, and project-evaluation pipelines. Severity levels: low / medium / high / critical. High and critical items block the next profile-update cycle until resolved."
+    },
+    {
+      "name": "feedback",
+      "description": "Two distinct signal types on every generated item:\n\n- **Feedback** (thumbs-up / thumbs-down) — corrects the system's current understanding.\n- **Feedforward** (free-text note) — shapes what the system should generate next.\n\nAttach to individual quiz questions, readings, or the project as a whole."
+    },
+    {
+      "name": "settings",
+      "description": "User-configurable application settings stored as key-value pairs. Includes model selection, quiz question count, cron schedules, and other tunables."
+    },
+    {
+      "name": "onboarding",
+      "description": "First-run experience (~10–15 min). Collects technical background self-assessment, Go experience level, a short diagnostic quiz, and optional topic interests. Establishes baseline context before the normal processing cycle begins."
+    }
+  ]
+}

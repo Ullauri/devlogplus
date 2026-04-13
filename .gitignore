@@ -1,0 +1,166 @@
+###############################################################################
+# DevLog+ — comprehensive .gitignore
+###############################################################################
+
+# ─── Python ─────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+*.pyo
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+sdist/
+wheels/
+*.whl
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Cython / C extensions
+*.c
+*.cpp
+*.o
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ─── Virtual environments ───────────────────────────────────────────────────
+.venv/
+.venv-*/
+venv/
+ENV/
+env/
+.python-version
+
+# ─── Poetry ─────────────────────────────────────────────────────────────────
+# Lock file is committed (useful for reproducibility) — uncomment to ignore:
+# poetry.lock
+
+# ─── Ruff / linting ────────────────────────────────────────────────────────
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# ─── Testing & coverage (Python) ───────────────────────────────────────────
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+htmlcov/
+.pytest_cache/
+.hypothesis/
+.tox/
+.nox/
+nosetests.xml
+junit*.xml
+
+# ─── Node / npm / pnpm / Yarn ──────────────────────────────────────────────
+node_modules/
+.npm
+.pnpm-store/
+.yarn/
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+*.tgz
+package-lock.json
+
+# ─── Frontend build output (Vite / React) ──────────────────────────────────
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+*.local
+
+# ─── Tailwind CSS ───────────────────────────────────────────────────────────
+# (Tailwind JIT can produce temp files; usually nothing to ignore beyond node_modules)
+
+# ─── TypeScript ─────────────────────────────────────────────────────────────
+*.tsbuildinfo
+
+# ─── IDE & editor files ────────────────────────────────────────────────────
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.iml
+*.iws
+*.ipr
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+.*.sw?
+*.bak
+
+# ─── Environment / secrets ─────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.template
+
+# ─── Database files ─────────────────────────────────────────────────────────
+*.db
+*.sqlite3
+*.sql.gz
+pgdata/
+postgres-data/
+
+# ─── Docker ─────────────────────────────────────────────────────────────────
+.docker/
+docker-compose.override.yml
+
+# ─── Alembic ────────────────────────────────────────────────────────────────
+migrations/versions/__pycache__/
+
+# ─── Langfuse / observability ───────────────────────────────────────────────
+# (Langfuse is remote; nothing local to ignore typically)
+
+# ─── Generated weekly Go projects (user workspace — never committed) ───────
+workspace/projects/
+
+# ─── OS-specific ────────────────────────────────────────────────────────────
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*~
+
+# ─── Logs ───────────────────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ─── Jupyter (in case notebooks are used for prototyping) ──────────────────
+.ipynb_checkpoints/
+
+# ─── Misc ───────────────────────────────────────────────────────────────────
+*.pid
+*.seed
+*.bak
+*.tmp
+*.temp
+.cache/
+tmp/
+temp/

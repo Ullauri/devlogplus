@@ -1,0 +1,69 @@
+[tool.poetry]
+name = "devlogplus"
+version = "0.1.0"
+description = "Single-user developer journal for technical learning and skill maintenance"
+authors = ["DevLog+"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.34.0" }
+sqlalchemy = { extras = ["asyncio"], version = "^2.0.36" }
+asyncpg = "^0.30.0"
+alembic = "^1.14.0"
+pydantic = "^2.10.0"
+pydantic-settings = "^2.7.0"
+httpx = "^0.28.0"
+langfuse = "^2.51.0"
+pgvector = "^0.3.6"
+python-multipart = "^0.0.20"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+pytest-asyncio = "^0.25.0"
+pytest-cov = "^6.0.0"
+testcontainers = { extras = ["postgres"], version = "^4.8.0" }
+ruff = "^0.8.0"
+httpx = "^0.28.0"
+pytest-bdd = "^8.1.0"
+nest-asyncio = "^1.6.0"
+pytestarch = "^4.0.0"
+pre-commit = "^4.5.1"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI uses Depends() and Query() as argument defaults by design
+"backend/app/routers/*.py" = ["B008"]
+# Alembic migrations have long generated lines
+"backend/migrations/versions/*.py" = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+testpaths = ["backend/tests"]
+bdd_features_base_dir = "backend/tests/features"
+
+[tool.coverage.run]
+source = ["backend/app"]
+omit = [
+    "backend/app/pipelines/*",
+    "backend/app/prompts/*",
+    "backend/app/services/llm/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
