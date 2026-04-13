@@ -1,4 +1,4 @@
-.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend dev dev-mock mock-api up down migrate venv openapi openapi-check precommit-install
+.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install
 
 VENV_DIR := .venv-devlogplus
 PYTHON := python3
@@ -9,9 +9,30 @@ venv: ## Create virtual environment and install all dependencies
 	$(VENV_DIR)/bin/pip install --upgrade pip
 	$(VENV_DIR)/bin/pip install poetry
 	$(VENV_DIR)/bin/poetry install
+	cd frontend && npm install
 	@echo ""
 	@echo "✅ Virtual environment ready. Activate it with:"
 	@echo "   source $(VENV_DIR)/bin/activate"
+
+# ── Run (native) ─────────────────────────────────────────────────────
+run: ## Run the full application natively (build frontend + migrate + serve)
+	@echo "═══════════════════════════════════════════════════"
+	@echo "  DevLog+ — starting in native mode"
+	@echo "═══════════════════════════════════════════════════"
+	@echo ""
+	@echo "▶ Building frontend…"
+	cd frontend && npm run build
+	@echo ""
+	@echo "▶ Backing up data before migrations…"
+	@bash scripts/backup.sh
+	@echo ""
+	@echo "▶ Running database migrations…"
+	poetry run alembic upgrade head
+	@echo ""
+	@echo "▶ Starting server at http://localhost:8000"
+	@echo "  (frontend served from frontend/dist)"
+	@echo ""
+	poetry run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 
 # ── Linting ──────────────────────────────────────────────────────────
 lint: lint-backend lint-frontend ## Run linter and auto-fix issues
@@ -62,18 +83,30 @@ test-frontend: ## Run frontend tests with coverage
 test-integration: openapi ## Run frontend integration tests against Prism mock
 	cd frontend && npm run test:integration
 
-# ── Docker ───────────────────────────────────────────────────────────
-up: ## Start all services
+# ── Data backup ──────────────────────────────────────────────────────
+backup: ## Backup database and workspace/projects to backups/<timestamp>/
+	@bash scripts/backup.sh
+
+# ── Database migrations ──────────────────────────────────────────────
+migrate: backup ## Run database migrations (creates backup first)
+	@echo "▶ Running database migrations…"
+	poetry run alembic upgrade head
+
+# ── Docker (development only) ────────────────────────────────────────
+#    These targets are intended for local development and CI.
+#    For real usage, prefer running natively with `make run`.
+# ─────────────────────────────────────────────────────────────────────
+up: ## [Dev] Start all Docker services (development only)
 	docker compose up -d
 
-down: ## Stop all services
+down: ## [Dev] Stop all Docker services
 	docker compose down
 
-migrate: ## Run database migrations
+migrate-docker: ## [Dev] Run migrations inside Docker container
 	docker compose exec app alembic upgrade head
 
 # ── Development ──────────────────────────────────────────────────────
-dev: ## Start dev server locally (no Docker)
+dev: ## Start backend dev server locally with hot-reload (no Docker)
 	poetry run uvicorn backend.app.main:app --reload --reload-dir backend
 
 dev-mock: openapi ## Start frontend with Prism mock API (no backend needed)

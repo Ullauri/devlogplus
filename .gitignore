@@ -131,6 +131,9 @@ migrations/versions/__pycache__/
 # ─── Langfuse / observability ───────────────────────────────────────────────
 # (Langfuse is remote; nothing local to ignore typically)
 
+# ─── Data backups (database dumps + project archives) ──────────────────────
+backups/
+
 # ─── Generated weekly Go projects (user workspace — never committed) ───────
 workspace/projects/
 
