@@ -245,4 +245,44 @@ export const api = {
       topic_interests?: string[];
     }) => post<OnboardingState>("/onboarding/complete", data),
   },
+
+  transfer: {
+    /** Get row counts and metadata before exporting. */
+    metadata: () =>
+      get<{
+        format_version: number;
+        exported_at: string;
+        app_version: string;
+        table_counts: Record<string, number>;
+      }>("/transfer/export/metadata"),
+
+    /** Download the full export bundle as a JSON blob. */
+    async exportData(): Promise<Blob> {
+      const res = await fetch(`${BASE}/transfer/export`);
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`API ${res.status}: ${body}`);
+      }
+      return res.blob();
+    },
+
+    /** Upload a JSON export file to replace all data. */
+    async importData(
+      file: File,
+      confirmOverwrite = false,
+    ): Promise<{ message: string; counts: Record<string, number> }> {
+      const form = new FormData();
+      form.append("file", file);
+      const qs = confirmOverwrite ? "?confirm_overwrite=true" : "";
+      const res = await fetch(`${BASE}/transfer/import${qs}`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`API ${res.status}: ${body}`);
+      }
+      return res.json();
+    },
+  },
 };

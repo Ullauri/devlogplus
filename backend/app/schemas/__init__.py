@@ -44,9 +44,13 @@ from backend.app.schemas.topic import (
     TopicRelationshipResponse,
     TopicResponse,
 )
+from backend.app.schemas.transfer import DataExportBundle, ExportMetadata, ImportResult
 from backend.app.schemas.triage import TriageItemResponse, TriageResolveRequest
 
 __all__ = [
+    "DataExportBundle",
+    "ExportMetadata",
+    "ImportResult",
     "AllowlistEntryCreate",
     "AllowlistEntryResponse",
     "AllowlistEntryUpdate",

@@ -18,6 +18,7 @@ from backend.app.routers import (
     project,
     quiz,
     reading,
+    transfer,
     triage,
 )
 from backend.app.routers import (
@@ -152,6 +153,15 @@ app = FastAPI(
                 "normal processing cycle begins."
             ),
         },
+        {
+            "name": "transfer",
+            "description": (
+                "Export and import all application data for device-to-device "
+                "migration. Export produces a single JSON file containing every "
+                "table. Import replaces all existing data with the uploaded "
+                "bundle — use when moving DevLog+ from one machine to another."
+            ),
+        },
     ],
     lifespan=lifespan,
 )
@@ -180,6 +190,7 @@ app.include_router(triage.router, prefix=api_prefix)
 app.include_router(feedback.router, prefix=api_prefix)
 app.include_router(settings_router.router, prefix=api_prefix)
 app.include_router(onboarding.router, prefix=api_prefix)
+app.include_router(transfer.router, prefix=api_prefix)
 
 # ---------------------------------------------------------------------------
 # Serve built frontend as static files (production)

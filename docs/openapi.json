@@ -1535,6 +1535,106 @@
           }
         }
       }
+    },
+    "/api/v1/transfer/export": {
+      "get": {
+        "tags": [
+          "transfer"
+        ],
+        "summary": "Export all application data",
+        "description": "Downloads a JSON bundle containing every table's data. Use this to move your DevLog+ data to another machine. Embeddings and processing logs are excluded — they will be regenerated automatically on the new machine.",
+        "operationId": "export_data_api_v1_transfer_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataExportBundle"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/transfer/import": {
+      "post": {
+        "tags": [
+          "transfer"
+        ],
+        "summary": "Import application data from an export bundle",
+        "description": "Upload a JSON export file produced by the /export endpoint. **This is destructive** — all existing data will be replaced with the contents of the uploaded file. Intended for migrating your DevLog+ instance to a new machine.",
+        "operationId": "import_data_api_v1_transfer_import_post",
+        "parameters": [
+          {
+            "name": "confirm_overwrite",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Must be true when importing into a database that already contains data. Prevents accidental overwrites.",
+              "default": false,
+              "title": "Confirm Overwrite"
+            },
+            "description": "Must be true when importing into a database that already contains data. Prevents accidental overwrites."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_data_api_v1_transfer_import_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/transfer/export/metadata": {
+      "get": {
+        "tags": [
+          "transfer"
+        ],
+        "summary": "Preview export metadata without downloading the full bundle",
+        "description": "Returns table row counts and metadata so you can verify what will be exported before triggering the full download.",
+        "operationId": "export_metadata_api_v1_transfer_export_metadata_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportMetadata"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1665,6 +1765,192 @@
         "title": "AllowlistEntryUpdate",
         "description": "Update an existing allowlist entry's name or description."
       },
+      "Body_import_data_api_v1_transfer_import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_data_api_v1_transfer_import_post"
+      },
+      "DataExportBundle": {
+        "properties": {
+          "format_version": {
+            "type": "integer",
+            "title": "Format Version",
+            "description": "Schema version for forward-compatible migrations",
+            "default": 1
+          },
+          "exported_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Exported At",
+            "description": "When this export was created"
+          },
+          "app_version": {
+            "type": "string",
+            "title": "App Version",
+            "description": "DevLog+ version that produced the export"
+          },
+          "journal_entries": {
+            "items": {
+              "$ref": "#/components/schemas/JournalEntryExport"
+            },
+            "type": "array",
+            "title": "Journal Entries",
+            "default": []
+          },
+          "journal_entry_versions": {
+            "items": {
+              "$ref": "#/components/schemas/JournalEntryVersionExport"
+            },
+            "type": "array",
+            "title": "Journal Entry Versions",
+            "default": []
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/TopicExport"
+            },
+            "type": "array",
+            "title": "Topics",
+            "default": []
+          },
+          "topic_relationships": {
+            "items": {
+              "$ref": "#/components/schemas/TopicRelationshipExport"
+            },
+            "type": "array",
+            "title": "Topic Relationships",
+            "default": []
+          },
+          "profile_snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileSnapshotExport"
+            },
+            "type": "array",
+            "title": "Profile Snapshots",
+            "default": []
+          },
+          "quiz_sessions": {
+            "items": {
+              "$ref": "#/components/schemas/QuizSessionExport"
+            },
+            "type": "array",
+            "title": "Quiz Sessions",
+            "default": []
+          },
+          "quiz_questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuizQuestionExport"
+            },
+            "type": "array",
+            "title": "Quiz Questions",
+            "default": []
+          },
+          "quiz_answers": {
+            "items": {
+              "$ref": "#/components/schemas/QuizAnswerExport"
+            },
+            "type": "array",
+            "title": "Quiz Answers",
+            "default": []
+          },
+          "quiz_evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/QuizEvaluationExport"
+            },
+            "type": "array",
+            "title": "Quiz Evaluations",
+            "default": []
+          },
+          "reading_recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/ReadingRecommendationExport"
+            },
+            "type": "array",
+            "title": "Reading Recommendations",
+            "default": []
+          },
+          "reading_allowlist": {
+            "items": {
+              "$ref": "#/components/schemas/ReadingAllowlistExport"
+            },
+            "type": "array",
+            "title": "Reading Allowlist",
+            "default": []
+          },
+          "weekly_projects": {
+            "items": {
+              "$ref": "#/components/schemas/WeeklyProjectExport"
+            },
+            "type": "array",
+            "title": "Weekly Projects",
+            "default": []
+          },
+          "project_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectTaskExport"
+            },
+            "type": "array",
+            "title": "Project Tasks",
+            "default": []
+          },
+          "project_evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectEvaluationExport"
+            },
+            "type": "array",
+            "title": "Project Evaluations",
+            "default": []
+          },
+          "feedback": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackExport"
+            },
+            "type": "array",
+            "title": "Feedback",
+            "default": []
+          },
+          "triage_items": {
+            "items": {
+              "$ref": "#/components/schemas/TriageItemExport"
+            },
+            "type": "array",
+            "title": "Triage Items",
+            "default": []
+          },
+          "user_settings": {
+            "items": {
+              "$ref": "#/components/schemas/UserSettingsExport"
+            },
+            "type": "array",
+            "title": "User Settings",
+            "default": []
+          },
+          "onboarding_state": {
+            "items": {
+              "$ref": "#/components/schemas/OnboardingStateExport"
+            },
+            "type": "array",
+            "title": "Onboarding State",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "exported_at",
+          "app_version"
+        ],
+        "title": "DataExportBundle",
+        "description": "Complete application data bundle for device-to-device transfer."
+      },
       "EvidenceStrength": {
         "type": "string",
         "enum": [
@@ -1673,6 +1959,39 @@
           "limited"
         ],
         "title": "EvidenceStrength"
+      },
+      "ExportMetadata": {
+        "properties": {
+          "format_version": {
+            "type": "integer",
+            "title": "Format Version"
+          },
+          "exported_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Exported At"
+          },
+          "app_version": {
+            "type": "string",
+            "title": "App Version"
+          },
+          "table_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Table Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "format_version",
+          "exported_at",
+          "app_version",
+          "table_counts"
+        ],
+        "title": "ExportMetadata",
+        "description": "Lightweight metadata returned before downloading the full bundle."
       },
       "FeedbackCreate": {
         "properties": {
@@ -1720,6 +2039,61 @@
         ],
         "title": "FeedbackCreate",
         "description": "Submit feedback and/or feedforward on a generated item.\n\nAt least one of `reaction` or `note` should be provided."
+      },
+      "FeedbackExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "target_type": {
+            "type": "string",
+            "title": "Target Type"
+          },
+          "target_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Id"
+          },
+          "reaction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reaction"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "target_type",
+          "target_id",
+          "reaction",
+          "note",
+          "created_at"
+        ],
+        "title": "FeedbackExport"
       },
       "FeedbackReaction": {
         "type": "string",
@@ -1811,6 +2185,29 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "ImportResult": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts",
+            "description": "Number of rows imported per table"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message",
+          "counts"
+        ],
+        "title": "ImportResult",
+        "description": "Summary returned after a successful import."
       },
       "JournalEntryCreate": {
         "properties": {
@@ -1930,6 +2327,62 @@
         "title": "JournalEntryDetailResponse",
         "description": "Full journal entry with append-only version history."
       },
+      "JournalEntryExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "is_processed": {
+            "type": "boolean",
+            "title": "Is Processed"
+          },
+          "processed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processed At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "is_processed",
+          "processed_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JournalEntryExport"
+      },
       "JournalEntryResponse": {
         "properties": {
           "id": {
@@ -2032,6 +2485,47 @@
         ],
         "title": "JournalEntryUpdate",
         "description": "Edit an existing entry — creates a new version, preserving history."
+      },
+      "JournalEntryVersionExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "entry_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Entry Id"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "version_number": {
+            "type": "integer",
+            "title": "Version Number"
+          },
+          "is_current": {
+            "type": "boolean",
+            "title": "Is Current"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "entry_id",
+          "content",
+          "version_number",
+          "is_current",
+          "created_at"
+        ],
+        "title": "JournalEntryVersionExport"
       },
       "JournalEntryVersionResponse": {
         "properties": {
@@ -2342,6 +2836,95 @@
         "title": "OnboardingSelfAssessment",
         "description": "First-run self-assessment of technical background."
       },
+      "OnboardingStateExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "completed": {
+            "type": "boolean",
+            "title": "Completed"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "self_assessment": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Self Assessment"
+          },
+          "go_experience_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Go Experience Level"
+          },
+          "diagnostic_quiz_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic Quiz Id"
+          },
+          "topic_interests": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Interests"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "completed",
+          "completed_at",
+          "self_assessment",
+          "go_experience_level",
+          "diagnostic_quiz_id",
+          "topic_interests",
+          "created_at"
+        ],
+        "title": "OnboardingStateExport"
+      },
       "OnboardingStateResponse": {
         "properties": {
           "id": {
@@ -2434,6 +3017,37 @@
         "title": "OnboardingStateResponse",
         "description": "Current state of the onboarding flow."
       },
+      "ProfileSnapshotExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "snapshot_data": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Snapshot Data"
+          },
+          "trigger": {
+            "type": "string",
+            "title": "Trigger"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "snapshot_data",
+          "trigger",
+          "created_at"
+        ],
+        "title": "ProfileSnapshotExport"
+      },
       "ProfileSnapshotResponse": {
         "properties": {
           "id": {
@@ -2469,6 +3083,79 @@
         ],
         "title": "ProfileSnapshotResponse",
         "description": "A historical snapshot of the Knowledge Profile at a point in time."
+      },
+      "ProjectEvaluationExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Project Id"
+          },
+          "code_quality_score": {
+            "type": "number",
+            "title": "Code Quality Score"
+          },
+          "task_completion": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Task Completion"
+          },
+          "test_results": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Results"
+          },
+          "overall_assessment": {
+            "type": "string",
+            "title": "Overall Assessment"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "raw_llm_output": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Llm Output"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "code_quality_score",
+          "task_completion",
+          "test_results",
+          "overall_assessment",
+          "confidence",
+          "raw_llm_output",
+          "created_at"
+        ],
+        "title": "ProjectEvaluationExport"
       },
       "ProjectEvaluationResponse": {
         "properties": {
@@ -2576,6 +3263,52 @@
         "title": "ProjectSubmitRequest",
         "description": "Submit a completed project for AI evaluation."
       },
+      "ProjectTaskExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Project Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "task_type": {
+            "type": "string",
+            "title": "Task Type"
+          },
+          "order_index": {
+            "type": "integer",
+            "title": "Order Index"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "title",
+          "description",
+          "task_type",
+          "order_index",
+          "created_at"
+        ],
+        "title": "ProjectTaskExport"
+      },
       "ProjectTaskResponse": {
         "properties": {
           "id": {
@@ -2661,6 +3394,37 @@
         "title": "QuizAnswerCreate",
         "description": "Submit a free-text answer to a quiz question."
       },
+      "QuizAnswerExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "question_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Question Id"
+          },
+          "answer_text": {
+            "type": "string",
+            "title": "Answer Text"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "question_id",
+          "answer_text",
+          "created_at"
+        ],
+        "title": "QuizAnswerExport"
+      },
       "QuizAnswerResponse": {
         "properties": {
           "id": {
@@ -2705,6 +3469,72 @@
           "incorrect"
         ],
         "title": "QuizCorrectness"
+      },
+      "QuizEvaluationExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "question_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Question Id"
+          },
+          "correctness": {
+            "type": "string",
+            "title": "Correctness"
+          },
+          "depth_assessment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Depth Assessment"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "raw_llm_output": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Llm Output"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "question_id",
+          "correctness",
+          "depth_assessment",
+          "explanation",
+          "confidence",
+          "raw_llm_output",
+          "created_at"
+        ],
+        "title": "QuizEvaluationExport"
       },
       "QuizEvaluationResponse": {
         "properties": {
@@ -2767,6 +3597,60 @@
         ],
         "title": "QuizEvaluationResponse",
         "description": "LLM-generated evaluation of a quiz answer."
+      },
+      "QuizQuestionExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "question_text": {
+            "type": "string",
+            "title": "Question Text"
+          },
+          "question_type": {
+            "type": "string",
+            "title": "Question Type"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
+          },
+          "order_index": {
+            "type": "integer",
+            "title": "Order Index"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "question_text",
+          "question_type",
+          "topic_id",
+          "order_index",
+          "created_at"
+        ],
+        "title": "QuizQuestionExport"
       },
       "QuizQuestionResponse": {
         "properties": {
@@ -2923,6 +3807,55 @@
         "title": "QuizSessionDetailResponse",
         "description": "Quiz session with all questions, submitted answers, and LLM evaluations."
       },
+      "QuizSessionExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "question_count": {
+            "type": "integer",
+            "title": "Question Count"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "question_count",
+          "completed_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "QuizSessionExport"
+      },
       "QuizSessionResponse": {
         "properties": {
           "id": {
@@ -2987,6 +3920,130 @@
           "evaluated"
         ],
         "title": "QuizSessionStatus"
+      },
+      "ReadingAllowlistExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "domain",
+          "name",
+          "description",
+          "is_default",
+          "created_at"
+        ],
+        "title": "ReadingAllowlistExport"
+      },
+      "ReadingRecommendationExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "source_domain": {
+            "type": "string",
+            "title": "Source Domain"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "topic_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Id"
+          },
+          "recommendation_type": {
+            "type": "string",
+            "title": "Recommendation Type"
+          },
+          "batch_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Batch Date"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "url",
+          "source_domain",
+          "description",
+          "topic_id",
+          "recommendation_type",
+          "batch_date",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ReadingRecommendationExport"
       },
       "ReadingRecommendationResponse": {
         "properties": {
@@ -3166,6 +4223,126 @@
         ],
         "title": "TopicCategory"
       },
+      "TopicExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "evidence_strength": {
+            "type": "string",
+            "title": "Evidence Strength"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "evidence_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Summary"
+          },
+          "parent_topic_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Topic Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "category",
+          "evidence_strength",
+          "confidence",
+          "evidence_summary",
+          "parent_topic_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TopicExport"
+      },
+      "TopicRelationshipExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source_topic_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Source Topic Id"
+          },
+          "target_topic_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Topic Id"
+          },
+          "relationship_type": {
+            "type": "string",
+            "title": "Relationship Type"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source_topic_id",
+          "target_topic_id",
+          "relationship_type",
+          "confidence"
+        ],
+        "title": "TopicRelationshipExport"
+      },
       "TopicResponse": {
         "properties": {
           "id": {
@@ -3260,6 +4437,108 @@
         ],
         "title": "TopicResponse",
         "description": "A single topic in the Knowledge Profile."
+      },
+      "TriageItemExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "resolution_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Text"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "source_id",
+          "title",
+          "description",
+          "context",
+          "severity",
+          "status",
+          "resolution_text",
+          "resolved_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TriageItemExport"
       },
       "TriageItemResponse": {
         "properties": {
@@ -3432,6 +4711,37 @@
         ],
         "title": "TriageStatus"
       },
+      "UserSettingsExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Value"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "value",
+          "updated_at"
+        ],
+        "title": "UserSettingsExport"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -3586,6 +4896,88 @@
         "title": "WeeklyProjectDetailResponse",
         "description": "Project with tasks, metadata, and optional AI evaluation."
       },
+      "WeeklyProjectExport": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "difficulty_level": {
+            "type": "integer",
+            "title": "Difficulty Level"
+          },
+          "project_path": {
+            "type": "string",
+            "title": "Project Path"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "issued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Issued At"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "metadata_": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "difficulty_level",
+          "project_path",
+          "status",
+          "issued_at",
+          "submitted_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WeeklyProjectExport"
+      },
       "WeeklyProjectResponse": {
         "properties": {
           "id": {
@@ -3712,6 +5104,10 @@
     {
       "name": "onboarding",
       "description": "First-run experience (~10–15 min). Collects technical background self-assessment, Go experience level, a short diagnostic quiz, and optional topic interests. Establishes baseline context before the normal processing cycle begins."
+    },
+    {
+      "name": "transfer",
+      "description": "Export and import all application data for device-to-device migration. Export produces a single JSON file containing every table. Import replaces all existing data with the uploaded bundle — use when moving DevLog+ from one machine to another."
     }
   ]
 }

@@ -4,12 +4,21 @@ A single-user, self-hosted developer journal for technical learning and skill ma
 
 ## Features
 
-- **Technical Journal** — capture reflections quickly via text or browser speech-to-text
-- **Knowledge Profile** — AI-derived view of your strengths, weak spots, current frontier, and next frontier
-- **Quizzes** — reinforce known topics and probe adjacent ones
-- **Reading Recommendations** — curated from trusted sources based on your profile
-- **Weekly Projects** — realistic micro-projects with starter code, tests, and work items
-- **Triage** — surface items the system can't confidently resolve for your review
+### Learn
+- **Technical journal** — capture reflections via text or browser speech-to-text; edits are versioned automatically
+- **Knowledge Profile** — AI-derived map of your strengths, weak spots, current frontier, and next frontier, updated nightly
+- **Reading recommendations** — curated from your allowlisted domains, targeted to gaps and growth areas
+
+### Practice
+- **Weekly quizzes** — free-text questions that probe understanding; answers evaluated by LLM for correctness, depth, and confidence
+- **Weekly micro-projects** — generated Go projects with starter code, tests, and tasks (bugs, features, refactors); submit for automated evaluation
+
+### Manage
+- **Feedback & feedforward** — thumbs-up/down reactions correct the system; free-text notes shape what it generates next
+- **Triage queue** — surfaces items the system can't confidently resolve for your review, with severity levels
+- **Data transfer** — export all data to a single JSON file and import it on another machine to pick up where you left off
+- **Onboarding** — guided first-run experience (~10–15 min) that establishes your baseline before the learning cycle begins
+- **Settings** — configure models, schedules, and allowlisted domains from the UI or environment variables
 
 ## Tech Stack
 

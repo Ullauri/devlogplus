@@ -9,6 +9,7 @@ from backend.app.routers import (
     quiz,
     reading,
     settings,
+    transfer,
     triage,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "quiz",
     "reading",
     "settings",
+    "transfer",
     "triage",
 ]
