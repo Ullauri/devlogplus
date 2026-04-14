@@ -1,0 +1,101 @@
+{
+  "node": "quiz_evaluation",
+  "description": "Test cases for the quiz evaluation (LLM-as-judge) node. Each case provides questions, answers, and expected evaluation outcomes.",
+  "cases": [
+    {
+      "name": "fully_correct_answer",
+      "tags": ["correct", "full"],
+      "input": {
+        "questions_and_answers": "### Question 1 (ID: q1)\n**Q:** Explain how Go's select statement works and when you would use it.\n**A:** The select statement in Go lets a goroutine wait on multiple channel operations simultaneously. It blocks until one of its cases can proceed, then executes that case. If multiple cases are ready, it picks one at random. Common use cases include: implementing timeouts with time.After, multiplexing multiple channels, and creating non-blocking channel operations using a default case. It's essential for coordinating concurrent goroutines without busy-waiting."
+      },
+      "expected": {
+        "evaluations": [
+          {
+            "question_id": "q1",
+            "correctness": "full",
+            "confidence_min": 0.7
+          }
+        ],
+        "min_evaluations": 1
+      }
+    },
+    {
+      "name": "partial_answer",
+      "tags": ["partial"],
+      "input": {
+        "questions_and_answers": "### Question 1 (ID: q2)\n**Q:** What are the key differences between a Deployment and a StatefulSet in Kubernetes?\n**A:** A Deployment is used for stateless apps and a StatefulSet is for stateful ones. Deployments can scale up and down easily."
+      },
+      "expected": {
+        "evaluations": [
+          {
+            "question_id": "q2",
+            "correctness": "partial",
+            "confidence_min": 0.5
+          }
+        ],
+        "min_evaluations": 1
+      }
+    },
+    {
+      "name": "incorrect_answer",
+      "tags": ["incorrect"],
+      "input": {
+        "questions_and_answers": "### Question 1 (ID: q3)\n**Q:** Explain the CAP theorem and its implications for distributed database design.\n**A:** The CAP theorem states that you can have Consistency, Availability, and Partition tolerance all at the same time if you design your system correctly. Modern databases like MongoDB achieve all three by using replica sets."
+      },
+      "expected": {
+        "evaluations": [
+          {
+            "question_id": "q3",
+            "correctness": "incorrect",
+            "confidence_min": 0.7
+          }
+        ],
+        "min_evaluations": 1
+      }
+    },
+    {
+      "name": "multi_question_mixed",
+      "tags": ["multi", "mixed"],
+      "input": {
+        "questions_and_answers": "### Question 1 (ID: q4)\n**Q:** What is the purpose of the context package in Go?\n**A:** The context package in Go provides a way to carry deadlines, cancellation signals, and request-scoped values across API boundaries and between goroutines. You create contexts with context.WithCancel, WithTimeout, or WithDeadline. When a parent context is cancelled, all derived contexts are also cancelled. It's essential for managing the lifecycle of requests in servers and preventing goroutine leaks.\n\n### Question 2 (ID: q5)\n**Q:** Explain the difference between optimistic and pessimistic locking in databases.\n**A:** Optimistic locking doesn't use actual locks. Instead it checks if data changed before committing. Pessimistic locking uses real locks.\n\n### Question 3 (ID: q6)\n**Q:** What is a memory barrier and why is it needed in concurrent programming?\n**A:** I'm not sure about this one. Maybe it has something to do with preventing memory access?"
+      },
+      "expected": {
+        "evaluations": [
+          {
+            "question_id": "q4",
+            "correctness": "full",
+            "confidence_min": 0.7
+          },
+          {
+            "question_id": "q5",
+            "correctness": "partial",
+            "confidence_min": 0.5
+          },
+          {
+            "question_id": "q6",
+            "correctness": "incorrect",
+            "confidence_min": 0.5
+          }
+        ],
+        "min_evaluations": 3
+      }
+    },
+    {
+      "name": "no_answer_submitted",
+      "tags": ["no_answer"],
+      "input": {
+        "questions_and_answers": "### Question 1 (ID: q7)\n**Q:** Describe how garbage collection works in Go.\n**A:** (no answer submitted)"
+      },
+      "expected": {
+        "evaluations": [
+          {
+            "question_id": "q7",
+            "correctness": "incorrect",
+            "confidence_min": 0.6
+          }
+        ],
+        "min_evaluations": 1
+      }
+    }
+  ]
+}

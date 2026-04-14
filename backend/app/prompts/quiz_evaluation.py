@@ -45,7 +45,27 @@ Flag for triage when:
 
 ## Output format
 
-Respond with a JSON object matching the QuizEvaluationResult schema.
+Respond with a JSON object using EXACTLY this structure:
+
+```json
+{
+  "evaluations": [
+    {
+      "question_id": "the question identifier",
+      "correctness": "full, partial, or incorrect",
+      "depth_assessment": "assessment of answer depth and nuance",
+      "explanation": "what was right, wrong, or missing",
+      "confidence": 0.85,
+      "topic_signals": ["topic_1", "topic_2"]
+    }
+  ],
+  "triage_items": [
+    {"description": "what needs attention", "severity": "low, medium, high, or critical"}
+  ]
+}
+```
+
+Use EXACTLY the field names shown above. Do not rename or reorganise them.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -66,5 +86,5 @@ For each question-answer pair, provide:
 
 Flag any items that need triage.
 
-Respond with valid JSON matching the QuizEvaluationResult schema.
+Respond with valid JSON using the exact field names specified in the system prompt.
 """

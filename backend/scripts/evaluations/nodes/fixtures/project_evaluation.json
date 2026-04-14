@@ -1,0 +1,58 @@
+{
+  "node": "project_evaluation",
+  "description": "Test cases for the project evaluation node. Each case provides a project, tasks, original code, submitted code, and expected evaluation.",
+  "cases": [
+    {
+      "name": "high_quality_submission",
+      "tags": ["good", "complete"],
+      "input": {
+        "project_description": "A concurrent task queue in Go that processes jobs with configurable workers and retry logic.",
+        "tasks": "### Task 1: Fix the race condition\nType: bug_fix\nDescription: There is a data race in the worker pool when accessing the shared results slice. Fix it using proper synchronisation.\n\n### Task 2: Add retry logic\nType: feature\nDescription: Add configurable retry logic (max retries, backoff) for failed jobs.\n\n### Task 3: Improve error handling\nType: refactor\nDescription: Replace panic-based error handling with proper error returns and wrapping.",
+        "original_code": "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\ntype Job struct {\n\tID   int\n\tData string\n}\n\ntype Result struct {\n\tJobID int\n\tValue string\n}\n\nvar results []Result // BUG: shared slice without synchronisation\n\nfunc worker(id int, jobs <-chan Job, wg *sync.WaitGroup) {\n\tdefer wg.Done()\n\tfor job := range jobs {\n\t\tresult := Result{JobID: job.ID, Value: fmt.Sprintf(\"processed-%s\", job.Data)}\n\t\tresults = append(results, result) // DATA RACE\n\t}\n}\n\nfunc main() {\n\tjobs := make(chan Job, 10)\n\tvar wg sync.WaitGroup\n\tfor i := 0; i < 3; i++ {\n\t\twg.Add(1)\n\t\tgo worker(i, jobs, &wg)\n\t}\n\tfor i := 0; i < 20; i++ {\n\t\tjobs <- Job{ID: i, Data: fmt.Sprintf(\"item-%d\", i)}\n\t}\n\tclose(jobs)\n\twg.Wait()\n\tfmt.Println(\"Results:\", len(results))\n}",
+        "submitted_code": "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n\t\"time\"\n\t\"math/rand\"\n)\n\ntype Job struct {\n\tID   int\n\tData string\n}\n\ntype Result struct {\n\tJobID  int\n\tValue  string\n\tErr    error\n}\n\ntype WorkerPool struct {\n\tmu        sync.Mutex\n\tresults   []Result\n\tmaxRetry  int\n\tbackoff   time.Duration\n}\n\nfunc NewWorkerPool(maxRetry int, backoff time.Duration) *WorkerPool {\n\treturn &WorkerPool{\n\t\tmaxRetry: maxRetry,\n\t\tbackoff:  backoff,\n\t}\n}\n\nfunc (wp *WorkerPool) worker(id int, jobs <-chan Job, wg *sync.WaitGroup) {\n\tdefer wg.Done()\n\tfor job := range jobs {\n\t\tvar result Result\n\t\tvar err error\n\t\tfor attempt := 0; attempt <= wp.maxRetry; attempt++ {\n\t\t\tresult, err = processJob(job)\n\t\t\tif err == nil {\n\t\t\t\tbreak\n\t\t\t}\n\t\t\ttime.Sleep(wp.backoff * time.Duration(attempt+1))\n\t\t}\n\t\tif err != nil {\n\t\t\tresult = Result{JobID: job.ID, Err: fmt.Errorf(\"job %d failed after %d retries: %w\", job.ID, wp.maxRetry, err)}\n\t\t}\n\t\twp.mu.Lock()\n\t\twp.results = append(wp.results, result)\n\t\twp.mu.Unlock()\n\t}\n}\n\nfunc processJob(job Job) (Result, error) {\n\tif rand.Intn(10) < 2 {\n\t\treturn Result{}, fmt.Errorf(\"transient error for job %d\", job.ID)\n\t}\n\treturn Result{JobID: job.ID, Value: fmt.Sprintf(\"processed-%s\", job.Data)}, nil\n}\n\nfunc main() {\n\twp := NewWorkerPool(3, 100*time.Millisecond)\n\tjobs := make(chan Job, 10)\n\tvar wg sync.WaitGroup\n\tfor i := 0; i < 3; i++ {\n\t\twg.Add(1)\n\t\tgo wp.worker(i, jobs, &wg)\n\t}\n\tfor i := 0; i < 20; i++ {\n\t\tjobs <- Job{ID: i, Data: fmt.Sprintf(\"item-%d\", i)}\n\t}\n\tclose(jobs)\n\twg.Wait()\n\tfmt.Printf(\"Results: %d\\n\", len(wp.results))\n}"
+      },
+      "expected": {
+        "code_quality_score_min": 0.7,
+        "all_tasks_evaluated": true,
+        "difficulty_adjustment": 1,
+        "has_overall_assessment": true,
+        "confidence_min": 0.6
+      }
+    },
+    {
+      "name": "poor_quality_submission",
+      "tags": ["poor", "incomplete"],
+      "input": {
+        "project_description": "A key-value store CLI tool in Go with get, set, delete operations and file persistence.",
+        "tasks": "### Task 1: Fix the file corruption bug\nType: bug_fix\nDescription: The store file gets corrupted when the program crashes during a write. Implement atomic writes.\n\n### Task 2: Add TTL support\nType: feature\nDescription: Add time-to-live (TTL) support for keys with automatic expiration.",
+        "original_code": "package main\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"os\"\n)\n\ntype Store struct {\n\tdata map[string]string\n\tpath string\n}\n\nfunc NewStore(path string) *Store {\n\ts := &Store{data: make(map[string]string), path: path}\n\ts.load()\n\treturn s\n}\n\nfunc (s *Store) load() {\n\tdata, err := os.ReadFile(s.path)\n\tif err != nil { return }\n\tjson.Unmarshal(data, &s.data)\n}\n\nfunc (s *Store) save() {\n\tdata, _ := json.Marshal(s.data)\n\tos.WriteFile(s.path, data, 0644) // BUG: not atomic\n}\n\nfunc (s *Store) Set(k, v string) { s.data[k] = v; s.save() }\nfunc (s *Store) Get(k string) string { return s.data[k] }\nfunc (s *Store) Delete(k string) { delete(s.data, k); s.save() }\n\nfunc main() {\n\ts := NewStore(\"store.json\")\n\ts.Set(\"hello\", \"world\")\n\tfmt.Println(s.Get(\"hello\"))\n}",
+        "submitted_code": "package main\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"os\"\n)\n\ntype Store struct {\n\tdata map[string]string\n\tpath string\n}\n\nfunc NewStore(path string) *Store {\n\ts := &Store{data: make(map[string]string), path: path}\n\ts.load()\n\treturn s\n}\n\nfunc (s *Store) load() {\n\tdata, err := os.ReadFile(s.path)\n\tif err != nil { return }\n\tjson.Unmarshal(data, &s.data)\n}\n\nfunc (s *Store) save() {\n\tdata, _ := json.Marshal(s.data)\n\tos.WriteFile(s.path, data, 0644) // Still not atomic!\n}\n\nfunc (s *Store) Set(k, v string) { s.data[k] = v; s.save() }\nfunc (s *Store) Get(k string) string { return s.data[k] }\nfunc (s *Store) Delete(k string) { delete(s.data, k); s.save() }\n\nfunc main() {\n\ts := NewStore(\"store.json\")\n\ts.Set(\"hello\", \"world\")\n\tfmt.Println(s.Get(\"hello\"))\n}"
+      },
+      "expected": {
+        "code_quality_score_max": 0.5,
+        "tasks_incomplete": true,
+        "difficulty_adjustment": -1,
+        "has_overall_assessment": true,
+        "confidence_min": 0.5
+      }
+    },
+    {
+      "name": "partial_completion",
+      "tags": ["partial"],
+      "input": {
+        "project_description": "A rate limiter library in Go implementing token bucket and sliding window algorithms.",
+        "tasks": "### Task 1: Implement token bucket\nType: feature\nDescription: Implement a thread-safe token bucket rate limiter with configurable rate and burst.\n\n### Task 2: Add sliding window\nType: feature\nDescription: Add a sliding window rate limiter as an alternative strategy.\n\n### Task 3: Fix the test\nType: bug_fix\nDescription: The existing benchmark test has a race condition. Fix it.",
+        "original_code": "package ratelimit\n\n// TokenBucket implements a token bucket rate limiter.\ntype TokenBucket struct {\n\t// TODO: implement\n}\n\n// SlidingWindow implements a sliding window rate limiter.\ntype SlidingWindow struct {\n\t// TODO: implement\n}",
+        "submitted_code": "package ratelimit\n\nimport (\n\t\"sync\"\n\t\"time\"\n)\n\ntype TokenBucket struct {\n\tmu       sync.Mutex\n\ttokens   float64\n\tmax      float64\n\trate     float64\n\tlastTime time.Time\n}\n\nfunc NewTokenBucket(rate, max float64) *TokenBucket {\n\treturn &TokenBucket{\n\t\ttokens:   max,\n\t\tmax:      max,\n\t\trate:     rate,\n\t\tlastTime: time.Now(),\n\t}\n}\n\nfunc (tb *TokenBucket) Allow() bool {\n\ttb.mu.Lock()\n\tdefer tb.mu.Unlock()\n\tnow := time.Now()\n\telapsed := now.Sub(tb.lastTime).Seconds()\n\ttb.tokens += elapsed * tb.rate\n\tif tb.tokens > tb.max {\n\t\ttb.tokens = tb.max\n\t}\n\ttb.lastTime = now\n\tif tb.tokens >= 1 {\n\t\ttb.tokens--\n\t\treturn true\n\t}\n\treturn false\n}\n\n// SlidingWindow not implemented yet\ntype SlidingWindow struct{}"
+      },
+      "expected": {
+        "code_quality_score_min": 0.5,
+        "code_quality_score_max": 0.8,
+        "some_tasks_incomplete": true,
+        "difficulty_adjustment": 0,
+        "has_overall_assessment": true,
+        "confidence_min": 0.5
+      }
+    }
+  ]
+}

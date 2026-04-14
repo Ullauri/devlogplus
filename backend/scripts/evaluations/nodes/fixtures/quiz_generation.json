@@ -1,0 +1,70 @@
+{
+  "node": "quiz_generation",
+  "description": "Test cases for the quiz generation node. Each case provides a knowledge profile and expected question properties.",
+  "cases": [
+    {
+      "name": "balanced_go_developer",
+      "tags": ["go", "balanced"],
+      "input": {
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Go concurrency patterns\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.85},\n    {\"name\": \"Go error handling\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.8},\n    {\"name\": \"Go interfaces\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.6},\n    {\"name\": \"Go generics\", \"category\": \"next_frontier\", \"evidence_strength\": \"limited\", \"confidence\": 0.3},\n    {\"name\": \"Distributed systems\", \"category\": \"weak_spot\", \"evidence_strength\": \"developing\", \"confidence\": 0.5}\n  ]\n}",
+        "feedforward_signals": "None",
+        "question_count": 5
+      },
+      "expected": {
+        "min_questions": 5,
+        "max_questions": 5,
+        "must_have_types": ["reinforcement", "exploration"],
+        "all_questions_free_text": true,
+        "questions_must_have_fields": ["question_text", "question_type", "target_topic"]
+      }
+    },
+    {
+      "name": "beginner_profile",
+      "tags": ["beginner", "calibration"],
+      "input": {
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Python basics\", \"category\": \"current_frontier\", \"evidence_strength\": \"limited\", \"confidence\": 0.4},\n    {\"name\": \"Variables and types\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.5}\n  ]\n}",
+        "feedforward_signals": "- I'm a complete beginner, keep questions simple",
+        "question_count": 3
+      },
+      "expected": {
+        "min_questions": 3,
+        "max_questions": 3,
+        "must_have_types": ["reinforcement"],
+        "all_questions_free_text": true,
+        "questions_must_have_fields": ["question_text", "question_type", "target_topic"]
+      }
+    },
+    {
+      "name": "advanced_systems_profile",
+      "tags": ["advanced", "systems"],
+      "input": {
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Distributed consensus (Raft)\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.9},\n    {\"name\": \"Linux kernel internals\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.85},\n    {\"name\": \"eBPF\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.6},\n    {\"name\": \"io_uring\", \"category\": \"next_frontier\", \"evidence_strength\": \"limited\", \"confidence\": 0.3},\n    {\"name\": \"WASM runtime internals\", \"category\": \"next_frontier\", \"evidence_strength\": \"limited\", \"confidence\": 0.2}\n  ]\n}",
+        "feedforward_signals": "- Challenge me with harder questions\n- More focus on performance and low-level topics",
+        "question_count": 5
+      },
+      "expected": {
+        "min_questions": 5,
+        "max_questions": 5,
+        "must_have_types": ["reinforcement", "exploration"],
+        "all_questions_free_text": true,
+        "questions_must_have_fields": ["question_text", "question_type", "target_topic"]
+      }
+    },
+    {
+      "name": "feedforward_backend_focus",
+      "tags": ["feedforward", "backend"],
+      "input": {
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"React\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.8},\n    {\"name\": \"Node.js\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.75},\n    {\"name\": \"PostgreSQL\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.5},\n    {\"name\": \"System design\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.45}\n  ]\n}",
+        "feedforward_signals": "- More backend focus please\n- I want to learn about database internals",
+        "question_count": 4
+      },
+      "expected": {
+        "min_questions": 4,
+        "max_questions": 4,
+        "must_have_types": ["reinforcement", "exploration"],
+        "all_questions_free_text": true,
+        "questions_must_have_fields": ["question_text", "question_type", "target_topic"]
+      }
+    }
+  ]
+}

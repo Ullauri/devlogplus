@@ -44,7 +44,30 @@ Create triage items for:
 
 ## Output format
 
-Respond with a JSON object matching the ProjectEvaluationResult schema.
+Respond with a JSON object using EXACTLY this structure:
+
+```json
+{
+  "code_quality_score": 0.85,
+  "task_evaluations": [
+    {
+      "task_title": "task being evaluated",
+      "completed": true,
+      "quality_notes": "assessment notes",
+      "score": 0.9
+    }
+  ],
+  "test_results_summary": "summary of test results",
+  "overall_assessment": "constructive overall feedback",
+  "confidence": 0.85,
+  "difficulty_adjustment": 0,
+  "triage_items": [
+    {"description": "what needs attention", "severity": "low, medium, high, or critical"}
+  ]
+}
+```
+
+Use EXACTLY the field names shown above. Do not rename or reorganise them.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -69,5 +92,5 @@ USER_PROMPT_TEMPLATE = """\
 Evaluate the user's submitted code against the project tasks.
 Assess code quality, task completion, and provide constructive feedback.
 
-Respond with valid JSON matching the ProjectEvaluationResult schema.
+Respond with valid JSON using the exact field names specified in the system prompt.
 """

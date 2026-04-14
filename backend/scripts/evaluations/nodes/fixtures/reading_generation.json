@@ -1,0 +1,57 @@
+{
+  "node": "reading_generation",
+  "description": "Test cases for the reading recommendation generation node. Each case provides a profile, allowlist, and expected recommendation properties.",
+  "cases": [
+    {
+      "name": "go_developer_readings",
+      "tags": ["go", "systems"],
+      "input": {
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Go concurrency\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.85},\n    {\"name\": \"Go testing\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.6},\n    {\"name\": \"Distributed systems\", \"category\": \"next_frontier\", \"evidence_strength\": \"limited\", \"confidence\": 0.3}\n  ]\n}",
+        "allowlist_domains": "- go.dev (Official Go documentation)\n- pkg.go.dev (Go package documentation)\n- blog.golang.org (Go blog)\n- research.google (Google Research)\n- martinfowler.com (Martin Fowler)\n- jvns.ca (Julia Evans)\n- eli.thegreenplace.net (Eli Bendersky)",
+        "feedforward_signals": "None",
+        "recommendation_count": 3
+      },
+      "expected": {
+        "min_recommendations": 3,
+        "max_recommendations": 3,
+        "all_from_allowlist": true,
+        "allowed_domains": ["go.dev", "pkg.go.dev", "blog.golang.org", "research.google", "martinfowler.com", "jvns.ca", "eli.thegreenplace.net"],
+        "must_have_fields": ["title", "url", "source_domain", "description", "recommendation_type"]
+      }
+    },
+    {
+      "name": "beginner_python_readings",
+      "tags": ["python", "beginner"],
+      "input": {
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Python basics\", \"category\": \"current_frontier\", \"evidence_strength\": \"limited\", \"confidence\": 0.4},\n    {\"name\": \"Variables and types\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.5}\n  ]\n}",
+        "allowlist_domains": "- docs.python.org (Python docs)\n- realpython.com (Real Python)\n- martinfowler.com (Martin Fowler)\n- jvns.ca (Julia Evans)",
+        "feedforward_signals": "- I learn best from tutorials with examples",
+        "recommendation_count": 3
+      },
+      "expected": {
+        "min_recommendations": 3,
+        "max_recommendations": 3,
+        "all_from_allowlist": true,
+        "allowed_domains": ["docs.python.org", "realpython.com", "martinfowler.com", "jvns.ca"],
+        "must_have_fields": ["title", "url", "source_domain", "description", "recommendation_type"]
+      }
+    },
+    {
+      "name": "feedforward_systems_focus",
+      "tags": ["feedforward", "advanced"],
+      "input": {
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Linux kernel\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.9},\n    {\"name\": \"eBPF\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.6},\n    {\"name\": \"io_uring\", \"category\": \"next_frontier\", \"evidence_strength\": \"limited\", \"confidence\": 0.3}\n  ]\n}",
+        "allowlist_domains": "- kernel.org (Linux Kernel)\n- lwn.net (Linux Weekly News)\n- brendangregg.com (Brendan Gregg)\n- jvns.ca (Julia Evans)\n- research.google (Google Research)\n- eli.thegreenplace.net (Eli Bendersky)",
+        "feedforward_signals": "- Deep systems content only\n- Focus on performance and observability",
+        "recommendation_count": 4
+      },
+      "expected": {
+        "min_recommendations": 4,
+        "max_recommendations": 4,
+        "all_from_allowlist": true,
+        "allowed_domains": ["kernel.org", "lwn.net", "brendangregg.com", "jvns.ca", "research.google", "eli.thegreenplace.net"],
+        "must_have_fields": ["title", "url", "source_domain", "description", "recommendation_type"]
+      }
+    }
+  ]
+}

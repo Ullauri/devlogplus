@@ -42,7 +42,22 @@ If the user has provided feedforward signals (e.g., "harder questions",
 
 ## Output format
 
-Respond with a JSON object matching the QuizGenerationResult schema.
+Respond with a JSON object using EXACTLY this structure:
+
+```json
+{
+  "questions": [
+    {
+      "question_text": "the full question",
+      "question_type": "reinforcement or exploration",
+      "target_topic": "topic this question targets",
+      "difficulty_rationale": "why this difficulty level was chosen"
+    }
+  ]
+}
+```
+
+Use EXACTLY the field names shown above. Do not rename or reorganise them.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -64,5 +79,5 @@ Generate {question_count} free-text quiz questions with an even blend
 of reinforcement and exploration. Calibrate difficulty to the user's
 demonstrated level.
 
-Respond with valid JSON matching the QuizGenerationResult schema.
+Respond with valid JSON using the exact field names specified in the system prompt.
 """

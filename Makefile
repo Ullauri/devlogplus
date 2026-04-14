@@ -1,4 +1,4 @@
-.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install
+.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation
 
 VENV_DIR := .venv-devlogplus
 PYTHON := python3
@@ -130,6 +130,47 @@ openapi: ## Export OpenAPI spec to docs/openapi.json
 
 openapi-check: ## Verify docs/openapi.json is up to date (CI mode)
 	poetry run python scripts/export_openapi.py --check
+
+# ── Node Evaluations (manual only — never run in CI) ─────────────────
+#    These targets run LLM accuracy/latency evaluations against
+#    OpenRouter. They cost real money and should only be invoked
+#    explicitly by a developer.
+#
+#    Usage:
+#      make eval                          # run ALL node evals (default 5 iterations)
+#      make eval ITERS=3                   # run ALL with 3 iterations
+#      make eval-topic-extraction          # run a single node eval
+#      make eval-topic-extraction ITERS=10 # single node, 10 iterations
+# ─────────────────────────────────────────────────────────────────────
+ITERS ?= 3
+
+eval: ## [Manual] Run ALL node evaluations (set ITERS=N to override, default 5)
+	@echo "═══════════════════════════════════════════════════"
+	@echo "  DevLog+ — Node Evaluation Suite"
+	@echo "  Iterations per case: $(ITERS)"
+	@echo "═══════════════════════════════════════════════════"
+	poetry run python -m backend.scripts.evaluations.run_all --iterations $(ITERS)
+
+eval-topic-extraction: ## [Manual] Evaluate topic_extraction node
+	poetry run python -m backend.scripts.evaluations.nodes.eval_topic_extraction --iterations $(ITERS)
+
+eval-profile-update: ## [Manual] Evaluate profile_update node
+	poetry run python -m backend.scripts.evaluations.nodes.eval_profile_update --iterations $(ITERS)
+
+eval-quiz-generation: ## [Manual] Evaluate quiz_generation node
+	poetry run python -m backend.scripts.evaluations.nodes.eval_quiz_generation --iterations $(ITERS)
+
+eval-quiz-evaluation: ## [Manual] Evaluate quiz_evaluation node
+	poetry run python -m backend.scripts.evaluations.nodes.eval_quiz_evaluation --iterations $(ITERS)
+
+eval-reading-generation: ## [Manual] Evaluate reading_generation node
+	poetry run python -m backend.scripts.evaluations.nodes.eval_reading_generation --iterations $(ITERS)
+
+eval-project-generation: ## [Manual] Evaluate project_generation node
+	poetry run python -m backend.scripts.evaluations.nodes.eval_project_generation --iterations $(ITERS)
+
+eval-project-evaluation: ## [Manual] Evaluate project_evaluation node
+	poetry run python -m backend.scripts.evaluations.nodes.eval_project_evaluation --iterations $(ITERS)
 
 # ── Git hooks ────────────────────────────────────────────────────────
 precommit-install: ## Install pre-commit hooks

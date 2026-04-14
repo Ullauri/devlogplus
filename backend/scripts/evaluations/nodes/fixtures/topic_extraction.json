@@ -1,0 +1,142 @@
+{
+  "node": "topic_extraction",
+  "description": "Test cases for the topic extraction node. Each case provides a journal entry and the expected extracted topics.",
+  "cases": [
+    {
+      "name": "go_concurrency_entry",
+      "tags": ["go", "concurrency"],
+      "input": {
+        "content": "Today I spent a few hours diving into Go's concurrency model. I finally grasped how goroutines work under the hood — the Go scheduler multiplexes goroutines onto OS threads using an M:N threading model. I also experimented with channels for synchronisation between goroutines. The select statement tripped me up at first, but after writing a few fan-out/fan-in examples it clicked. I still feel shaky on the difference between buffered and unbuffered channels, especially when it comes to deadlock scenarios.",
+        "existing_topics": "No existing topics yet."
+      },
+      "expected": {
+        "topics": [
+          {
+            "name": "Go concurrency patterns",
+            "category": "current_frontier",
+            "evidence_strength": "developing",
+            "confidence_min": 0.6
+          },
+          {
+            "name": "Go channels",
+            "category": "current_frontier",
+            "evidence_strength": "developing",
+            "confidence_min": 0.5
+          },
+          {
+            "name": "Go scheduler internals",
+            "category": "current_frontier",
+            "evidence_strength": "limited",
+            "confidence_min": 0.4
+          }
+        ],
+        "min_topics": 2,
+        "max_topics": 8
+      }
+    },
+    {
+      "name": "rust_ownership_expert",
+      "tags": ["rust", "ownership"],
+      "input": {
+        "content": "Refactored the entire memory allocator module today. Moved from using Rc<RefCell<T>> everywhere to a proper arena allocator with lifetime annotations. The borrow checker was actually helpful here — it caught a dangling reference I would have missed in C++. Also implemented Drop for our custom resource handles. Wrote comprehensive tests covering all edge cases including cyclic references and weak pointers.",
+        "existing_topics": "- Rust ownership (demonstrated_strength, strong, confidence=0.8)\n- Rust lifetimes (current_frontier, developing, confidence=0.6)"
+      },
+      "expected": {
+        "topics": [
+          {
+            "name": "Rust ownership",
+            "category": "demonstrated_strength",
+            "evidence_strength": "strong",
+            "confidence_min": 0.7
+          },
+          {
+            "name": "Rust lifetimes",
+            "category": "demonstrated_strength",
+            "evidence_strength": "strong",
+            "confidence_min": 0.6
+          }
+        ],
+        "min_topics": 2,
+        "max_topics": 7
+      }
+    },
+    {
+      "name": "beginner_python_entry",
+      "tags": ["python", "beginner"],
+      "input": {
+        "content": "Tried to write my first Python script today. I learned about variables and print statements. I kept getting IndentationError and didn't understand why spaces matter. Also confused about the difference between lists and tuples. I managed to write a basic for loop that prints numbers 1 to 10.",
+        "existing_topics": "No existing topics yet."
+      },
+      "expected": {
+        "topics": [
+          {
+            "name": "Python basics",
+            "category": "current_frontier",
+            "evidence_strength": "limited",
+            "confidence_min": 0.4
+          }
+        ],
+        "min_topics": 1,
+        "max_topics": 5
+      }
+    },
+    {
+      "name": "distributed_systems_journal",
+      "tags": ["distributed_systems", "consensus"],
+      "input": {
+        "content": "Deep dive into Raft consensus today. Implemented leader election and log replication from scratch in Go. The tricky part was handling split-brain scenarios during network partitions. I compared my implementation against the etcd Raft library and found my heartbeat timing was too aggressive. Also read the original Raft paper again — the joint consensus approach for membership changes finally makes sense. Started looking into CRDTs as an alternative for our eventually-consistent data store.",
+        "existing_topics": "- Distributed consensus (current_frontier, developing, confidence=0.6)\n- Go (demonstrated_strength, strong, confidence=0.85)"
+      },
+      "expected": {
+        "topics": [
+          {
+            "name": "Raft consensus",
+            "category": "demonstrated_strength",
+            "evidence_strength": "strong",
+            "confidence_min": 0.7
+          },
+          {
+            "name": "CRDTs",
+            "category": "next_frontier",
+            "evidence_strength": "limited",
+            "confidence_min": 0.3
+          }
+        ],
+        "min_topics": 2,
+        "max_topics": 7
+      }
+    },
+    {
+      "name": "mixed_topics_entry",
+      "tags": ["docker", "kubernetes", "ci_cd"],
+      "input": {
+        "content": "Spent the morning fixing our Docker builds — layers were not being cached properly because I had the COPY . . before installing dependencies. Moved the requirements.txt copy earlier and now builds are 3x faster. In the afternoon, deployed our service to Kubernetes for the first time. Struggled with the difference between Deployments and StatefulSets. Also set up a basic GitHub Actions CI pipeline with lint, test, and build stages. The matrix strategy for testing across Python versions is neat.",
+        "existing_topics": "- Docker (current_frontier, developing, confidence=0.5)"
+      },
+      "expected": {
+        "topics": [
+          {
+            "name": "Docker",
+            "category": "current_frontier",
+            "evidence_strength": "developing",
+            "confidence_min": 0.5
+          },
+          {
+            "name": "Kubernetes",
+            "category": "current_frontier",
+            "evidence_strength": "limited",
+            "confidence_min": 0.4
+          },
+          {
+            "name": "CI/CD",
+            "category": "current_frontier",
+            "evidence_strength": "limited",
+            "confidence_min": 0.4
+          }
+        ],
+        "min_topics": 2,
+        "max_topics": 8
+      }
+    }
+  ]
+}

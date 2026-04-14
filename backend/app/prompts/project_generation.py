@@ -47,8 +47,29 @@ Avoid overwhelming scope.
 
 ## Output format
 
-Respond with a JSON object matching the ProjectGenerationResult schema.
+Respond with a JSON object using EXACTLY this structure:
+
+```json
+{
+  "title": "project title",
+  "description": "project description",
+  "readme_content": "full README markdown",
+  "files": [
+    {"path": "main.go", "content": "package main ..."}
+  ],
+  "tasks": [
+    {
+      "title": "task title",
+      "description": "what to do",
+      "task_type": "bug_fix, feature, refactor, or optimization"
+    }
+  ],
+  "difficulty_level": 5
+}
+```
+
 Include complete file contents for all source and test files.
+Use EXACTLY the field names shown above. Do not rename or reorganise them.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -78,5 +99,5 @@ Generate a self-contained Go micro-project at difficulty level {difficulty_level
 Include complete source files, test files, and a set of tasks.
 Make it feel like real engineering work.
 
-Respond with valid JSON matching the ProjectGenerationResult schema.
+Respond with valid JSON using the exact field names specified in the system prompt.
 """

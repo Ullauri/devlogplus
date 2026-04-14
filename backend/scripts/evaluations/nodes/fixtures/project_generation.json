@@ -1,0 +1,72 @@
+{
+  "node": "project_generation",
+  "description": "Test cases for the project generation node. Each case provides a difficulty level, experience, and expected project structure.",
+  "cases": [
+    {
+      "name": "beginner_level_3",
+      "tags": ["beginner"],
+      "input": {
+        "difficulty_level": 3,
+        "go_experience": "6 months of Go, mostly simple CLI tools and scripts",
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Go basics\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.8},\n    {\"name\": \"Go structs\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.6}\n  ]\n}",
+        "feedforward_signals": "None",
+        "previous_themes": "None (first project)"
+      },
+      "expected": {
+        "has_title": true,
+        "has_description": true,
+        "has_readme": true,
+        "min_files": 2,
+        "min_tasks": 2,
+        "max_tasks": 6,
+        "difficulty_level_range": [1, 5],
+        "files_contain_go": true,
+        "has_test_file": true
+      }
+    },
+    {
+      "name": "intermediate_level_6",
+      "tags": ["intermediate"],
+      "input": {
+        "difficulty_level": 6,
+        "go_experience": "2 years of Go, built several microservices and CLI tools",
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Go concurrency\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.85},\n    {\"name\": \"Go interfaces\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.8},\n    {\"name\": \"Go error handling\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.8},\n    {\"name\": \"Go generics\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.5}\n  ]\n}",
+        "feedforward_signals": "- More concurrency challenges",
+        "previous_themes": "- Simple HTTP server\n- CLI task manager"
+      },
+      "expected": {
+        "has_title": true,
+        "has_description": true,
+        "has_readme": true,
+        "min_files": 3,
+        "min_tasks": 3,
+        "max_tasks": 6,
+        "difficulty_level_range": [4, 8],
+        "files_contain_go": true,
+        "has_test_file": true
+      }
+    },
+    {
+      "name": "advanced_level_9",
+      "tags": ["advanced"],
+      "input": {
+        "difficulty_level": 9,
+        "go_experience": "5+ years of Go, contributor to open-source Go projects, experience with runtime internals",
+        "profile_summary": "{\n  \"topics\": [\n    {\"name\": \"Go runtime internals\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.9},\n    {\"name\": \"Go performance optimization\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.85},\n    {\"name\": \"Distributed systems\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.8},\n    {\"name\": \"Go compiler internals\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.5}\n  ]\n}",
+        "feedforward_signals": "- Push me to the limit\n- I want low-level systems challenges",
+        "previous_themes": "- Concurrent cache with eviction\n- Custom HTTP router\n- gRPC service mesh component"
+      },
+      "expected": {
+        "has_title": true,
+        "has_description": true,
+        "has_readme": true,
+        "min_files": 4,
+        "min_tasks": 3,
+        "max_tasks": 8,
+        "difficulty_level_range": [7, 10],
+        "files_contain_go": true,
+        "has_test_file": true
+      }
+    }
+  ]
+}

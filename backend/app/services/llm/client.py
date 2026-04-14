@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -120,6 +121,9 @@ class OpenRouterClient:
             response_format={"type": "json_object"},
         )
         content = result["choices"][0]["message"]["content"]
+        # Strip markdown code-fence wrappers the model may add
+        content = re.sub(r"^```(?:json)?\s*\n?", "", content.strip())
+        content = re.sub(r"\n?```\s*$", "", content.strip())
         return json.loads(content)
 
     async def close(self) -> None:

@@ -41,7 +41,27 @@ Lower confidence when:
 
 ## Output format
 
-Respond with a JSON object matching the TopicExtractionResult schema.
+Respond with a JSON object using EXACTLY this structure:
+
+```json
+{
+  "topics": [
+    {
+      "name": "specific topic name",
+      "description": "brief description of the topic",
+      "category": "see classification rules above",
+      "evidence_strength": "one of: strong, developing, limited",
+      "confidence": 0.85,
+      "reasoning": "explanation of why this topic was identified"
+    }
+  ],
+  "relationships": [
+    {"source": "topic_name", "target": "related_topic_name", "type": "prerequisite or related"}
+  ]
+}
+```
+
+Use EXACTLY the field names shown above. Do not rename or reorganise them.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -63,5 +83,5 @@ Analyze the following journal entry and extract technical topics.
 4. Be specific in topic naming.
 5. Do not create topics for non-technical content.
 
-Respond with valid JSON matching the TopicExtractionResult schema.
+Respond with valid JSON using the exact field names specified in the system prompt.
 """

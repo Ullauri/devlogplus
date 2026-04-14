@@ -31,13 +31,13 @@ class Settings(BaseSettings):
     )
 
     # --- LLM Model Selection (per pipeline) ---
-    llm_model_topic_extraction: str = Field(default="anthropic/claude-sonnet-4-20250514")
-    llm_model_profile_update: str = Field(default="anthropic/claude-sonnet-4-20250514")
-    llm_model_quiz_generation: str = Field(default="anthropic/claude-sonnet-4-20250514")
-    llm_model_quiz_evaluation: str = Field(default="anthropic/claude-sonnet-4-20250514")
-    llm_model_reading_generation: str = Field(default="anthropic/claude-sonnet-4-20250514")
-    llm_model_project_generation: str = Field(default="anthropic/claude-sonnet-4-20250514")
-    llm_model_project_evaluation: str = Field(default="anthropic/claude-sonnet-4-20250514")
+    llm_model_topic_extraction: str = Field(default="anthropic/claude-sonnet-4")
+    llm_model_profile_update: str = Field(default="anthropic/claude-sonnet-4")
+    llm_model_quiz_generation: str = Field(default="anthropic/claude-sonnet-4")
+    llm_model_quiz_evaluation: str = Field(default="anthropic/claude-sonnet-4")
+    llm_model_reading_generation: str = Field(default="anthropic/claude-sonnet-4")
+    llm_model_project_generation: str = Field(default="anthropic/claude-sonnet-4")
+    llm_model_project_evaluation: str = Field(default="anthropic/claude-sonnet-4")
 
     # --- Application ---
     quiz_question_count: int = Field(default=10, ge=1, le=50)

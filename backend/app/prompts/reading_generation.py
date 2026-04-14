@@ -37,7 +37,25 @@ If the user has provided directional signals (e.g., "more backend content",
 
 ## Output format
 
-Respond with a JSON object matching the ReadingGenerationResult schema.
+Respond with a JSON object using EXACTLY this structure:
+
+```json
+{
+  "recommendations": [
+    {
+      "title": "article title",
+      "url": "https://approved-domain.com/path",
+      "source_domain": "approved-domain.com",
+      "description": "what the article covers",
+      "recommendation_type": "next_frontier, weak_spot, or deep_dive",
+      "target_topic": "topic this addresses",
+      "rationale": "why this is recommended for the user"
+    }
+  ]
+}
+```
+
+Use EXACTLY the field names shown above. Do not rename or reorganise them.
 """
 
 USER_PROMPT_TEMPLATE = """\
@@ -62,5 +80,5 @@ USER_PROMPT_TEMPLATE = """\
 Generate {recommendation_count} reading recommendations from ONLY the
 approved domains listed above. Focus on knowledge expansion.
 
-Respond with valid JSON matching the ReadingGenerationResult schema.
+Respond with valid JSON using the exact field names specified in the system prompt.
 """

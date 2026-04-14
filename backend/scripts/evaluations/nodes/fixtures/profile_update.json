@@ -1,0 +1,70 @@
+{
+  "node": "profile_update",
+  "description": "Test cases for the profile update / reconciliation node. Each case provides an existing profile, new topics, and expected updates.",
+  "cases": [
+    {
+      "name": "new_evidence_strengthens_topic",
+      "tags": ["strengthen", "merge"],
+      "input": {
+        "current_profile": "- Go concurrency patterns (current_frontier, developing, confidence=0.6)\n- Go error handling (demonstrated_strength, strong, confidence=0.8)",
+        "new_topics": "[{\"name\": \"Go concurrency patterns\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.85, \"reasoning\": \"User demonstrated mastery by implementing fan-out/fan-in and pipeline patterns correctly\"}]",
+        "quiz_results": "Quiz Q: Explain Go's select statement. A: Correct, detailed answer covering timeout patterns.",
+        "feedback_signals": "None"
+      },
+      "expected": {
+        "should_contain_updated_topic": "Go concurrency patterns",
+        "expected_direction": "strengthen",
+        "min_updated_topics": 1,
+        "should_not_flag_triage": true
+      }
+    },
+    {
+      "name": "contradictory_evidence_triggers_triage",
+      "tags": ["contradiction", "triage"],
+      "input": {
+        "current_profile": "- React hooks (demonstrated_strength, strong, confidence=0.9)",
+        "new_topics": "[{\"name\": \"React hooks\", \"category\": \"weak_spot\", \"evidence_strength\": \"developing\", \"confidence\": 0.7, \"reasoning\": \"User wrote confused journal entry about useEffect cleanup and stale closures\"}]",
+        "quiz_results": "Quiz Q: Explain the useEffect dependency array. A: Partial — missed stale closure issue.",
+        "feedback_signals": "None"
+      },
+      "expected": {
+        "should_contain_updated_topic": "React hooks",
+        "expected_direction": "weaken_or_triage",
+        "min_triage_items": 1,
+        "triage_min_severity": "medium"
+      }
+    },
+    {
+      "name": "brand_new_topic_added",
+      "tags": ["new_topic"],
+      "input": {
+        "current_profile": "- Python basics (demonstrated_strength, strong, confidence=0.9)",
+        "new_topics": "[{\"name\": \"FastAPI\", \"category\": \"current_frontier\", \"evidence_strength\": \"limited\", \"confidence\": 0.5, \"reasoning\": \"User journal mentions building a REST API with FastAPI for the first time\"}]",
+        "quiz_results": "None",
+        "feedback_signals": "None"
+      },
+      "expected": {
+        "should_contain_updated_topic": "FastAPI",
+        "expected_direction": "add_new",
+        "min_updated_topics": 1,
+        "should_not_flag_triage": true
+      }
+    },
+    {
+      "name": "multiple_signals_reconciliation",
+      "tags": ["multi_signal", "complex"],
+      "input": {
+        "current_profile": "- SQL query optimization (current_frontier, developing, confidence=0.5)\n- PostgreSQL (current_frontier, limited, confidence=0.4)\n- Database indexing (next_frontier, limited, confidence=0.3)",
+        "new_topics": "[{\"name\": \"SQL query optimization\", \"category\": \"demonstrated_strength\", \"evidence_strength\": \"strong\", \"confidence\": 0.8, \"reasoning\": \"User optimized a complex query from 3s to 50ms using proper indexing and EXPLAIN ANALYZE\"}, {\"name\": \"PostgreSQL\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.65, \"reasoning\": \"User worked with PostgreSQL-specific features like CTEs and window functions\"}, {\"name\": \"Database indexing\", \"category\": \"current_frontier\", \"evidence_strength\": \"developing\", \"confidence\": 0.7, \"reasoning\": \"User created composite indexes and understood partial index use cases\"}]",
+        "quiz_results": "Q: When would you use a partial index? A: Correct answer with good example.",
+        "feedback_signals": "- I want to learn more about database internals"
+      },
+      "expected": {
+        "should_contain_updated_topic": "SQL query optimization",
+        "expected_direction": "strengthen",
+        "min_updated_topics": 3,
+        "should_not_flag_triage": true
+      }
+    }
+  ]
+}
