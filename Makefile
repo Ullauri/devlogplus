@@ -1,4 +1,4 @@
-.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation
+.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation
 
 VENV_DIR := .venv-devlogplus
 PYTHON := python3
@@ -139,6 +139,8 @@ openapi-check: ## Verify docs/openapi.json is up to date (CI mode)
 #    Usage:
 #      make eval                          # run ALL node evals (default 5 iterations)
 #      make eval ITERS=3                   # run ALL with 3 iterations
+#      make eval-e2e                       # run full end-to-end userflow eval
+#      make eval-e2e ITERS=2               # e2e with 2 iterations
 #      make eval-topic-extraction          # run a single node eval
 #      make eval-topic-extraction ITERS=10 # single node, 10 iterations
 # ─────────────────────────────────────────────────────────────────────
@@ -150,6 +152,13 @@ eval: ## [Manual] Run ALL node evaluations (set ITERS=N to override, default 5)
 	@echo "  Iterations per case: $(ITERS)"
 	@echo "═══════════════════════════════════════════════════"
 	poetry run python -m backend.scripts.evaluations.run_all --iterations $(ITERS)
+
+eval-e2e: ## [Manual] Run end-to-end userflow evaluation (7 LLM calls per iteration)
+	@echo "═══════════════════════════════════════════════════"
+	@echo "  DevLog+ — End-to-End Userflow Evaluation"
+	@echo "  Iterations per case: $(ITERS)"
+	@echo "═══════════════════════════════════════════════════"
+	poetry run python -m backend.scripts.evaluations.run_all --e2e --iterations $(ITERS)
 
 eval-topic-extraction: ## [Manual] Evaluate topic_extraction node
 	poetry run python -m backend.scripts.evaluations.nodes.eval_topic_extraction --iterations $(ITERS)

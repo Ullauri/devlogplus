@@ -1,0 +1,248 @@
+{
+  "node": "e2e_userflow",
+  "description": "End-to-end test cases that exercise the entire project userflow: journal entry → topic extraction → profile update → quiz generation → quiz evaluation → reading generation → project generation → project evaluation. Each case represents a complete user journey through the system.",
+  "cases": [
+    {
+      "name": "go_developer_full_journey",
+      "tags": ["go", "e2e", "intermediate"],
+      "input": {
+        "journal_entry": "Spent the afternoon building a CLI tool in Go that parses YAML config files and generates Terraform modules. Used cobra for the CLI framework and viper for config management. Got stuck on nested struct unmarshalling — had to use mapstructure tags alongside the yaml tags. Also wrote table-driven tests for the config parser. The error handling patterns in Go are growing on me, especially wrapping errors with fmt.Errorf and %w for unwrapping later. I still struggle with interface design though — not sure when to use small interfaces vs larger ones.",
+        "existing_topics": "- Go fundamentals (demonstrated_strength, strong, confidence=0.8)\n- Go error handling (current_frontier, developing, confidence=0.6)\n- CLI development (current_frontier, developing, confidence=0.5)",
+        "quiz_answers": [
+          {
+            "question_id": "q1",
+            "question_text": "Explain how Go's error wrapping with fmt.Errorf and %w works, and why it's useful for debugging in production systems.",
+            "answer": "fmt.Errorf with %w wraps an error inside a new error, preserving the original. You can later use errors.Is() and errors.As() to check the chain. This is useful because in production you want to add context at each call site (like which function failed and with what args) while still being able to check for specific error types at the top level. Without wrapping, you'd lose the original error context or have to do string matching which is fragile."
+          },
+          {
+            "question_id": "q2",
+            "question_text": "What are the tradeoffs between using small, focused interfaces versus larger interfaces in Go?",
+            "answer": "Small interfaces like io.Reader are more flexible because more types can satisfy them. But sometimes you need larger interfaces when you have a cohesive set of methods that always go together. I think the Go proverb is 'the bigger the interface the weaker the abstraction'. Small interfaces are easier to mock in tests too."
+          }
+        ],
+        "allowlist_domains": ["go.dev", "pkg.go.dev", "gobyexample.com", "blog.golang.org", "research.swtch.com", "dave.cheney.net", "eli.thegreenplace.net"],
+        "go_experience": "Intermediate — 6 months writing Go professionally, comfortable with goroutines and channels, building CLI tools and HTTP services.",
+        "previous_project_themes": ["HTTP middleware chain", "concurrent file processor"],
+        "project_submission": {
+          "description": "A Go CLI tool that reads a JSON config and generates Go struct definitions with proper json tags.",
+          "tasks": [
+            {"title": "Fix the JSON unmarshalling bug", "description": "The nested Config struct doesn't properly unmarshal arrays of objects.", "task_type": "bug_fix"},
+            {"title": "Add YAML output support", "description": "Extend the generator to also output YAML struct tags alongside JSON tags.", "task_type": "feature"},
+            {"title": "Refactor template rendering", "description": "Extract the template logic into a separate package with a clean interface.", "task_type": "refactor"}
+          ],
+          "original_code": "package main\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n\t\"text/template\"\n)\n\ntype Config struct {\n\tPackageName string   `json:\"package_name\"`\n\tStructs     []Struct `json:\"structs\"`\n}\n\ntype Struct struct {\n\tName   string  `json:\"name\"`\n\tFields []Field `json:\"fields\"`\n}\n\ntype Field struct {\n\tName     string `json:\"name\"`\n\tType     string `json:\"type\"`\n\tJSONName string `json:\"json_name\"`\n}\n\nfunc main() {\n\tdata, _ := os.ReadFile(os.Args[1])\n\tvar config Config\n\t// BUG: doesn't handle nested arrays properly\n\tjson.Unmarshal(data, &config)\n\n\ttmpl := `package {{.PackageName}}\n\n{{range .Structs}}\ntype {{.Name}} struct {\n{{range .Fields}}\t{{.Name}} {{.Type}} ` + \"`\" + `json:\"{{.JSONName}}\"` + \"`\" + `\n{{end}}}\n{{end}}`\n\n\tt := template.Must(template.New(\"structs\").Parse(tmpl))\n\tt.Execute(os.Stdout, config)\n}\n",
+          "submitted_code": "package main\n\nimport (\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n\t\"text/template\"\n)\n\ntype Config struct {\n\tPackageName string   `json:\"package_name\"`\n\tStructs     []Struct `json:\"structs\"`\n}\n\ntype Struct struct {\n\tName   string  `json:\"name\"`\n\tFields []Field `json:\"fields\"`\n}\n\ntype Field struct {\n\tName     string `json:\"name\"`\n\tType     string `json:\"type\"`\n\tJSONName string `json:\"json_name\"`\n\tYAMLName string `json:\"yaml_name,omitempty\"`\n}\n\nfunc main() {\n\tif len(os.Args) < 2 {\n\t\tfmt.Fprintf(os.Stderr, \"usage: %s <config.json>\\n\", os.Args[0])\n\t\tos.Exit(1)\n\t}\n\n\tdata, err := os.ReadFile(os.Args[1])\n\tif err != nil {\n\t\tfmt.Fprintf(os.Stderr, \"error reading file: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n\n\tvar config Config\n\tif err := json.Unmarshal(data, &config); err != nil {\n\t\tfmt.Fprintf(os.Stderr, \"error parsing JSON: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n\n\tif err := generate(os.Stdout, config); err != nil {\n\t\tfmt.Fprintf(os.Stderr, \"error generating: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n}\n\nfunc generate(w *os.File, config Config) error {\n\tt, err := template.New(\"structs\").Parse(structTemplate)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"parsing template: %w\", err)\n\t}\n\treturn t.Execute(w, config)\n}\n\nvar structTemplate = `package {{.PackageName}}\n\n{{range .Structs}}\ntype {{.Name}} struct {\n{{range .Fields}}\t{{.Name}} {{.Type}} ` + \"`\" + `json:\"{{.JSONName}}\"{{if .YAMLName}} yaml:\"{{.YAMLName}}\"{{end}}` + \"`\" + `\n{{end}}}\n{{end}}`\n"
+        }
+      },
+      "expected": {
+        "stage_1_topic_extraction": {
+          "min_topics": 3,
+          "max_topics": 10,
+          "must_contain_topics": ["Go error handling", "Go interfaces", "CLI development"],
+          "must_have_categories": ["current_frontier", "demonstrated_strength"]
+        },
+        "stage_2_profile_update": {
+          "should_contain_updated_topic": "go error handling",
+          "expected_direction": "strengthen",
+          "min_updated_topics": 2
+        },
+        "stage_3_quiz_generation": {
+          "min_questions": 3,
+          "max_questions": 8,
+          "all_questions_free_text": true,
+          "must_have_fields": ["question_text", "question_type", "target_topic"]
+        },
+        "stage_4_quiz_evaluation": {
+          "min_evaluations": 2,
+          "q1_correctness": "full",
+          "q2_correctness_options": ["full", "partial"],
+          "min_confidence": 0.5
+        },
+        "stage_5_reading_generation": {
+          "min_recommendations": 2,
+          "max_recommendations": 8,
+          "all_from_allowlist": true,
+          "must_have_fields": ["title", "url", "recommendation_type"]
+        },
+        "stage_6_project_generation": {
+          "has_title": true,
+          "has_description": true,
+          "min_files": 2,
+          "min_tasks": 2,
+          "max_tasks": 8,
+          "difficulty_level_range": [4, 8],
+          "files_contain_go": true,
+          "has_test_file": true
+        },
+        "stage_7_project_evaluation": {
+          "code_quality_score_min": 0.4,
+          "code_quality_score_max": 1.0,
+          "has_overall_assessment": true,
+          "confidence_min": 0.5,
+          "all_tasks_evaluated": true
+        }
+      }
+    },
+    {
+      "name": "beginner_python_full_journey",
+      "tags": ["python", "e2e", "beginner"],
+      "input": {
+        "journal_entry": "Started learning Python today! Followed a tutorial on lists and dictionaries. I wrote a small script that reads a CSV file and counts how many times each word appears. Used a dictionary to store the counts. I kept getting confused between .append() for lists and direct assignment for dicts. Also learned about f-strings which are way easier than concatenation. Tried to use a for loop with enumerate() but got an error when I forgot to unpack the tuple.",
+        "existing_topics": "No existing topics yet.",
+        "quiz_answers": [
+          {
+            "question_id": "q1",
+            "question_text": "What is the difference between a Python list and a dictionary? When would you use each?",
+            "answer": "A list stores things in order and you access them by index like mylist[0]. A dictionary stores key-value pairs and you access by key like mydict['name']. I would use a list when I have a collection of similar things and a dict when I need to look things up by name."
+          },
+          {
+            "question_id": "q2",
+            "question_text": "Explain what enumerate() does and provide an example of when you'd use it.",
+            "answer": "enumerate gives you the index and the value when you loop over something. Like for i, item in enumerate(mylist). I'm not totally sure about all the details but I think it's useful when you need to know the position of each item."
+          }
+        ],
+        "allowlist_domains": ["docs.python.org", "realpython.com", "python.org", "pymotw.com", "learnpython.org"],
+        "go_experience": "No Go experience — focused on Python.",
+        "previous_project_themes": [],
+        "project_submission": {
+          "description": "A simple Go program that counts word frequencies in a text file.",
+          "tasks": [
+            {"title": "Fix the file reading bug", "description": "The program crashes when the input file doesn't exist — add proper error handling.", "task_type": "bug_fix"},
+            {"title": "Add case-insensitive counting", "description": "Words should be counted regardless of case (Hello == hello).", "task_type": "feature"}
+          ],
+          "original_code": "package main\n\nimport (\n\t\"bufio\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n)\n\nfunc main() {\n\tfile, _ := os.Open(os.Args[1])\n\tscanner := bufio.NewScanner(file)\n\tscanner.Split(bufio.ScanWords)\n\n\tcounts := make(map[string]int)\n\tfor scanner.Scan() {\n\t\tword := scanner.Text()\n\t\tcounts[word]++\n\t}\n\n\tfor word, count := range counts {\n\t\tfmt.Printf(\"%s: %d\\n\", word, count)\n\t}\n}\n",
+          "submitted_code": "package main\n\nimport (\n\t\"bufio\"\n\t\"fmt\"\n\t\"os\"\n\t\"strings\"\n)\n\nfunc main() {\n\tif len(os.Args) < 2 {\n\t\tfmt.Fprintln(os.Stderr, \"usage: wordcount <file>\")\n\t\tos.Exit(1)\n\t}\n\n\tfile, err := os.Open(os.Args[1])\n\tif err != nil {\n\t\tfmt.Fprintf(os.Stderr, \"error: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n\tdefer file.Close()\n\n\tscanner := bufio.NewScanner(file)\n\tscanner.Split(bufio.ScanWords)\n\n\tcounts := make(map[string]int)\n\tfor scanner.Scan() {\n\t\tword := strings.ToLower(scanner.Text())\n\t\tcounts[word]++\n\t}\n\n\tfor word, count := range counts {\n\t\tfmt.Printf(\"%s: %d\\n\", word, count)\n\t}\n}\n"
+        }
+      },
+      "expected": {
+        "stage_1_topic_extraction": {
+          "min_topics": 2,
+          "max_topics": 8,
+          "must_contain_topics": ["Python basics", "Python data structures"],
+          "must_have_categories": ["current_frontier"]
+        },
+        "stage_2_profile_update": {
+          "should_contain_updated_topic": "python",
+          "expected_direction": "add_new",
+          "min_updated_topics": 1
+        },
+        "stage_3_quiz_generation": {
+          "min_questions": 3,
+          "max_questions": 8,
+          "all_questions_free_text": true,
+          "must_have_fields": ["question_text", "question_type", "target_topic"]
+        },
+        "stage_4_quiz_evaluation": {
+          "min_evaluations": 2,
+          "q1_correctness": "full",
+          "q2_correctness_options": ["full", "partial"],
+          "min_confidence": 0.4
+        },
+        "stage_5_reading_generation": {
+          "min_recommendations": 2,
+          "max_recommendations": 8,
+          "all_from_allowlist": true,
+          "must_have_fields": ["title", "url", "recommendation_type"]
+        },
+        "stage_6_project_generation": {
+          "has_title": true,
+          "has_description": true,
+          "min_files": 2,
+          "min_tasks": 2,
+          "max_tasks": 6,
+          "difficulty_level_range": [1, 4],
+          "files_contain_go": true,
+          "has_test_file": true
+        },
+        "stage_7_project_evaluation": {
+          "code_quality_score_min": 0.5,
+          "code_quality_score_max": 1.0,
+          "has_overall_assessment": true,
+          "confidence_min": 0.5,
+          "all_tasks_evaluated": true
+        }
+      }
+    },
+    {
+      "name": "systems_engineer_full_journey",
+      "tags": ["systems", "e2e", "advanced"],
+      "input": {
+        "journal_entry": "Deep dive into distributed consensus today. Implemented a simplified Raft leader election in Go as a learning exercise. The tricky part was handling split-brain scenarios and ensuring the election timer randomisation prevents livelock. I also read the Raft paper again and realised my log replication was wrong — I wasn't properly handling the case where a follower's log diverges from the leader's. Had to implement the conflict resolution logic where the leader decrements nextIndex until it finds the matching entry. Also spent time profiling the RPC layer with pprof — discovered that our gRPC serialisation was a bottleneck due to large protobuf messages. Switched to streaming RPCs which cut p99 latency by 40%.",
+        "existing_topics": "- Distributed systems fundamentals (demonstrated_strength, strong, confidence=0.85)\n- Go concurrency patterns (demonstrated_strength, strong, confidence=0.8)\n- gRPC (current_frontier, developing, confidence=0.6)\n- Performance profiling (current_frontier, developing, confidence=0.55)",
+        "quiz_answers": [
+          {
+            "question_id": "q1",
+            "question_text": "Explain the Raft consensus protocol's approach to leader election and how it prevents split-brain scenarios.",
+            "answer": "In Raft, each server starts as a follower with a randomised election timeout. When the timeout fires without hearing from a leader, it becomes a candidate and increments its term, votes for itself, and sends RequestVote RPCs to all peers. A candidate wins if it gets votes from a majority (quorum). The randomised timeouts prevent livelock where multiple candidates keep splitting the vote. Split-brain is prevented because a leader must have received votes from a majority, and any two majorities in a cluster must overlap by at least one node, so you can't have two leaders in the same term. If a leader becomes partitioned from the majority, the majority side will elect a new leader with a higher term, and when the old leader reconnects it will see the higher term and step down."
+          },
+          {
+            "question_id": "q2",
+            "question_text": "What are the performance implications of using streaming RPCs vs unary RPCs in gRPC, and when would you choose one over the other?",
+            "answer": "Streaming RPCs reuse a single HTTP/2 connection and avoid the overhead of establishing new connections for each message. For large payloads, server streaming lets you send chunks incrementally so the client can start processing before the full response is ready. Unary RPCs are simpler and better for small request/response patterns. Bidirectional streaming is good for real-time communication like chat or monitoring. The main tradeoff is complexity — streaming requires managing the stream lifecycle, handling backpressure, and dealing with partial failures. In our case, switching to streaming cut p99 latency because we avoided serialising huge protobuf messages all at once."
+          }
+        ],
+        "allowlist_domains": ["go.dev", "pkg.go.dev", "research.swtch.com", "dave.cheney.net", "eli.thegreenplace.net", "raft.github.io", "grpc.io"],
+        "go_experience": "Advanced — 2+ years writing Go in production, implemented distributed systems, comfortable with profiling and optimisation.",
+        "previous_project_themes": ["concurrent file processor", "HTTP load balancer", "key-value store"],
+        "project_submission": {
+          "description": "A Go implementation of a distributed key-value store with Raft-based replication.",
+          "tasks": [
+            {"title": "Fix the log compaction race condition", "description": "There's a race between snapshot creation and log compaction that can lose committed entries.", "task_type": "bug_fix"},
+            {"title": "Add read-only query optimisation", "description": "Implement ReadIndex to serve linearisable reads without going through the Raft log.", "task_type": "feature"},
+            {"title": "Optimise protobuf serialisation", "description": "Profile and reduce the serialisation overhead for AppendEntries RPCs with large payloads.", "task_type": "optimization"}
+          ],
+          "original_code": "package raft\n\nimport (\n\t\"sync\"\n\t\"time\"\n)\n\ntype RaftNode struct {\n\tmu        sync.Mutex\n\tstate     NodeState\n\tterm      uint64\n\tvotedFor  int\n\tlog       []LogEntry\n\tcommitIdx uint64\n\tlastApplied uint64\n\tpeers     []string\n}\n\ntype LogEntry struct {\n\tTerm    uint64\n\tIndex   uint64\n\tCommand []byte\n}\n\nfunc (n *RaftNode) AppendEntries(args *AppendEntriesArgs) *AppendEntriesReply {\n\tn.mu.Lock()\n\tdefer n.mu.Unlock()\n\n\t// BUG: doesn't check for log divergence\n\tn.log = append(n.log, args.Entries...)\n\treturn &AppendEntriesReply{Success: true}\n}\n\nfunc (n *RaftNode) Snapshot() []byte {\n\t// BUG: race condition with concurrent compaction\n\tn.mu.Lock()\n\tdata := n.log[:n.commitIdx]\n\tn.mu.Unlock()\n\t// compaction happens here without lock\n\tn.log = n.log[n.commitIdx:]\n\treturn encode(data)\n}\n",
+          "submitted_code": "package raft\n\nimport (\n\t\"sync\"\n\t\"time\"\n)\n\ntype RaftNode struct {\n\tmu          sync.RWMutex\n\tstate       NodeState\n\tterm        uint64\n\tvotedFor    int\n\tlog         []LogEntry\n\tcommitIdx   uint64\n\tlastApplied uint64\n\tpeers       []string\n\treadIndex   uint64\n}\n\ntype LogEntry struct {\n\tTerm    uint64\n\tIndex   uint64\n\tCommand []byte\n}\n\nfunc (n *RaftNode) AppendEntries(args *AppendEntriesArgs) *AppendEntriesReply {\n\tn.mu.Lock()\n\tdefer n.mu.Unlock()\n\n\tif args.Term < n.term {\n\t\treturn &AppendEntriesReply{Success: false, Term: n.term}\n\t}\n\n\t// Find matching log entry\n\tif args.PrevLogIndex > 0 {\n\t\tif int(args.PrevLogIndex) > len(n.log) ||\n\t\t\tn.log[args.PrevLogIndex-1].Term != args.PrevLogTerm {\n\t\t\treturn &AppendEntriesReply{Success: false, Term: n.term}\n\t\t}\n\t}\n\n\t// Remove conflicting entries and append new ones\n\tn.log = append(n.log[:args.PrevLogIndex], args.Entries...)\n\n\tif args.LeaderCommit > n.commitIdx {\n\t\tn.commitIdx = min(args.LeaderCommit, uint64(len(n.log)))\n\t}\n\n\treturn &AppendEntriesReply{Success: true, Term: n.term}\n}\n\nfunc (n *RaftNode) Snapshot() []byte {\n\tn.mu.Lock()\n\tdefer n.mu.Unlock()\n\n\tdata := make([]LogEntry, n.commitIdx)\n\tcopy(data, n.log[:n.commitIdx])\n\tn.log = n.log[n.commitIdx:]\n\n\treturn encode(data)\n}\n\nfunc (n *RaftNode) ReadIndex() (uint64, error) {\n\tn.mu.RLock()\n\tdefer n.mu.RUnlock()\n\n\tif n.state != Leader {\n\t\treturn 0, ErrNotLeader\n\t}\n\n\treadIdx := n.commitIdx\n\treturn readIdx, nil\n}\n"
+        }
+      },
+      "expected": {
+        "stage_1_topic_extraction": {
+          "min_topics": 3,
+          "max_topics": 12,
+          "must_contain_topics": ["Raft consensus", "distributed systems", "gRPC"],
+          "must_have_categories": ["demonstrated_strength", "current_frontier"]
+        },
+        "stage_2_profile_update": {
+          "should_contain_updated_topic": "distributed systems",
+          "expected_direction": "strengthen",
+          "min_updated_topics": 2
+        },
+        "stage_3_quiz_generation": {
+          "min_questions": 3,
+          "max_questions": 8,
+          "all_questions_free_text": true,
+          "must_have_fields": ["question_text", "question_type", "target_topic"]
+        },
+        "stage_4_quiz_evaluation": {
+          "min_evaluations": 2,
+          "q1_correctness": "full",
+          "q2_correctness_options": ["full", "partial"],
+          "min_confidence": 0.6
+        },
+        "stage_5_reading_generation": {
+          "min_recommendations": 2,
+          "max_recommendations": 8,
+          "all_from_allowlist": true,
+          "must_have_fields": ["title", "url", "recommendation_type"]
+        },
+        "stage_6_project_generation": {
+          "has_title": true,
+          "has_description": true,
+          "min_files": 2,
+          "min_tasks": 2,
+          "max_tasks": 8,
+          "difficulty_level_range": [7, 10],
+          "files_contain_go": true,
+          "has_test_file": true
+        },
+        "stage_7_project_evaluation": {
+          "code_quality_score_min": 0.4,
+          "code_quality_score_max": 1.0,
+          "has_overall_assessment": true,
+          "confidence_min": 0.5,
+          "all_tasks_evaluated": true
+        }
+      }
+    }
+  ]
+}

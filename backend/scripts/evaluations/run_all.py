@@ -2,11 +2,17 @@
 """Run all node evaluations (or a specific one).
 
 Usage:
-    # Run ALL node evaluations (5 iterations each):
+    # Run ALL node-level evaluations (5 iterations each):
     python -m backend.scripts.evaluations.run_all
 
     # Run a specific node:
     python -m backend.scripts.evaluations.run_all --node topic_extraction
+
+    # Run the end-to-end userflow evaluation only:
+    python -m backend.scripts.evaluations.run_all --e2e
+
+    # Run everything (node-level + e2e):
+    python -m backend.scripts.evaluations.run_all --all
 
     # Override iteration count:
     python -m backend.scripts.evaluations.run_all --iterations 10
@@ -28,14 +34,19 @@ NODES = [
     "project_evaluation",
 ]
 
+# Heavier evaluations that chain multiple LLM calls per iteration
+E2E_NODES = [
+    "e2e_userflow",
+]
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run node evaluation scripts")
     parser.add_argument(
         "--node",
-        choices=NODES,
+        choices=NODES + E2E_NODES,
         default=None,
-        help="Run only this node evaluation (default: all)",
+        help="Run only this node evaluation (default: all node-level evals)",
     )
     parser.add_argument(
         "--iterations",
@@ -44,9 +55,26 @@ def main() -> None:
         default=5,
         help="Number of iterations per test case (default: 5)",
     )
+    parser.add_argument(
+        "--e2e",
+        action="store_true",
+        help="Include the end-to-end userflow evaluation (runs 7 LLM calls per iteration)",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Run all evaluations including e2e (equivalent to --e2e)",
+    )
     args = parser.parse_args()
 
-    targets = [args.node] if args.node else NODES
+    if args.node:
+        targets = [args.node]
+    elif args.all:
+        targets = NODES + E2E_NODES
+    elif args.e2e:
+        targets = E2E_NODES
+    else:
+        targets = NODES
 
     results: dict[str, bool] = {}
     for node in targets:
