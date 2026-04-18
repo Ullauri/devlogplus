@@ -98,10 +98,7 @@ async def _seed_onboarding(db: AsyncSession) -> OnboardingState:
 
 def _upload_file(data: dict | bytes, filename: str = "export.json"):
     """Create a (filename, file-like, content-type) tuple for httpx multipart."""
-    if isinstance(data, dict):
-        raw = json.dumps(data).encode()
-    else:
-        raw = data
+    raw = json.dumps(data).encode() if isinstance(data, dict) else data
     return ("file", (filename, io.BytesIO(raw), "application/json"))
 
 
@@ -132,9 +129,7 @@ async def test_export_metadata_empty(client: AsyncClient):
     assert all(v == 0 for v in data["table_counts"].values())
 
 
-async def test_export_metadata_with_data(
-    client: AsyncClient, db_session: AsyncSession
-):
+async def test_export_metadata_with_data(client: AsyncClient, db_session: AsyncSession):
     """Metadata reflects actual row counts after seeding."""
     await _seed_journal(db_session)
     await _seed_topic(db_session)
@@ -177,9 +172,7 @@ async def test_export_with_data(client: AsyncClient, db_session: AsyncSession):
 # ---------------------------------------------------------------------------
 # Round-trip: export → import into empty DB
 # ---------------------------------------------------------------------------
-async def test_round_trip_export_import(
-    client: AsyncClient, db_session: AsyncSession
-):
+async def test_round_trip_export_import(client: AsyncClient, db_session: AsyncSession):
     """Data exported from one DB can be imported into a fresh one identically."""
     # 1. Seed some data
     entry = await _seed_journal(db_session)
@@ -262,9 +255,7 @@ async def test_import_into_empty_db(client: AsyncClient):
 # ---------------------------------------------------------------------------
 # Overwrite guard — 409 Conflict
 # ---------------------------------------------------------------------------
-async def test_import_rejects_overwrite_without_flag(
-    client: AsyncClient, db_session: AsyncSession
-):
+async def test_import_rejects_overwrite_without_flag(client: AsyncClient, db_session: AsyncSession):
     """Importing into a populated DB without confirm_overwrite returns 409."""
     await _seed_journal(db_session)
 
@@ -282,9 +273,7 @@ async def test_import_rejects_overwrite_without_flag(
     assert "already contains data" in resp.json()["detail"]
 
 
-async def test_import_allows_overwrite_with_flag(
-    client: AsyncClient, db_session: AsyncSession
-):
+async def test_import_allows_overwrite_with_flag(client: AsyncClient, db_session: AsyncSession):
     """Importing into a populated DB with confirm_overwrite=true succeeds."""
     await _seed_journal(db_session)
 
@@ -418,9 +407,7 @@ async def test_import_preserves_uuids(client: AsyncClient):
 # ---------------------------------------------------------------------------
 # Import replaces (not merges) data
 # ---------------------------------------------------------------------------
-async def test_import_replaces_not_merges(
-    client: AsyncClient, db_session: AsyncSession
-):
+async def test_import_replaces_not_merges(client: AsyncClient, db_session: AsyncSession):
     """Import clears old data — original entries should be gone after import."""
     # Seed an entry directly
     original = await _seed_journal(db_session)

@@ -35,12 +35,22 @@ backend/
 
 ## Running
 ```bash
-poetry install          # install deps
-poetry run uvicorn backend.app.main:app --reload  # local dev
-docker compose up       # full stack
+# Preferred (from project root):
+make dev              # hot-reload dev server
+make run              # build frontend + migrate + serve
+
+# Direct (backend only):
+poetry install
+poetry run uvicorn backend.app.main:app --reload
+```
+
+## First-time setup
+```bash
+cp .env.example .env  # required — OPENROUTER_API_KEY is mandatory
 ```
 
 ## Testing
 ```bash
-poetry run pytest backend/tests -v
+make test-backend    # backend only
+make test            # backend + frontend
 ```

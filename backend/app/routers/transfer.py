@@ -89,13 +89,11 @@ async def import_data(
     if bundle.format_version != 1:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Unsupported format_version {bundle.format_version}. This server supports version 1.",
+            detail=f"Unsupported format_version {bundle.format_version}. This server supports version 1.",  # noqa: E501
         )
 
     try:
-        result = await transfer_service.import_all(
-            db, bundle, confirm_overwrite=confirm_overwrite
-        )
+        result = await transfer_service.import_all(db, bundle, confirm_overwrite=confirm_overwrite)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -202,9 +202,7 @@ class ProfileSnapshotExport(BaseSchema):
 class DataExportBundle(BaseModel):
     """Complete application data bundle for device-to-device transfer."""
 
-    format_version: int = Field(
-        1, description="Schema version for forward-compatible migrations"
-    )
+    format_version: int = Field(1, description="Schema version for forward-compatible migrations")
     exported_at: datetime = Field(description="When this export was created")
     app_version: str = Field(description="DevLog+ version that produced the export")
 
@@ -245,9 +243,8 @@ class ImportResult(BaseSchema):
     """Summary returned after a successful import."""
 
     message: str
-    counts: dict[str, int] = Field(
-        description="Number of rows imported per table"
-    )
+    counts: dict[str, int] = Field(description="Number of rows imported per table")
+
 
 class ExportMetadata(BaseSchema):
     """Lightweight metadata returned before downloading the full bundle."""

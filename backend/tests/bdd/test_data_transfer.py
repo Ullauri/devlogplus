@@ -22,6 +22,7 @@ scenarios("data_transfer.feature")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _upload_file(data: dict, filename: str = "export.json"):
     """Build a multipart file tuple for httpx."""
     raw = json.dumps(data).encode()
@@ -61,10 +62,9 @@ def _make_journal_entry_dict(title: str = "Imported entry") -> dict:
 # Given steps
 # ---------------------------------------------------------------------------
 
+
 @given(
-    parsers.parse(
-        'I have a journal entry titled "{title}" with content "{content}"'
-    ),
+    parsers.parse('I have a journal entry titled "{title}" with content "{content}"'),
     target_fixture="ctx",
 )
 def given_journal_entry(bdd_client, bdd_db, ctx, title, content):
@@ -93,9 +93,7 @@ def given_bundle_with_entries(ctx, count):
 
 
 @given(
-    parsers.parse(
-        'I have an export bundle containing a journal entry titled "{title}"'
-    ),
+    parsers.parse('I have an export bundle containing a journal entry titled "{title}"'),
     target_fixture="ctx",
 )
 def given_bundle_with_named_entry(ctx, title):
@@ -109,6 +107,7 @@ def given_bundle_with_named_entry(ctx, title):
 # ---------------------------------------------------------------------------
 # When steps
 # ---------------------------------------------------------------------------
+
 
 @when("I export all data", target_fixture="ctx")
 def when_export(bdd_client, ctx):
@@ -146,9 +145,7 @@ def when_import_exported_bundle(bdd_client, ctx):
 @when("I import the bundle into an empty database", target_fixture="ctx")
 def when_import_into_empty(bdd_client, ctx):
     bundle = ctx["prepared_bundle"]
-    resp = run_async(
-        bdd_client.post("/api/v1/transfer/import", files=[_upload_file(bundle)])
-    )
+    resp = run_async(bdd_client.post("/api/v1/transfer/import", files=[_upload_file(bundle)]))
     ctx["import_response"] = resp
     return ctx
 
@@ -156,9 +153,7 @@ def when_import_into_empty(bdd_client, ctx):
 @when("I import the bundle without confirming overwrite", target_fixture="ctx")
 def when_import_no_confirm(bdd_client, ctx):
     bundle = ctx["prepared_bundle"]
-    resp = run_async(
-        bdd_client.post("/api/v1/transfer/import", files=[_upload_file(bundle)])
-    )
+    resp = run_async(bdd_client.post("/api/v1/transfer/import", files=[_upload_file(bundle)]))
     ctx["import_response"] = resp
     return ctx
 
@@ -207,6 +202,7 @@ def when_import_bad_version(bdd_client, version):
 # Then steps
 # ---------------------------------------------------------------------------
 
+
 @then("the export should succeed")
 def then_export_success(ctx):
     assert ctx["response"].status_code == 200
@@ -217,9 +213,7 @@ def then_format_version(ctx, version):
     assert ctx["export_bundle"]["format_version"] == version
 
 
-@then(
-    parsers.parse("the export bundle should contain {count:d} journal entries")
-)
+@then(parsers.parse("the export bundle should contain {count:d} journal entries"))
 def then_export_journal_count(ctx, count):
     assert len(ctx["export_bundle"]["journal_entries"]) == count
 

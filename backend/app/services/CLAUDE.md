@@ -13,3 +13,6 @@ Business logic layer.  Services are async functions that take a DB session (and 
 
 ## Sub-packages
 - `llm/` — OpenRouter client, Langfuse tracing utilities, structured LLM output models.
+
+## Coverage
+There is one service module per domain entity (journal, profile, quiz, readings, projects, triage, onboarding, feedback, transfer, processing log). New domains follow the same pattern — one file, exported via `__init__.py`.

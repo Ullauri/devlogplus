@@ -10,5 +10,4 @@ FastAPI route handlers.  These are intentionally **thin** — they parse the HTT
 - Use proper HTTP status codes: 201 for creation, 404 via `HTTPException`, etc.
 - Response models are declared in the decorator (`response_model=...`).
 - Never put business logic here — always delegate to `services/`.
-
-
+- Each router file maps to one domain. New routers must be registered in `__init__.py` and mounted in `main.py`.

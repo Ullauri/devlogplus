@@ -13,3 +13,4 @@ Each file exports two constants:
 - Include explicit output format instructions (JSON schema) in each prompt.
 - Confidence scoring must be requested where applicable.
 - When modifying a prompt, test against controlled scenarios.
+- Templates use `.format(**kwargs)` — not f-strings. Variables are `{placeholder}` style; any literal braces in JSON examples must be escaped as `{{` / `}}`.

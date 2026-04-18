@@ -19,3 +19,4 @@ backend/scripts/
 - They must work **without** a running database — they only need the LLM client + prompts.
 - Extra dependencies (matplotlib, scipy) are eval-only — not in the main app deps.
 - All generated artefacts go to `evaluations/reports/` (gitignored).
+- Prefer `make eval` / `make eval-<node>` from the project root over invoking modules directly.
