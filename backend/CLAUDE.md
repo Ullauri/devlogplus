@@ -33,6 +33,11 @@ backend/
 - **JSONB for flexible data**: evidence_summary, metadata, LLM raw outputs, etc.
 - **pgvector**: 1536-dim embeddings on journal_entry_versions and topics.
 
+## First-time setup
+```bash
+cp .env.example .env  # required — OPENROUTER_API_KEY is mandatory
+```
+
 ## Running
 ```bash
 # Preferred (from project root):
@@ -42,11 +47,6 @@ make run              # build frontend + migrate + serve
 # Direct (backend only):
 poetry install
 poetry run uvicorn backend.app.main:app --reload
-```
-
-## First-time setup
-```bash
-cp .env.example .env  # required — OPENROUTER_API_KEY is mandatory
 ```
 
 ## Testing

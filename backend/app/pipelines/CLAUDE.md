@@ -9,10 +9,7 @@ Batch orchestrators for scheduled processing.  Pipelines coordinate service call
 - Blocking triage check: `profile_update` aborts if high/critical triage items are unresolved.
 - LLM calls use `llm_client` + `trace_llm_call` for observability.
 - Pipelines commit their own DB changes (they own the session lifecycle).
-- Can be invoked via the admin API or directly as a module:
-  ```bash
-  python -m backend.app.pipelines.topic_extraction  # replace with any pipeline name
-  ```
+- Each pipeline exposes a top-level `async def run_*()` coroutine; callers `await` it directly. Pipelines run on schedule via cron — there is no admin API or CLI entrypoint.
 
 ## Error handling
 Pipelines catch exceptions, record them in `ProcessingLog.error`, and set status to `failed`.  They do **not** re-raise — callers (cron) should check logs.

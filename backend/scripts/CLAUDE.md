@@ -15,8 +15,7 @@ backend/scripts/
 ```
 
 ## Conventions
-- Scripts are invoked as modules: `python -m backend.scripts.evaluations.nodes.eval_<node>`.
+- Prefer `make eval` / `make eval-<node>` from the project root; scripts can also be invoked directly as modules (`python -m backend.scripts.evaluations.nodes.eval_<node>`).
 - They must work **without** a running database — they only need the LLM client + prompts.
 - Extra dependencies (matplotlib, scipy) are eval-only — not in the main app deps.
 - All generated artefacts go to `evaluations/reports/` (gitignored).
-- Prefer `make eval` / `make eval-<node>` from the project root over invoking modules directly.

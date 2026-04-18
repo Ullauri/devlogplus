@@ -40,7 +40,7 @@ services  → models + schemas
 Each layer has its own `CLAUDE.md`. Start there for layer-specific conventions.
 
 ## Gotchas
-- `.github/copilot-instructions.md` → `CLAUDE.md` symlink is intentional (GitHub Copilot reads it from there); don't remove or replace it
+- `.github/copilot-instructions.md` is a symlink pointing to `CLAUDE.md` — intentional (GitHub Copilot reads from that path); don't replace `CLAUDE.md` with a symlink
 
 ## Key files
 - `backend/app/main.py` — FastAPI app wiring
