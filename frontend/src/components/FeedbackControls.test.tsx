@@ -24,8 +24,10 @@ beforeEach(() => {
 describe("FeedbackControls", () => {
   it("renders thumbs up and thumbs down buttons", () => {
     render(<FeedbackControls targetType="quiz_question" targetId="q1" />);
-    expect(screen.getByTitle("Helpful")).toBeInTheDocument();
-    expect(screen.getByTitle("Not helpful")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mark this as helpful")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Mark this as not helpful"),
+    ).toBeInTheDocument();
   });
 
   it("renders the '+ note' button", () => {
@@ -37,7 +39,7 @@ describe("FeedbackControls", () => {
     const user = userEvent.setup();
     render(<FeedbackControls targetType="reading" targetId="r1" />);
 
-    await user.click(screen.getByTitle("Helpful"));
+    await user.click(screen.getByLabelText("Mark this as helpful"));
 
     expect(api.feedback.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -62,7 +64,7 @@ describe("FeedbackControls", () => {
     const user = userEvent.setup();
     render(<FeedbackControls targetType="reading" targetId="r1" />);
 
-    await user.click(screen.getByTitle("Not helpful"));
+    await user.click(screen.getByLabelText("Mark this as not helpful"));
     expect(screen.getByText("Saved")).toBeInTheDocument();
   });
 
@@ -83,7 +85,9 @@ describe("FeedbackControls", () => {
     render(<FeedbackControls targetType="reading" targetId="r1" />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("Helpful")).toHaveClass("text-green-600");
+      expect(screen.getByLabelText("Mark this as helpful")).toHaveClass(
+        "text-green-600",
+      );
     });
   });
 
@@ -127,9 +131,11 @@ describe("FeedbackControls", () => {
     render(<FeedbackControls targetType="reading" targetId="r3" />);
 
     await waitFor(() => {
-      expect(screen.getByTitle("Not helpful")).toHaveClass("text-red-600");
+      expect(screen.getByLabelText("Mark this as not helpful")).toHaveClass(
+        "text-red-600",
+      );
     });
-    await user.click(screen.getByTitle("Not helpful"));
+    await user.click(screen.getByLabelText("Mark this as not helpful"));
 
     expect(api.feedback.create).toHaveBeenCalledWith(
       expect.objectContaining({ reaction: undefined }),

@@ -75,7 +75,8 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
             ? "bg-green-50 text-green-600"
             : "text-gray-400 hover:text-green-600"
         }`}
-        title="Helpful"
+        title="Mark this as helpful — tells DevLog+ this content was useful so future suggestions lean this way. Click again to clear."
+        aria-label="Mark this as helpful"
       >
         <ThumbsUp size={16} />
       </button>
@@ -86,13 +87,19 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
             ? "bg-red-50 text-red-600"
             : "text-gray-400 hover:text-red-600"
         }`}
-        title="Not helpful"
+        title="Mark this as not helpful — tells DevLog+ to avoid similar suggestions in the future. Click again to clear."
+        aria-label="Mark this as not helpful"
       >
         <ThumbsDown size={16} />
       </button>
       <button
         onClick={() => setShowNote(!showNote)}
         className="text-xs text-gray-400 hover:text-gray-600"
+        title={
+          note
+            ? "Edit your feedforward note — change the written context that shapes future AI suggestions for this item."
+            : "Add a feedforward note — write a short comment (e.g. 'too easy', 'wrong topic') that DevLog+ uses to tailor future suggestions."
+        }
       >
         {note ? "edit note" : "+ note"}
       </button>
@@ -113,6 +120,7 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
           <button
             type="submit"
             className="rounded bg-brand-600 px-2 py-1 text-xs text-white"
+            title="Save your feedforward note so it's recorded with this feedback."
           >
             Save
           </button>

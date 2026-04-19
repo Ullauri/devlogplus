@@ -114,7 +114,7 @@ describe("ProjectsPage — current project", () => {
     await waitFor(() => screen.getByText("Fix handler"));
 
     // One control on the project header + one per task = 3 thumbs-up buttons.
-    const helpfulButtons = screen.getAllByTitle("Helpful");
+    const helpfulButtons = screen.getAllByLabelText("Mark this as helpful");
     expect(helpfulButtons).toHaveLength(3);
 
     // Hydration call is made for each per-task control.
