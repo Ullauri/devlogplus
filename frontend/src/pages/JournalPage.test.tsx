@@ -67,7 +67,7 @@ describe("JournalPage", () => {
     await user.click(screen.getByText("New Entry"));
 
     expect(
-      screen.getByPlaceholderText("What did you learn today?"),
+      screen.getByPlaceholderText(/What did you learn today\?/i),
     ).toBeInTheDocument();
   });
 
@@ -81,7 +81,7 @@ describe("JournalPage", () => {
 
     await user.click(screen.getByText("New Entry"));
     await user.type(
-      screen.getByPlaceholderText("What did you learn today?"),
+      screen.getByPlaceholderText(/What did you learn today\?/i),
       "New learning",
     );
     await user.click(screen.getByText("Save"));

@@ -79,7 +79,7 @@ export default function JournalPage() {
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="What did you learn today?"
+              placeholder="What did you learn today? Something that confused you, or a topic you want to explore?"
               rows={6}
               className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
               required
