@@ -1635,6 +1635,164 @@
           }
         }
       }
+    },
+    "/api/v1/pipelines/profile-update/run": {
+      "post": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "Manually trigger the profile-update pipeline",
+        "description": "Runs the nightly profile-update pipeline on demand. Normally this runs automatically at 2:00 AM via cron; use this endpoint when you don't want to wait.\n\nThe pipeline runs in the background — the response returns immediately with status=queued. Poll `GET /pipelines/runs` to observe progress.",
+        "operationId": "run_profile_update_api_v1_pipelines_profile_update_run_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRunAccepted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/quiz/run": {
+      "post": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "Manually trigger the quiz-generation pipeline",
+        "description": "Generates a new weekly quiz session immediately rather than waiting for the Monday 3:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.",
+        "operationId": "run_quiz_generation_api_v1_pipelines_quiz_run_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRunAccepted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/readings/run": {
+      "post": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "Manually trigger the reading-generation pipeline",
+        "description": "Generates a new weekly batch of reading recommendations immediately rather than waiting for the Monday 3:30 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.",
+        "operationId": "run_reading_generation_api_v1_pipelines_readings_run_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRunAccepted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/project/run": {
+      "post": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "Manually trigger the project-generation pipeline",
+        "description": "Generates a new weekly Go micro-project immediately rather than waiting for the Monday 4:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress. Note: generates files under `workspace/projects/<date>/`.",
+        "operationId": "run_project_generation_api_v1_pipelines_project_run_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRunAccepted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/runs": {
+      "get": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "List recent pipeline runs",
+        "description": "Returns the most recent entries from the processing log, newest first. Useful for displaying the status of manually-triggered or scheduled pipeline runs in the UI.",
+        "operationId": "list_runs_api_v1_pipelines_runs_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Maximum number of runs to return (newest first).",
+              "default": 20,
+              "title": "Limit"
+            },
+            "description": "Maximum number of runs to return (newest first)."
+          },
+          {
+            "name": "pipeline",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PipelineType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional filter — return only runs of a given pipeline.",
+              "title": "Pipeline"
+            },
+            "description": "Optional filter — return only runs of a given pipeline."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PipelineRunInfo"
+                  },
+                  "title": "Response List Runs Api V1 Pipelines Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3016,6 +3174,130 @@
         ],
         "title": "OnboardingStateResponse",
         "description": "Current state of the onboarding flow."
+      },
+      "PipelineRunAccepted": {
+        "properties": {
+          "pipeline": {
+            "type": "string",
+            "enum": [
+              "profile_update",
+              "quiz_generation",
+              "reading_generation",
+              "project_generation"
+            ],
+            "title": "Pipeline",
+            "description": "Name of the pipeline that was queued."
+          },
+          "status": {
+            "type": "string",
+            "const": "queued",
+            "title": "Status",
+            "description": "Always 'queued' — the run has been accepted for background execution.",
+            "default": "queued"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable confirmation message.",
+            "examples": [
+              "Profile update pipeline queued. Check run history for progress."
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "pipeline",
+          "message"
+        ],
+        "title": "PipelineRunAccepted",
+        "description": "Response returned when a manual pipeline run is successfully queued."
+      },
+      "PipelineRunInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "pipeline": {
+            "$ref": "#/components/schemas/PipelineType"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PipelineStatus"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata",
+            "description": "Pipeline-specific summary metadata (counts, ids, etc.)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "pipeline",
+          "status",
+          "started_at"
+        ],
+        "title": "PipelineRunInfo",
+        "description": "A single row from the processing_logs table, exposed for UI progress display."
+      },
+      "PipelineStatus": {
+        "type": "string",
+        "enum": [
+          "started",
+          "completed",
+          "failed"
+        ],
+        "title": "PipelineStatus"
+      },
+      "PipelineType": {
+        "type": "string",
+        "enum": [
+          "profile_update",
+          "quiz_generation",
+          "quiz_evaluation",
+          "reading_generation",
+          "project_generation",
+          "project_evaluation",
+          "topic_extraction"
+        ],
+        "title": "PipelineType"
       },
       "ProfileSnapshotExport": {
         "properties": {
@@ -5108,6 +5390,10 @@
     {
       "name": "transfer",
       "description": "Export and import all application data for device-to-device migration. Export produces a single JSON file containing every table. Import replaces all existing data with the uploaded bundle — use when moving DevLog+ from one machine to another."
+    },
+    {
+      "name": "pipelines",
+      "description": "Manual, user-initiated triggers for the pipelines that normally run on a cron schedule (profile update, quiz, reading, and project generation). Intended as an opt-in escape hatch exposed in the Settings page — not part of the normal daily flow. Each trigger returns 202 Accepted immediately and runs the pipeline in the background; use `GET /pipelines/runs` to observe progress."
     }
   ]
 }

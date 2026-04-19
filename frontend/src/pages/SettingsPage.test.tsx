@@ -18,10 +18,24 @@ describe("SettingsPage", () => {
 
   it("shows scheduling details", () => {
     renderWithRouter(<SettingsPage />);
-    expect(screen.getByText(/Profile update/)).toBeInTheDocument();
-    expect(screen.getByText(/Quiz generation/)).toBeInTheDocument();
-    expect(screen.getByText(/Reading recommendations/)).toBeInTheDocument();
-    expect(screen.getByText(/Project generation/)).toBeInTheDocument();
+    // Each schedule label may now appear in multiple places
+    // (the Scheduling summary + the Manual pipeline runs buttons), so
+    // assert presence with getAllByText.
+    expect(screen.getAllByText(/Profile update/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Quiz generation/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Reading (recommendations|generation)/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Project generation/i).length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("includes a Manual pipeline runs section", () => {
+    renderWithRouter(<SettingsPage />);
+    expect(screen.getByText(/Manual pipeline runs/i)).toBeInTheDocument();
+    // One "Run now" button per pipeline (4).
+    expect(screen.getAllByRole("button", { name: /run now/i })).toHaveLength(4);
   });
 
   it("mentions DevLog+ in About", () => {

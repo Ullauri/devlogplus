@@ -120,17 +120,32 @@ class TestServicesBoundaries:
 
 # ═════════════════════════════════════════════════════════════════════════════
 # 5. ROUTERS — depend on services + schemas + database, never pipelines/prompts
-# ═════════════════════════════════════════════════════════════════════════════
+#
+# Exception: ``routers.pipelines`` legitimately launches pipelines from a
+# user-initiated HTTP endpoint (the manual “Run now” buttons in the
+# Settings page). All other router modules must not import pipelines.
+# ══════════════════════════════════════════════════════════════════════════
 class TestRoutersBoundaries:
-    """API routers never reach into pipelines or prompt templates."""
+    """API routers never reach into prompt templates.
 
-    @pytest.mark.parametrize(
-        "target",
-        [PIPELINES, PROMPTS],
-        ids=lambda t: t.rsplit(".", 1)[-1],
-    )
-    def test_routers_do_not_import(self, evaluable, target: str) -> None:
-        _assert_no_import(evaluable, source=ROUTERS, target=target)
+    Routers generally don't reach into pipelines either — the one
+    permitted exception is ``routers.pipelines``, which exposes manual
+    “Run now” triggers for the user to bypass cron.
+    """
+
+    def test_routers_do_not_import_prompts(self, evaluable) -> None:
+        _assert_no_import(evaluable, source=ROUTERS, target=PROMPTS)
+
+    def test_only_routers_pipelines_imports_pipelines(self, evaluable) -> None:
+        """Every router module except ``routers.pipelines`` must avoid pipelines."""
+        routers_dir = _MODULE_PATH / "routers"
+        other_router_modules = [
+            f"{ROUTERS}.{p.stem}"
+            for p in routers_dir.glob("*.py")
+            if p.stem not in ("__init__", "pipelines")
+        ]
+        for mod in other_router_modules:
+            _assert_no_import(evaluable, source=mod, target=PIPELINES)
 
     def test_routers_do_not_import_domain_models_directly(self, evaluable) -> None:
         """Routers access domain data through services, not ORM models.
@@ -251,6 +266,10 @@ class TestNoCyclicDependencies:
         _assert_no_import(evaluable, source=source, target=target)
 
     def test_routers_and_pipelines_are_independent(self, evaluable) -> None:
-        """Routers and pipelines exist in parallel — neither imports the other."""
-        _assert_no_import(evaluable, source=ROUTERS, target=PIPELINES)
+        """Routers and pipelines exist in parallel — pipelines never imports routers.
+
+        Routers generally don't import pipelines either; the one exception
+        is ``routers.pipelines`` (manual “Run now” triggers), which is
+        covered by ``TestRoutersBoundaries.test_only_routers_pipelines_imports_pipelines``.
+        """
         _assert_no_import(evaluable, source=PIPELINES, target=ROUTERS)

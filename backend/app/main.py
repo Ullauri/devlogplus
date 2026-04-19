@@ -14,6 +14,7 @@ from backend.app.routers import (
     feedback,
     journal,
     onboarding,
+    pipelines,
     profile,
     project,
     quiz,
@@ -162,6 +163,18 @@ app = FastAPI(
                 "bundle — use when moving DevLog+ from one machine to another."
             ),
         },
+        {
+            "name": "pipelines",
+            "description": (
+                "Manual, user-initiated triggers for the pipelines that "
+                "normally run on a cron schedule (profile update, quiz, "
+                "reading, and project generation). Intended as an opt-in "
+                "escape hatch exposed in the Settings page — not part of "
+                "the normal daily flow. Each trigger returns 202 Accepted "
+                "immediately and runs the pipeline in the background; use "
+                "`GET /pipelines/runs` to observe progress."
+            ),
+        },
     ],
     lifespan=lifespan,
 )
@@ -191,6 +204,7 @@ app.include_router(feedback.router, prefix=api_prefix)
 app.include_router(settings_router.router, prefix=api_prefix)
 app.include_router(onboarding.router, prefix=api_prefix)
 app.include_router(transfer.router, prefix=api_prefix)
+app.include_router(pipelines.router, prefix=api_prefix)
 
 # ---------------------------------------------------------------------------
 # Serve built frontend as static files (production)

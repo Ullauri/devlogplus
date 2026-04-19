@@ -157,6 +157,28 @@ export interface OnboardingState {
   topic_interests: string[] | null;
 }
 
+export type ManualPipelineName =
+  | "profile_update"
+  | "quiz_generation"
+  | "reading_generation"
+  | "project_generation";
+
+export interface PipelineRunAccepted {
+  pipeline: ManualPipelineName;
+  status: "queued";
+  message: string;
+}
+
+export interface PipelineRunInfo {
+  id: string;
+  pipeline: string;
+  status: "started" | "completed" | "failed";
+  started_at: string;
+  completed_at: string | null;
+  error: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
 // ---- API namespaces ----
 
 export const api = {
@@ -244,6 +266,18 @@ export const api = {
       go_experience_level: string;
       topic_interests?: string[];
     }) => post<OnboardingState>("/onboarding/complete", data),
+  },
+
+  pipelines: {
+    runProfileUpdate: () =>
+      post<PipelineRunAccepted>("/pipelines/profile-update/run"),
+    runQuizGeneration: () => post<PipelineRunAccepted>("/pipelines/quiz/run"),
+    runReadingGeneration: () =>
+      post<PipelineRunAccepted>("/pipelines/readings/run"),
+    runProjectGeneration: () =>
+      post<PipelineRunAccepted>("/pipelines/project/run"),
+    listRuns: (limit = 20) =>
+      get<PipelineRunInfo[]>(`/pipelines/runs?limit=${limit}`),
   },
 
   transfer: {
