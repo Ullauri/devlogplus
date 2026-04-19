@@ -74,6 +74,14 @@ class QuizQuestionResponse(BaseSchema):
     topic_id: uuid.UUID | None = Field(
         description="ID of the Knowledge Profile topic this question targets"
     )
+    topic_name: str | None = Field(
+        default=None,
+        description=(
+            "Display name of the Knowledge Profile topic this question targets, "
+            "resolved from `topic_id` for convenience. Null when the question "
+            "could not be linked to a known topic."
+        ),
+    )
     order_index: int = Field(description="Position of the question within the session (0-based)")
     created_at: datetime = Field(description="When the question was generated")
     answer: QuizAnswerResponse | None = Field(

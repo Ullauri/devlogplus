@@ -101,6 +101,12 @@ export default function ProjectsPage() {
             </div>
             <FeedbackControls targetType="project" targetId={current.id} />
           </div>
+          <p className="mb-2 text-xs text-gray-500">
+            Location:{" "}
+            <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs text-gray-700">
+              {current.project_path}
+            </code>
+          </p>
           <p className="mb-4 text-sm text-gray-700">{current.description}</p>
 
           {current.tasks.length > 0 && (
@@ -171,6 +177,12 @@ export default function ProjectsPage() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-gray-500">{p.description}</p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Location:{" "}
+                    <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs text-gray-700">
+                      {p.project_path}
+                    </code>
+                  </p>
                 </div>
               ))}
           </div>

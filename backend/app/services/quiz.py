@@ -19,6 +19,7 @@ async def get_session(db: AsyncSession, session_id: uuid.UUID) -> QuizSession | 
         .options(
             selectinload(QuizSession.questions).selectinload(QuizQuestion.answer),
             selectinload(QuizSession.questions).selectinload(QuizQuestion.evaluation),
+            selectinload(QuizSession.questions).selectinload(QuizQuestion.topic),
         )
         .where(QuizSession.id == session_id)
     )
@@ -40,6 +41,7 @@ async def get_current_session(db: AsyncSession) -> QuizSession | None:
         .options(
             selectinload(QuizSession.questions).selectinload(QuizQuestion.answer),
             selectinload(QuizSession.questions).selectinload(QuizQuestion.evaluation),
+            selectinload(QuizSession.questions).selectinload(QuizQuestion.topic),
         )
         .where(QuizSession.status.in_([QuizSessionStatus.PENDING, QuizSessionStatus.IN_PROGRESS]))
         .order_by(QuizSession.created_at.desc())

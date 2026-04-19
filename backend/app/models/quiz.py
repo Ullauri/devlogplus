@@ -68,6 +68,18 @@ class QuizQuestion(Base, UUIDMixin):
     evaluation: Mapped["QuizEvaluation | None"] = relationship(
         back_populates="question", uselist=False, cascade="all, delete-orphan"
     )
+    topic: Mapped["Topic | None"] = relationship(  # noqa: F821
+        "Topic", lazy="joined", foreign_keys=[topic_id]
+    )
+
+    @property
+    def topic_name(self) -> str | None:
+        """Convenience accessor used by response schemas.
+
+        Reads the eager/joined-loaded ``topic`` relationship; returns ``None``
+        when the question is not linked to a Knowledge Profile topic.
+        """
+        return self.topic.name if self.topic is not None else None
 
 
 class QuizAnswer(Base, UUIDMixin):

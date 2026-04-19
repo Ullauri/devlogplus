@@ -2191,6 +2191,11 @@ export interface components {
              */
             topic_id: string | null;
             /**
+             * Topic Name
+             * @description Display name of the Knowledge Profile topic this question targets, resolved from `topic_id` for convenience. Null when the question could not be linked to a known topic.
+             */
+            topic_name?: string | null;
+            /**
              * Order Index
              * @description Position of the question within the session (0-based)
              */

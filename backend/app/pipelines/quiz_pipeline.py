@@ -9,6 +9,7 @@ Run via cron weekly or manually via CLI.
 import logging
 import uuid
 from datetime import UTC, datetime
+from difflib import get_close_matches
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,7 @@ from backend.app.models.base import (
 )
 from backend.app.models.quiz import QuizEvaluation, QuizQuestion, QuizSession
 from backend.app.models.settings import ProcessingLog
+from backend.app.models.topic import Topic
 from backend.app.models.triage import TriageItem
 from backend.app.prompts import quiz_evaluation, quiz_generation
 from backend.app.services import feedback as feedback_svc
@@ -49,6 +51,37 @@ async def _load_question_lookup(
 def _truncate(text: str, n: int = 140) -> str:
     text = text.strip().replace("\n", " ")
     return text if len(text) <= n else text[: n - 1] + "…"
+
+
+async def _load_topic_name_lookup(db: AsyncSession) -> dict[str, uuid.UUID]:
+    """Return a case-insensitive ``{topic_name: topic_id}`` map of all topics."""
+    stmt = select(Topic.id, Topic.name)
+    result = await db.execute(stmt)
+    return {name.casefold(): tid for tid, name in result.all()}
+
+
+def _resolve_topic_id(
+    target_topic: str | None,
+    topic_lookup: dict[str, uuid.UUID],
+) -> uuid.UUID | None:
+    """Best-effort match of an LLM-supplied topic label to a known Topic.id.
+
+    Strategy:
+    1. Exact case-insensitive match.
+    2. Fuzzy match via :func:`difflib.get_close_matches` (cutoff 0.75).
+    Returns ``None`` if no acceptable match exists.
+    """
+    if not target_topic or not topic_lookup:
+        return None
+    needle = target_topic.strip().casefold()
+    if not needle:
+        return None
+    if needle in topic_lookup:
+        return topic_lookup[needle]
+    matches = get_close_matches(needle, topic_lookup.keys(), n=1, cutoff=0.75)
+    if matches:
+        return topic_lookup[matches[0]]
+    return None
 
 
 def _format_quiz_feedforward(
@@ -154,6 +187,10 @@ async def generate_quiz(
 
         gen_result = QuizGenerationResult.model_validate(raw_result)
 
+        # Build a lookup so we can resolve LLM-supplied `target_topic` labels
+        # back to Knowledge Profile Topic.id values.
+        topic_lookup = await _load_topic_name_lookup(db)
+
         # Create quiz session
         session = QuizSession(
             status=QuizSessionStatus.PENDING,
@@ -169,10 +206,18 @@ async def generate_quiz(
             except ValueError:
                 q_type = QuizQuestionType.REINFORCEMENT
 
+            resolved_topic_id = _resolve_topic_id(q.target_topic, topic_lookup)
+            if q.target_topic and resolved_topic_id is None:
+                logger.info(
+                    "Quiz question target_topic %r did not match any known topic",
+                    q.target_topic,
+                )
+
             question = QuizQuestion(
                 session_id=session.id,
                 question_text=q.question_text,
                 question_type=q_type,
+                topic_id=resolved_topic_id,
                 order_index=i,
             )
             db.add(question)

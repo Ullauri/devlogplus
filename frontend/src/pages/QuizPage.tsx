@@ -135,10 +135,20 @@ export default function QuizPage() {
                 key={q.id}
                 className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
               >
-                <div className="mb-2 flex items-start justify-between">
-                  <p className="font-medium">
-                    {i + 1}. {q.question_text}
-                  </p>
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      {i + 1}. {q.question_text}
+                    </p>
+                    {q.topic_name && (
+                      <span
+                        className="mt-2 inline-block rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-200"
+                        title="Knowledge Profile topic this question targets"
+                      >
+                        {q.topic_name}
+                      </span>
+                    )}
+                  </div>
                   <FeedbackControls
                     targetType="quiz_question"
                     targetId={q.id}

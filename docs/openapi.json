@@ -4119,6 +4119,18 @@
             "title": "Topic Id",
             "description": "ID of the Knowledge Profile topic this question targets"
           },
+          "topic_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic Name",
+            "description": "Display name of the Knowledge Profile topic this question targets, resolved from `topic_id` for convenience. Null when the question could not be linked to a known topic."
+          },
           "order_index": {
             "type": "integer",
             "title": "Order Index",
