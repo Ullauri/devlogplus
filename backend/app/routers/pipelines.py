@@ -88,9 +88,7 @@ def _accepted(pipeline: ManualPipelineName, human: str) -> PipelineRunAccepted:
     ),
 )
 async def run_profile_update(bg: BackgroundTasks) -> PipelineRunAccepted:
-    bg.add_task(
-        _run_in_background, profile_update_pipeline.run_profile_update, "profile_update"
-    )
+    bg.add_task(_run_in_background, profile_update_pipeline.run_profile_update, "profile_update")
     return _accepted("profile_update", "Profile update")
 
 
@@ -122,9 +120,7 @@ async def run_quiz_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
     ),
 )
 async def run_reading_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
-    bg.add_task(
-        _run_in_background, reading_pipeline.generate_readings, "reading_generation"
-    )
+    bg.add_task(_run_in_background, reading_pipeline.generate_readings, "reading_generation")
     return _accepted("reading_generation", "Reading generation")
 
 
@@ -141,9 +137,7 @@ async def run_reading_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
     ),
 )
 async def run_project_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
-    bg.add_task(
-        _run_in_background, project_pipeline.generate_project, "project_generation"
-    )
+    bg.add_task(_run_in_background, project_pipeline.generate_project, "project_generation")
     return _accepted("project_generation", "Project generation")
 
 
