@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import get_db
 from backend.app.models.base import TriageSeverity, TriageStatus
+from backend.app.schemas.common import PaginatedResponse
 from backend.app.schemas.triage import TriageItemResponse, TriageResolveRequest
 from backend.app.services import triage as triage_svc
 
@@ -15,9 +16,9 @@ router = APIRouter(prefix="/triage", tags=["triage"])
 
 @router.get(
     "",
-    response_model=list[TriageItemResponse],
+    response_model=PaginatedResponse[TriageItemResponse],
     summary="List triage items",
-    response_description="Paginated list of triage items matching the optional filters",
+    response_description="Paginated envelope of triage items matching the optional filters",
 )
 async def list_triage_items(
     status: TriageStatus | None = Query(
@@ -29,17 +30,25 @@ async def list_triage_items(
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     limit: int = Query(50, ge=1, le=200, description="Maximum items to return"),
     db: AsyncSession = Depends(get_db),
-) -> list[TriageItemResponse]:
+) -> PaginatedResponse[TriageItemResponse]:
     """Return triage items with optional status and severity filters.
 
     Triage items are created automatically by the profile-update,
     quiz-evaluation, and project-evaluation pipelines when the system
-    encounters ambiguity it cannot resolve on its own.
+    encounters ambiguity it cannot resolve on its own. The response is
+    wrapped in a :class:`PaginatedResponse` envelope so agent clients can
+    page through the full queue deterministically.
     """
     items = await triage_svc.list_triage_items(
         db, status=status, severity=severity, offset=offset, limit=limit
     )
-    return [TriageItemResponse.model_validate(i) for i in items]
+    total = await triage_svc.count_triage_items(db, status=status, severity=severity)
+    return PaginatedResponse[TriageItemResponse](
+        items=[TriageItemResponse.model_validate(i) for i in items],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get(

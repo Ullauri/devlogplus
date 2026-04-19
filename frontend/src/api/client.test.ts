@@ -27,7 +27,13 @@ beforeEach(() => {
 describe("api.journal", () => {
   it("list() calls GET /api/v1/journal/entries", async () => {
     const entries = [{ id: "1", title: "hi", current_content: "body" }];
-    globalThis.fetch = mockFetch(200, entries);
+    // Backend now returns a PaginatedResponse envelope; the client unwraps items.
+    globalThis.fetch = mockFetch(200, {
+      items: entries,
+      total: 1,
+      offset: 0,
+      limit: 50,
+    });
 
     const result = await api.journal.list();
 

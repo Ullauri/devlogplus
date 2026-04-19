@@ -42,6 +42,18 @@ export type Setting = Schemas["SettingResponse"];
 
 export type ManualPipelineName = Schemas["PipelineRunAccepted"]["pipeline"];
 
+/**
+ * Generic paginated envelope returned by list endpoints that support
+ * offset/limit. Mirrors the backend's `PaginatedResponse[T]` model.
+ * AI-agent clients use `total` to know when to stop paging.
+ */
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 // ---- HTTP plumbing ----
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
@@ -83,7 +95,10 @@ function del<T>(path: string) {
 
 export const api = {
   journal: {
-    list: () => get<JournalEntry[]>("/journal/entries"),
+    list: () =>
+      get<PaginatedResponse<JournalEntry>>("/journal/entries").then(
+        (r) => r.items,
+      ),
     get: (id: string) => get<JournalEntryDetail>(`/journal/entries/${id}`),
     create: (data: Schemas["JournalEntryCreate"]) =>
       post<JournalEntry>("/journal/entries", data),
@@ -115,7 +130,10 @@ export const api = {
   },
 
   readings: {
-    list: () => get<ReadingRecommendation[]>("/readings/recommendations"),
+    list: () =>
+      get<PaginatedResponse<ReadingRecommendation>>(
+        "/readings/recommendations",
+      ).then((r) => r.items),
     allowlist: () => get<AllowlistEntry[]>("/readings/allowlist"),
     addAllowlist: (data: Schemas["AllowlistEntryCreate"]) =>
       post<AllowlistEntry>("/readings/allowlist", data),
@@ -131,7 +149,8 @@ export const api = {
   },
 
   triage: {
-    list: () => get<TriageItem[]>("/triage"),
+    list: () =>
+      get<PaginatedResponse<TriageItem>>("/triage").then((r) => r.items),
     get: (id: string) => get<TriageItem>(`/triage/${id}`),
     resolve: (id: string, data: Schemas["TriageResolveRequest"]) =>
       post<TriageItem>(`/triage/${id}/resolve`, data),

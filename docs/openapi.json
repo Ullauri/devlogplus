@@ -48,7 +48,7 @@
           "journal"
         ],
         "summary": "List journal entries",
-        "description": "Return journal entries ordered by creation date (most recent first).\n\nSupports cursor-style pagination via `offset` and `limit`.\nEach entry includes its latest content snapshot.",
+        "description": "Return journal entries ordered by creation date (most recent first).\n\nSupports offset/limit pagination. Response is wrapped in a\n:class:`PaginatedResponse` so clients (notably AI agents) can tell when\nthey've reached the last page without an extra speculative request.\nEach entry includes its latest content snapshot.",
         "operationId": "list_entries_api_v1_journal_entries_get",
         "parameters": [
           {
@@ -81,15 +81,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Paginated list of journal entries, most recent first",
+            "description": "Paginated envelope of journal entries, most recent first",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/JournalEntryResponse"
-                  },
-                  "title": "Response List Entries Api V1 Journal Entries Get"
+                  "$ref": "#/components/schemas/PaginatedResponse_JournalEntryResponse_"
                 }
               }
             }
@@ -586,7 +582,7 @@
           "readings"
         ],
         "summary": "List reading recommendations",
-        "description": "Return reading recommendations ordered by batch date (most recent first).\n\nRecommendations are generated weekly from the Knowledge Profile and limited\nto domains on the user's allowlist.  Each batch typically contains 3–5 links.",
+        "description": "Return reading recommendations ordered by batch date (most recent first).\n\nRecommendations are generated weekly from the Knowledge Profile and limited\nto domains on the user's allowlist.  Each batch typically contains 3–5 links.\nThe response is wrapped in a :class:`PaginatedResponse` envelope so agent\nclients know the full size of the archive in a single request.",
         "operationId": "list_recommendations_api_v1_readings_recommendations_get",
         "parameters": [
           {
@@ -619,15 +615,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Paginated list of reading recommendations, most recent batch first",
+            "description": "Paginated envelope of reading recommendations, most recent batch first",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ReadingRecommendationResponse"
-                  },
-                  "title": "Response List Recommendations Api V1 Readings Recommendations Get"
+                  "$ref": "#/components/schemas/PaginatedResponse_ReadingRecommendationResponse_"
                 }
               }
             }
@@ -1011,7 +1003,7 @@
           "triage"
         ],
         "summary": "List triage items",
-        "description": "Return triage items with optional status and severity filters.\n\nTriage items are created automatically by the profile-update,\nquiz-evaluation, and project-evaluation pipelines when the system\nencounters ambiguity it cannot resolve on its own.",
+        "description": "Return triage items with optional status and severity filters.\n\nTriage items are created automatically by the profile-update,\nquiz-evaluation, and project-evaluation pipelines when the system\nencounters ambiguity it cannot resolve on its own. The response is\nwrapped in a :class:`PaginatedResponse` envelope so agent clients can\npage through the full queue deterministically.",
         "operationId": "list_triage_items_api_v1_triage_get",
         "parameters": [
           {
@@ -1080,15 +1072,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Paginated list of triage items matching the optional filters",
+            "description": "Paginated envelope of triage items matching the optional filters",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TriageItemResponse"
-                  },
-                  "title": "Response List Triage Items Api V1 Triage Get"
+                  "$ref": "#/components/schemas/PaginatedResponse_TriageItemResponse_"
                 }
               }
             }
@@ -3178,6 +3166,120 @@
         "title": "OnboardingStateResponse",
         "description": "Current state of the onboarding flow."
       },
+      "PaginatedResponse_JournalEntryResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JournalEntryResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Rows returned for the current page."
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Total number of rows that match the query, across all pages."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "description": "Offset used for this page (echo of the request parameter)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Limit",
+            "description": "Page size used for this page (echo of the request parameter)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "offset",
+          "limit"
+        ],
+        "title": "PaginatedResponse[JournalEntryResponse]"
+      },
+      "PaginatedResponse_ReadingRecommendationResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReadingRecommendationResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Rows returned for the current page."
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Total number of rows that match the query, across all pages."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "description": "Offset used for this page (echo of the request parameter)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Limit",
+            "description": "Page size used for this page (echo of the request parameter)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "offset",
+          "limit"
+        ],
+        "title": "PaginatedResponse[ReadingRecommendationResponse]"
+      },
+      "PaginatedResponse_TriageItemResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TriageItemResponse"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Rows returned for the current page."
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Total number of rows that match the query, across all pages."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset",
+            "description": "Offset used for this page (echo of the request parameter)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Limit",
+            "description": "Page size used for this page (echo of the request parameter)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "offset",
+          "limit"
+        ],
+        "title": "PaginatedResponse[TriageItemResponse]"
+      },
       "PipelineRunAccepted": {
         "properties": {
           "pipeline": {
@@ -3190,6 +3292,12 @@
             ],
             "title": "Pipeline",
             "description": "Name of the pipeline that was queued."
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id",
+            "description": "Unique identifier for this pipeline run. The same id appears in the corresponding `processing_logs` row, so clients (including AI agents) can poll `GET /pipelines/runs` and match progress to the run they just triggered."
           },
           "status": {
             "type": "string",
@@ -3210,6 +3318,7 @@
         "type": "object",
         "required": [
           "pipeline",
+          "run_id",
           "message"
         ],
         "title": "PipelineRunAccepted",

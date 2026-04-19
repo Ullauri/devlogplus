@@ -7,6 +7,7 @@ Run via cron weekly or manually via CLI.
 """
 
 import logging
+import uuid
 from datetime import UTC, date, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,8 +30,16 @@ from backend.app.services.llm.models import ReadingGenerationResult
 logger = logging.getLogger(__name__)
 
 
-async def generate_readings(db: AsyncSession) -> list[ReadingRecommendation]:
+async def generate_readings(
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID | None = None,
+) -> list[ReadingRecommendation]:
     """Generate weekly reading recommendations.
+
+    Args:
+        db: Async session.
+        run_id: Optional pre-generated id for the ``ProcessingLog`` row.
 
     Steps:
     1. Build profile summary
@@ -40,10 +49,13 @@ async def generate_readings(db: AsyncSession) -> list[ReadingRecommendation]:
     5. Validate URLs against allowlist
     6. Store recommendations
     """
-    log = ProcessingLog(
-        pipeline=PipelineType.READING_GENERATION,
-        status=PipelineStatus.STARTED,
-    )
+    log_kwargs: dict = {
+        "pipeline": PipelineType.READING_GENERATION,
+        "status": PipelineStatus.STARTED,
+    }
+    if run_id is not None:
+        log_kwargs["id"] = run_id
+    log = ProcessingLog(**log_kwargs)
     db.add(log)
     await db.flush()
 

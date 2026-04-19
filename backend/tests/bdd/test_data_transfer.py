@@ -250,7 +250,7 @@ def then_import_journal_count(ctx):
 def then_entry_exists(bdd_client, title):
     resp = run_async(bdd_client.get("/api/v1/journal/entries"))
     assert resp.status_code == 200
-    entries = resp.json()
+    entries = resp.json()["items"]
     titles = [e["title"] for e in entries]
     assert title in titles, f"Expected '{title}' in {titles}"
 
@@ -264,7 +264,7 @@ def then_conflict(ctx):
 @then(parsers.parse('the original journal entry "{title}" should still exist'))
 def then_original_exists(bdd_client, title):
     resp = run_async(bdd_client.get("/api/v1/journal/entries"))
-    entries = resp.json()
+    entries = resp.json()["items"]
     titles = [e["title"] for e in entries]
     assert title in titles, f"Expected '{title}' in {titles}"
 
@@ -272,7 +272,7 @@ def then_original_exists(bdd_client, title):
 @then(parsers.parse('the original journal entry "{title}" should no longer exist'))
 def then_original_gone(bdd_client, title):
     resp = run_async(bdd_client.get("/api/v1/journal/entries"))
-    entries = resp.json()
+    entries = resp.json()["items"]
     titles = [e["title"] for e in entries]
     assert title not in titles, f"Did not expect '{title}' in {titles}"
 

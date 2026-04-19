@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import get_db
-from backend.app.schemas.common import MessageResponse
+from backend.app.schemas.common import MessageResponse, PaginatedResponse
 from backend.app.schemas.reading import (
     AllowlistEntryCreate,
     AllowlistEntryResponse,
@@ -23,22 +23,30 @@ router = APIRouter(prefix="/readings", tags=["readings"])
 # ---------------------------------------------------------------------------
 @router.get(
     "/recommendations",
-    response_model=list[ReadingRecommendationResponse],
+    response_model=PaginatedResponse[ReadingRecommendationResponse],
     summary="List reading recommendations",
-    response_description="Paginated list of reading recommendations, most recent batch first",
+    response_description=("Paginated envelope of reading recommendations, most recent batch first"),
 )
 async def list_recommendations(
     offset: int = Query(0, ge=0, description="Number of recommendations to skip"),
     limit: int = Query(20, ge=1, le=100, description="Maximum recommendations to return"),
     db: AsyncSession = Depends(get_db),
-) -> list[ReadingRecommendationResponse]:
+) -> PaginatedResponse[ReadingRecommendationResponse]:
     """Return reading recommendations ordered by batch date (most recent first).
 
     Recommendations are generated weekly from the Knowledge Profile and limited
     to domains on the user's allowlist.  Each batch typically contains 3–5 links.
+    The response is wrapped in a :class:`PaginatedResponse` envelope so agent
+    clients know the full size of the archive in a single request.
     """
     recs = await reading_svc.list_recommendations(db, offset=offset, limit=limit)
-    return [ReadingRecommendationResponse.model_validate(r) for r in recs]
+    total = await reading_svc.count_recommendations(db)
+    return PaginatedResponse[ReadingRecommendationResponse](
+        items=[ReadingRecommendationResponse.model_validate(r) for r in recs],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
 
 
 # ---------------------------------------------------------------------------

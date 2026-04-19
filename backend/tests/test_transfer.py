@@ -220,8 +220,9 @@ async def test_round_trip_export_import(client: AsyncClient, db_session: AsyncSe
     # 5. Verify data is accessible via the normal API too
     journal_resp = await client.get("/api/v1/journal/entries")
     assert journal_resp.status_code == 200
-    assert len(journal_resp.json()) == 1
-    assert journal_resp.json()[0]["id"] == str(entry.id)
+    journal_body = journal_resp.json()
+    assert len(journal_body["items"]) == 1
+    assert journal_body["items"][0]["id"] == str(entry.id)
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +293,7 @@ async def test_import_allows_overwrite_with_flag(client: AsyncClient, db_session
     assert resp.json()["counts"]["journal_entries"] == 0
 
     journal_resp = await client.get("/api/v1/journal/entries")
-    assert len(journal_resp.json()) == 0
+    assert len(journal_resp.json()["items"]) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +454,7 @@ async def test_import_replaces_not_merges(client: AsyncClient, db_session: Async
 
     # Only the new entry should exist
     list_resp = await client.get("/api/v1/journal/entries")
-    entries = list_resp.json()
+    entries = list_resp.json()["items"]
     assert len(entries) == 1
     assert entries[0]["id"] == new_id
 

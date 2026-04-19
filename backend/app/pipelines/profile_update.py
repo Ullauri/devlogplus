@@ -7,6 +7,7 @@ Run via cron nightly or manually via CLI.
 """
 
 import logging
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -33,8 +34,18 @@ from backend.app.services.llm.models import ExtractedTopic, TopicExtractionResul
 logger = logging.getLogger(__name__)
 
 
-async def run_profile_update(db: AsyncSession) -> dict:
+async def run_profile_update(
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID | None = None,
+) -> dict:
     """Execute the full nightly profile update pipeline.
+
+    Args:
+        db: Async session used for all reads/writes.
+        run_id: Optional pre-generated id for the ``ProcessingLog`` row.
+            Manual triggers pass this so the HTTP response can reference the
+            run id before the pipeline has even started executing.
 
     Steps:
     1. Check for blocking triage items
@@ -49,10 +60,13 @@ async def run_profile_update(db: AsyncSession) -> dict:
         Summary dict with counts and status.
     """
     # Start processing log
-    log = ProcessingLog(
-        pipeline=PipelineType.PROFILE_UPDATE,
-        status=PipelineStatus.STARTED,
-    )
+    log_kwargs: dict = {
+        "pipeline": PipelineType.PROFILE_UPDATE,
+        "status": PipelineStatus.STARTED,
+    }
+    if run_id is not None:
+        log_kwargs["id"] = run_id
+    log = ProcessingLog(**log_kwargs)
     db.add(log)
     await db.flush()
 

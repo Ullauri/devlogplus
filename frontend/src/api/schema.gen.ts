@@ -15,7 +15,9 @@ export interface paths {
          * List journal entries
          * @description Return journal entries ordered by creation date (most recent first).
          *
-         *     Supports cursor-style pagination via `offset` and `limit`.
+         *     Supports offset/limit pagination. Response is wrapped in a
+         *     :class:`PaginatedResponse` so clients (notably AI agents) can tell when
+         *     they've reached the last page without an extra speculative request.
          *     Each entry includes its latest content snapshot.
          */
         get: operations["list_entries_api_v1_journal_entries_get"];
@@ -255,6 +257,8 @@ export interface paths {
          *
          *     Recommendations are generated weekly from the Knowledge Profile and limited
          *     to domains on the user's allowlist.  Each batch typically contains 3–5 links.
+         *     The response is wrapped in a :class:`PaginatedResponse` envelope so agent
+         *     clients know the full size of the archive in a single request.
          */
         get: operations["list_recommendations_api_v1_readings_recommendations_get"];
         put?: never;
@@ -425,7 +429,9 @@ export interface paths {
          *
          *     Triage items are created automatically by the profile-update,
          *     quiz-evaluation, and project-evaluation pipelines when the system
-         *     encounters ambiguity it cannot resolve on its own.
+         *     encounters ambiguity it cannot resolve on its own. The response is
+         *     wrapped in a :class:`PaginatedResponse` envelope so agent clients can
+         *     page through the full queue deterministically.
          */
         get: operations["list_triage_items_api_v1_triage_get"];
         put?: never;
@@ -1621,6 +1627,75 @@ export interface components {
              */
             created_at?: string | null;
         };
+        /** PaginatedResponse[JournalEntryResponse] */
+        PaginatedResponse_JournalEntryResponse_: {
+            /**
+             * Items
+             * @description Rows returned for the current page.
+             */
+            items: components["schemas"]["JournalEntryResponse"][];
+            /**
+             * Total
+             * @description Total number of rows that match the query, across all pages.
+             */
+            total: number;
+            /**
+             * Offset
+             * @description Offset used for this page (echo of the request parameter).
+             */
+            offset: number;
+            /**
+             * Limit
+             * @description Page size used for this page (echo of the request parameter).
+             */
+            limit: number;
+        };
+        /** PaginatedResponse[ReadingRecommendationResponse] */
+        PaginatedResponse_ReadingRecommendationResponse_: {
+            /**
+             * Items
+             * @description Rows returned for the current page.
+             */
+            items: components["schemas"]["ReadingRecommendationResponse"][];
+            /**
+             * Total
+             * @description Total number of rows that match the query, across all pages.
+             */
+            total: number;
+            /**
+             * Offset
+             * @description Offset used for this page (echo of the request parameter).
+             */
+            offset: number;
+            /**
+             * Limit
+             * @description Page size used for this page (echo of the request parameter).
+             */
+            limit: number;
+        };
+        /** PaginatedResponse[TriageItemResponse] */
+        PaginatedResponse_TriageItemResponse_: {
+            /**
+             * Items
+             * @description Rows returned for the current page.
+             */
+            items: components["schemas"]["TriageItemResponse"][];
+            /**
+             * Total
+             * @description Total number of rows that match the query, across all pages.
+             */
+            total: number;
+            /**
+             * Offset
+             * @description Offset used for this page (echo of the request parameter).
+             */
+            offset: number;
+            /**
+             * Limit
+             * @description Page size used for this page (echo of the request parameter).
+             */
+            limit: number;
+        };
         /**
          * PipelineRunAccepted
          * @description Response returned when a manual pipeline run is successfully queued.
@@ -1632,6 +1707,12 @@ export interface components {
              * @enum {string}
              */
             pipeline: "profile_update" | "quiz_generation" | "reading_generation" | "project_generation";
+            /**
+             * Run Id
+             * Format: uuid
+             * @description Unique identifier for this pipeline run. The same id appears in the corresponding `processing_logs` row, so clients (including AI agents) can poll `GET /pipelines/runs` and match progress to the run they just triggered.
+             */
+            run_id: string;
             /**
              * Status
              * @description Always 'queued' — the run has been accepted for background execution.
@@ -2870,13 +2951,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paginated list of journal entries, most recent first */
+            /** @description Paginated envelope of journal entries, most recent first */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["JournalEntryResponse"][];
+                    "application/json": components["schemas"]["PaginatedResponse_JournalEntryResponse_"];
                 };
             };
             /** @description Validation Error */
@@ -3277,13 +3358,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paginated list of reading recommendations, most recent batch first */
+            /** @description Paginated envelope of reading recommendations, most recent batch first */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ReadingRecommendationResponse"][];
+                    "application/json": components["schemas"]["PaginatedResponse_ReadingRecommendationResponse_"];
                 };
             };
             /** @description Validation Error */
@@ -3580,13 +3661,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paginated list of triage items matching the optional filters */
+            /** @description Paginated envelope of triage items matching the optional filters */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TriageItemResponse"][];
+                    "application/json": components["schemas"]["PaginatedResponse_TriageItemResponse_"];
                 };
             };
             /** @description Validation Error */

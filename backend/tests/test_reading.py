@@ -10,10 +10,14 @@ pytestmark = pytest.mark.asyncio(loop_scope="session")
 # Recommendations
 # ---------------------------------------------------------------------------
 async def test_list_recommendations_empty(client: AsyncClient):
-    """Empty list when no recommendations exist."""
+    """Empty paginated envelope when no recommendations exist."""
     resp = await client.get("/api/v1/readings/recommendations")
     assert resp.status_code == 200
-    assert resp.json() == []
+    body = resp.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["offset"] == 0
+    assert body["limit"] == 20
 
 
 # ---------------------------------------------------------------------------

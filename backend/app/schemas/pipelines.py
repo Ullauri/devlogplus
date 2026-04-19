@@ -41,6 +41,14 @@ class PipelineRunAccepted(BaseModel):
     pipeline: ManualPipelineName = Field(
         description="Name of the pipeline that was queued.",
     )
+    run_id: uuid.UUID = Field(
+        description=(
+            "Unique identifier for this pipeline run. The same id appears in "
+            "the corresponding `processing_logs` row, so clients (including "
+            "AI agents) can poll `GET /pipelines/runs` and match progress to "
+            "the run they just triggered."
+        ),
+    )
     status: Literal["queued"] = Field(
         default="queued",
         description="Always 'queued' — the run has been accepted for background execution.",

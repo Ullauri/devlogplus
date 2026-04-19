@@ -102,7 +102,7 @@ def then_not_blocking(ctx):
 def when_filter_triage(bdd_client, ctx, severity):
     resp = run_async(bdd_client.get(f"/api/v1/triage?severity={severity}"))
     assert resp.status_code == 200
-    ctx["filtered_items"] = resp.json()
+    ctx["filtered_items"] = resp.json()["items"]
 
 
 @then("I should see only critical triage items")

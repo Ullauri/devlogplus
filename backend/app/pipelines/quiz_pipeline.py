@@ -7,6 +7,7 @@ Run via cron weekly or manually via CLI.
 """
 
 import logging
+import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,8 +34,16 @@ from backend.app.services.llm.models import QuizEvaluationResult, QuizGeneration
 logger = logging.getLogger(__name__)
 
 
-async def generate_quiz(db: AsyncSession) -> QuizSession:
+async def generate_quiz(
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID | None = None,
+) -> QuizSession:
     """Generate a new weekly quiz session with questions.
+
+    Args:
+        db: Async session.
+        run_id: Optional pre-generated id for the ``ProcessingLog`` row.
 
     Steps:
     1. Build profile summary for context
@@ -42,10 +51,13 @@ async def generate_quiz(db: AsyncSession) -> QuizSession:
     3. Call LLM to generate questions
     4. Store session and questions
     """
-    log = ProcessingLog(
-        pipeline=PipelineType.QUIZ_GENERATION,
-        status=PipelineStatus.STARTED,
-    )
+    log_kwargs: dict = {
+        "pipeline": PipelineType.QUIZ_GENERATION,
+        "status": PipelineStatus.STARTED,
+    }
+    if run_id is not None:
+        log_kwargs["id"] = run_id
+    log = ProcessingLog(**log_kwargs)
     db.add(log)
     await db.flush()
 

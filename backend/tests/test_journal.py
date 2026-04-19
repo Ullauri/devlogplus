@@ -26,10 +26,15 @@ async def test_create_journal_entry(client: AsyncClient):
 # List
 # ---------------------------------------------------------------------------
 async def test_list_journal_entries(client: AsyncClient):
-    """Listing entries should return a list."""
+    """Listing entries should return a paginated envelope."""
     response = await client.get("/api/v1/journal/entries")
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+    body = response.json()
+    assert isinstance(body, dict)
+    assert isinstance(body["items"], list)
+    assert "total" in body
+    assert body["offset"] == 0
+    assert body["limit"] == 50
 
 
 # ---------------------------------------------------------------------------

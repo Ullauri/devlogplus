@@ -5,6 +5,7 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.functions import count
 
 from backend.app.models.reading import ReadingAllowlist, ReadingRecommendation
 from backend.app.schemas.reading import AllowlistEntryCreate, AllowlistEntryUpdate
@@ -30,6 +31,19 @@ async def list_recommendations(
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_recommendations(
+    db: AsyncSession,
+    *,
+    batch_date: date | None = None,
+) -> int:
+    """Return the total number of reading recommendations matching the filter."""
+    stmt = select(count(ReadingRecommendation.id))
+    if batch_date is not None:
+        stmt = stmt.where(ReadingRecommendation.batch_date == batch_date)
+    result = await db.execute(stmt)
+    return int(result.scalar_one())
 
 
 async def get_latest_batch_date(db: AsyncSession) -> date | None:

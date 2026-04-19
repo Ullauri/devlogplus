@@ -32,10 +32,14 @@ async def _create_triage_item(
 
 
 async def test_list_triage_empty(client: AsyncClient):
-    """Empty list when no triage items exist."""
+    """Empty paginated envelope when no triage items exist."""
     resp = await client.get("/api/v1/triage")
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    body = resp.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["offset"] == 0
+    assert body["limit"] == 50
 
 
 async def test_list_triage_with_items(client: AsyncClient, db_session: AsyncSession):
@@ -45,8 +49,9 @@ async def test_list_triage_with_items(client: AsyncClient, db_session: AsyncSess
 
     resp = await client.get("/api/v1/triage")
     assert resp.status_code == 200
-    items = resp.json()
-    assert len(items) >= 2
+    body = resp.json()
+    assert len(body["items"]) >= 2
+    assert body["total"] >= 2
 
 
 async def test_list_triage_filter_by_severity(client: AsyncClient, db_session: AsyncSession):
@@ -54,7 +59,8 @@ async def test_list_triage_filter_by_severity(client: AsyncClient, db_session: A
     await _create_triage_item(db_session, title="Critical one", severity=TriageSeverity.CRITICAL)
     resp = await client.get("/api/v1/triage", params={"severity": "critical"})
     assert resp.status_code == 200
-    for item in resp.json():
+    body = resp.json()
+    for item in body["items"]:
         assert item["severity"] == "critical"
 
 

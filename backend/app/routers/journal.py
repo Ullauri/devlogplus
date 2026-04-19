@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import get_db
-from backend.app.schemas.common import MessageResponse
+from backend.app.schemas.common import MessageResponse, PaginatedResponse
 from backend.app.schemas.journal import (
     JournalEntryCreate,
     JournalEntryDetailResponse,
@@ -45,22 +45,30 @@ async def create_entry(
 
 @router.get(
     "/entries",
-    response_model=list[JournalEntryResponse],
+    response_model=PaginatedResponse[JournalEntryResponse],
     summary="List journal entries",
-    response_description="Paginated list of journal entries, most recent first",
+    response_description="Paginated envelope of journal entries, most recent first",
 )
 async def list_entries(
     offset: int = Query(0, ge=0, description="Number of entries to skip"),
     limit: int = Query(50, ge=1, le=200, description="Maximum entries to return"),
     db: AsyncSession = Depends(get_db),
-) -> list[JournalEntryResponse]:
+) -> PaginatedResponse[JournalEntryResponse]:
     """Return journal entries ordered by creation date (most recent first).
 
-    Supports cursor-style pagination via `offset` and `limit`.
+    Supports offset/limit pagination. Response is wrapped in a
+    :class:`PaginatedResponse` so clients (notably AI agents) can tell when
+    they've reached the last page without an extra speculative request.
     Each entry includes its latest content snapshot.
     """
     entries = await journal_svc.list_entries(db, offset=offset, limit=limit)
-    return [journal_svc.entry_to_response(e) for e in entries]
+    total = await journal_svc.count_entries(db)
+    return PaginatedResponse[JournalEntryResponse](
+        items=[journal_svc.entry_to_response(e) for e in entries],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get(

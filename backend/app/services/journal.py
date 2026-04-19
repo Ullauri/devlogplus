@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.functions import count
 
 from backend.app.models.journal import JournalEntry, JournalEntryVersion
 from backend.app.schemas.journal import (
@@ -55,6 +56,13 @@ async def list_entries(db: AsyncSession, *, offset: int = 0, limit: int = 50) ->
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_entries(db: AsyncSession) -> int:
+    """Return the total number of journal entries in the database."""
+    stmt = select(count(JournalEntry.id))
+    result = await db.execute(stmt)
+    return int(result.scalar_one())
 
 
 async def update_entry(

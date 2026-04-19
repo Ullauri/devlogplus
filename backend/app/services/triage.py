@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.functions import count
 
 from backend.app.models.base import TriageSeverity, TriageStatus
 from backend.app.models.triage import TriageItem
@@ -32,6 +33,22 @@ async def list_triage_items(
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_triage_items(
+    db: AsyncSession,
+    *,
+    status: TriageStatus | None = None,
+    severity: TriageSeverity | None = None,
+) -> int:
+    """Return the total number of triage items matching the given filters."""
+    stmt = select(count(TriageItem.id))
+    if status is not None:
+        stmt = stmt.where(TriageItem.status == status)
+    if severity is not None:
+        stmt = stmt.where(TriageItem.severity == severity)
+    result = await db.execute(stmt)
+    return int(result.scalar_one())
 
 
 async def get_triage_item(db: AsyncSession, item_id: uuid.UUID) -> TriageItem | None:

@@ -7,6 +7,7 @@ Run via cron weekly or manually via CLI.
 """
 
 import logging
+import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -35,8 +36,16 @@ from backend.app.services.llm.models import ProjectEvaluationResult, ProjectGene
 logger = logging.getLogger(__name__)
 
 
-async def generate_project(db: AsyncSession) -> WeeklyProject:
+async def generate_project(
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID | None = None,
+) -> WeeklyProject:
     """Generate a new weekly Go project.
+
+    Args:
+        db: Async session.
+        run_id: Optional pre-generated id for the ``ProcessingLog`` row.
 
     Steps:
     1. Determine difficulty level from previous project evaluations
@@ -45,10 +54,13 @@ async def generate_project(db: AsyncSession) -> WeeklyProject:
     4. Write files to workspace/projects/<date>/
     5. Store project record with tasks
     """
-    log = ProcessingLog(
-        pipeline=PipelineType.PROJECT_GENERATION,
-        status=PipelineStatus.STARTED,
-    )
+    log_kwargs: dict = {
+        "pipeline": PipelineType.PROJECT_GENERATION,
+        "status": PipelineStatus.STARTED,
+    }
+    if run_id is not None:
+        log_kwargs["id"] = run_id
+    log = ProcessingLog(**log_kwargs)
     db.add(log)
     await db.flush()
 

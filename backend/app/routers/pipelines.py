@@ -14,6 +14,7 @@ documented exception.
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
@@ -46,29 +47,36 @@ router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 # immediately while the pipeline runs for potentially minutes.
 # ---------------------------------------------------------------------------
 async def _run_in_background(
-    fn: Callable[[AsyncSession], Awaitable[object]],
+    fn: Callable[..., Awaitable[object]],
     label: str,
+    run_id: uuid.UUID,
 ) -> None:
-    """Invoke *fn* with a fresh AsyncSession, committing on success."""
-    logger.info("Starting manual pipeline run: %s", label)
+    """Invoke *fn* with a fresh AsyncSession, committing on success.
+
+    The pre-generated ``run_id`` is forwarded so the pipeline's
+    ``ProcessingLog`` row carries the same id that was already returned to
+    the HTTP client.
+    """
+    logger.info("Starting manual pipeline run: %s (run_id=%s)", label, run_id)
     async with async_session_factory() as session:
         try:
-            await fn(session)
+            await fn(session, run_id=run_id)
             await session.commit()
-            logger.info("Manual pipeline run finished: %s", label)
+            logger.info("Manual pipeline run finished: %s (run_id=%s)", label, run_id)
         except Exception:
             # The pipeline itself writes its own ProcessingLog entry with
             # status=failed and error=..., so the UI can surface it.
             await session.rollback()
-            logger.exception("Manual pipeline run failed: %s", label)
+            logger.exception("Manual pipeline run failed: %s (run_id=%s)", label, run_id)
 
 
 # ---------------------------------------------------------------------------
 # Trigger endpoints
 # ---------------------------------------------------------------------------
-def _accepted(pipeline: ManualPipelineName, human: str) -> PipelineRunAccepted:
+def _accepted(pipeline: ManualPipelineName, human: str, run_id: uuid.UUID) -> PipelineRunAccepted:
     return PipelineRunAccepted(
         pipeline=pipeline,
+        run_id=run_id,
         message=f"{human} pipeline queued. Check run history for progress.",
     )
 
@@ -88,8 +96,14 @@ def _accepted(pipeline: ManualPipelineName, human: str) -> PipelineRunAccepted:
     ),
 )
 async def run_profile_update(bg: BackgroundTasks) -> PipelineRunAccepted:
-    bg.add_task(_run_in_background, profile_update_pipeline.run_profile_update, "profile_update")
-    return _accepted("profile_update", "Profile update")
+    run_id = pipelines_svc.new_run_id()
+    bg.add_task(
+        _run_in_background,
+        profile_update_pipeline.run_profile_update,
+        "profile_update",
+        run_id,
+    )
+    return _accepted("profile_update", "Profile update", run_id)
 
 
 @router.post(
@@ -104,8 +118,14 @@ async def run_profile_update(bg: BackgroundTasks) -> PipelineRunAccepted:
     ),
 )
 async def run_quiz_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
-    bg.add_task(_run_in_background, quiz_pipeline.generate_quiz, "quiz_generation")
-    return _accepted("quiz_generation", "Quiz generation")
+    run_id = pipelines_svc.new_run_id()
+    bg.add_task(
+        _run_in_background,
+        quiz_pipeline.generate_quiz,
+        "quiz_generation",
+        run_id,
+    )
+    return _accepted("quiz_generation", "Quiz generation", run_id)
 
 
 @router.post(
@@ -120,8 +140,14 @@ async def run_quiz_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
     ),
 )
 async def run_reading_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
-    bg.add_task(_run_in_background, reading_pipeline.generate_readings, "reading_generation")
-    return _accepted("reading_generation", "Reading generation")
+    run_id = pipelines_svc.new_run_id()
+    bg.add_task(
+        _run_in_background,
+        reading_pipeline.generate_readings,
+        "reading_generation",
+        run_id,
+    )
+    return _accepted("reading_generation", "Reading generation", run_id)
 
 
 @router.post(
@@ -137,8 +163,14 @@ async def run_reading_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
     ),
 )
 async def run_project_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
-    bg.add_task(_run_in_background, project_pipeline.generate_project, "project_generation")
-    return _accepted("project_generation", "Project generation")
+    run_id = pipelines_svc.new_run_id()
+    bg.add_task(
+        _run_in_background,
+        project_pipeline.generate_project,
+        "project_generation",
+        run_id,
+    )
+    return _accepted("project_generation", "Project generation", run_id)
 
 
 # ---------------------------------------------------------------------------

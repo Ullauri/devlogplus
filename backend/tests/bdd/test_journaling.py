@@ -100,7 +100,7 @@ def then_version_count(ctx, bdd_client, count):
 def when_list_entries(bdd_client, ctx):
     resp = run_async(bdd_client.get("/api/v1/journal/entries"))
     ctx["response"] = resp
-    ctx["entries_list"] = resp.json()
+    ctx["entries_list"] = resp.json()["items"]
 
 
 @then(parsers.parse("I should see {count:d} entries in the list"))
