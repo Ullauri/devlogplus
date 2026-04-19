@@ -3,15 +3,52 @@ import { screen } from "@testing-library/react";
 import Layout from "./Layout";
 import { renderWithRouter } from "../test/helpers";
 
-describe("Layout", () => {
+describe("Layout — static content", () => {
   it("renders the brand name", () => {
     renderWithRouter(<Layout />);
     expect(screen.getByText("DevLog+")).toBeInTheDocument();
   });
 
-  it("renders all navigation links", () => {
+  it("renders all navigation links with expected labels and hrefs", () => {
     renderWithRouter(<Layout />);
-    const labels = [
+    const pairs: ReadonlyArray<readonly [string, string]> = [
+      ["Journal", "/journal"],
+      ["Profile", "/profile"],
+      ["Quiz", "/quiz"],
+      ["Readings", "/readings"],
+      ["Projects", "/projects"],
+      ["Triage", "/triage"],
+      ["Settings", "/settings"],
+    ];
+    for (const [label, href] of pairs) {
+      const link = screen.getByText(label).closest("a");
+      expect(link).toHaveAttribute("href", href);
+    }
+  });
+});
+
+describe("Layout — active link highlighting", () => {
+  it("highlights the active route with brand colors and leaves others gray", () => {
+    renderWithRouter(<Layout />, { route: "/journal" });
+    const activeLink = screen.getByText("Journal").closest("a")!;
+    expect(activeLink.className).toContain("bg-brand-50");
+    expect(activeLink.className).toContain("text-brand-700");
+
+    const inactiveLink = screen.getByText("Profile").closest("a")!;
+    expect(inactiveLink.className).toContain("text-gray-600");
+    expect(inactiveLink.className).not.toContain("bg-brand-50");
+  });
+
+  it("highlights /settings when that route is active", () => {
+    renderWithRouter(<Layout />, { route: "/settings" });
+    const settings = screen.getByText("Settings").closest("a")!;
+    expect(settings.className).toContain("bg-brand-50");
+    expect(settings.className).toContain("text-brand-700");
+  });
+
+  it("no link is highlighted for an unknown route", () => {
+    renderWithRouter(<Layout />, { route: "/nowhere" });
+    for (const label of [
       "Journal",
       "Profile",
       "Quiz",
@@ -19,25 +56,10 @@ describe("Layout", () => {
       "Projects",
       "Triage",
       "Settings",
-    ];
-    for (const label of labels) {
-      expect(screen.getByText(label)).toBeInTheDocument();
+    ]) {
+      const link = screen.getByText(label).closest("a")!;
+      expect(link.className).toContain("text-gray-600");
+      expect(link.className).not.toContain("bg-brand-50");
     }
-  });
-
-  it("navigation links have correct hrefs", () => {
-    renderWithRouter(<Layout />);
-    expect(screen.getByText("Journal").closest("a")).toHaveAttribute(
-      "href",
-      "/journal",
-    );
-    expect(screen.getByText("Profile").closest("a")).toHaveAttribute(
-      "href",
-      "/profile",
-    );
-    expect(screen.getByText("Settings").closest("a")).toHaveAttribute(
-      "href",
-      "/settings",
-    );
   });
 });

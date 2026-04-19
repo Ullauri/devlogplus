@@ -17,7 +17,8 @@
     "format:check": "prettier --check src/",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:integration": "vitest run --config vitest.integration.config.ts"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "lucide-react": "^0.460.0",
@@ -28,6 +29,8 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@stoplight/prism-cli": "^5.14.2",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

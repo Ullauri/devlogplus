@@ -1,4 +1,4 @@
-.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp
+.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-mutation-frontend test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp
 
 VENV_DIR := .venv-devlogplus
 PYTHON := python3
@@ -83,6 +83,9 @@ test-frontend: ## Run frontend tests with coverage
 
 test-integration: openapi ## Run frontend integration tests against Prism mock
 	cd frontend && npm run test:integration
+
+test-mutation-frontend: ## Run Stryker mutation tests on frontend (slow — manual only, not CI)
+	cd frontend && npx stryker run
 
 # ── Data backup ──────────────────────────────────────────────────────
 backup: ## Backup database and workspace/projects to backups/<timestamp>/

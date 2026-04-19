@@ -82,6 +82,8 @@ package-lock.json
 frontend/dist/
 frontend/coverage/
 frontend/.vite/
+frontend/reports/
+frontend/.stryker-tmp/
 *.local
 
 # ─── Tailwind CSS ───────────────────────────────────────────────────────────
@@ -168,3 +170,4 @@ pnpm-debug.log*
 tmp/
 temp/
 claude-buddy/
+locallogs.txt
