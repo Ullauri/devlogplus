@@ -87,6 +87,61 @@ describe("ProjectsPage — current project", () => {
     expect(screen.getByText("Add middleware")).toBeInTheDocument();
   });
 
+  it("renders a FeedbackControls per task wired to project_task", async () => {
+    mockList.mockResolvedValue([]);
+    mockGetCurrent.mockResolvedValue(
+      makeProject({
+        tasks: [
+          {
+            id: "task-aaa",
+            title: "Fix handler",
+            description: "Fix the request handler",
+            task_type: "bug_fix",
+            order_index: 0,
+          },
+          {
+            id: "task-bbb",
+            title: "Add middleware",
+            description: "Add logging middleware",
+            task_type: "feature",
+            order_index: 1,
+          },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithRouter(<ProjectsPage />);
+    await waitFor(() => screen.getByText("Fix handler"));
+
+    // One control on the project header + one per task = 3 thumbs-up buttons.
+    const helpfulButtons = screen.getAllByTitle("Helpful");
+    expect(helpfulButtons).toHaveLength(3);
+
+    // Hydration call is made for each per-task control.
+    await waitFor(() => {
+      expect(api.feedback.listFor).toHaveBeenCalledWith(
+        "project_task",
+        "task-aaa",
+      );
+      expect(api.feedback.listFor).toHaveBeenCalledWith(
+        "project_task",
+        "task-bbb",
+      );
+    });
+
+    // Clicking the second task's thumbs-up posts feedback for that task id.
+    await user.click(helpfulButtons[2]!);
+    await waitFor(() => {
+      expect(api.feedback.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target_type: "project_task",
+          target_id: "task-bbb",
+          reaction: "thumbs_up",
+        }),
+      );
+    });
+  });
+
   it("omits the Tasks section when no tasks", async () => {
     mockList.mockResolvedValue([]);
     mockGetCurrent.mockResolvedValue(makeProject({ tasks: [] }));

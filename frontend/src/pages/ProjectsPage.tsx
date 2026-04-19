@@ -117,12 +117,16 @@ export default function ProjectsPage() {
                     >
                       {task.task_type}
                     </span>
-                    <div>
+                    <div className="flex-1">
                       <span className="font-medium">{task.title}</span>
                       <p className="text-xs text-gray-500">
                         {task.description}
                       </p>
                     </div>
+                    <FeedbackControls
+                      targetType="project_task"
+                      targetId={task.id}
+                    />
                   </div>
                 ))}
               </div>
