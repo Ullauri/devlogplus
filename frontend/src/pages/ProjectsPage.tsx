@@ -7,6 +7,7 @@ import {
 } from "../api/client";
 import FeedbackControls from "../components/FeedbackControls";
 import PipelineStatusBanner from "../components/PipelineStatusBanner";
+import RunPipelineButton from "../components/RunPipelineButton";
 import { usePipelineStatus } from "../hooks/usePipelineStatus";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -73,7 +74,7 @@ export default function ProjectsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Weekly Projects</h1>
+      <h1 className="mb-6 text-2xl font-bold">Projects</h1>
 
       <PipelineStatusBanner
         label="project"
@@ -151,9 +152,14 @@ export default function ProjectsPage() {
         </div>
       ) : (
         status.running.length === 0 && (
-          <p className="mb-6 text-gray-500">
-            No active project. A new project is issued weekly.
-          </p>
+          <div className="mb-6">
+            <p className="mb-3 text-gray-500">No active project right now.</p>
+            <RunPipelineButton
+              label="Generate project now"
+              onRun={() => api.pipelines.runProjectGeneration()}
+              onQueued={() => status.refresh()}
+            />
+          </div>
         )
       )}
 

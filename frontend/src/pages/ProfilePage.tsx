@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, KnowledgeProfile, type PipelineType } from "../api/client";
 import PipelineStatusBanner from "../components/PipelineStatusBanner";
+import RunPipelineButton from "../components/RunPipelineButton";
 import { usePipelineStatus } from "../hooks/usePipelineStatus";
 
 const STRENGTH_COLOR: Record<string, string> = {
@@ -9,10 +10,11 @@ const STRENGTH_COLOR: Record<string, string> = {
   limited: "bg-gray-100 text-gray-600",
 };
 
-// Profile snapshots are refreshed by the nightly profile_update pipeline.
+// Profile snapshots are refreshed by the profile_update pipeline (run
+// manually or on a user-configured schedule — see the Settings tab).
 // We deliberately do NOT include topic_extraction here: it runs on every
 // journal save and would make the banner flap "Generating your profile…"
-// even though the visible profile snapshot only changes nightly.
+// even though the visible profile snapshot only changes per profile_update run.
 const PROFILE_PIPELINES: readonly PipelineType[] = ["profile_update"];
 
 export default function ProfilePage() {
@@ -59,10 +61,17 @@ export default function ProfilePage() {
         <h1 className="mb-6 text-2xl font-bold">Knowledge Profile</h1>
         {banner}
         {status.running.length === 0 && (
-          <p className="text-gray-500">
-            No profile data yet. Write some journal entries and wait for the
-            nightly update.
-          </p>
+          <div>
+            <p className="mb-3 text-gray-500">
+              No profile data yet. Write some journal entries, then run the
+              profile update.
+            </p>
+            <RunPipelineButton
+              label="Update profile now"
+              onRun={() => api.pipelines.runProfileUpdate()}
+              onQueued={() => status.refresh()}
+            />
+          </div>
         )}
       </div>
     );

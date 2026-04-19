@@ -7,6 +7,7 @@ import {
 } from "../api/client";
 import FeedbackControls from "../components/FeedbackControls";
 import PipelineStatusBanner from "../components/PipelineStatusBanner";
+import RunPipelineButton from "../components/RunPipelineButton";
 import { usePipelineStatus } from "../hooks/usePipelineStatus";
 
 const QUIZ_PIPELINES: readonly PipelineType[] = [
@@ -87,9 +88,14 @@ export default function QuizPage() {
       {!current ? (
         <div>
           {status.running.length === 0 && (
-            <p className="mb-4 text-gray-500">
-              No active quiz. A new quiz is generated weekly.
-            </p>
+            <div className="mb-4">
+              <p className="mb-3 text-gray-500">No active quiz right now.</p>
+              <RunPipelineButton
+                label="Generate quiz now"
+                onRun={() => api.pipelines.runQuizGeneration()}
+                onQueued={() => status.refresh()}
+              />
+            </div>
           )}
           {sessions.length > 0 && (
             <div>

@@ -33,7 +33,7 @@ const GENERAL_SETTINGS: GeneralSettingConfig[] = [
   {
     key: "quiz_question_count",
     label: "Quiz questions per session",
-    description: "Number of questions generated in each weekly quiz.",
+    description: "Number of questions generated in each quiz session.",
     min: 1,
     max: 50,
     defaultValue: 10,
@@ -41,7 +41,7 @@ const GENERAL_SETTINGS: GeneralSettingConfig[] = [
   {
     key: "reading_recommendation_count",
     label: "Reading recommendations per batch",
-    description: "Number of reading items produced by the weekly pipeline.",
+    description: "Number of reading items produced per generation run.",
     min: 1,
     max: 20,
     defaultValue: 5,

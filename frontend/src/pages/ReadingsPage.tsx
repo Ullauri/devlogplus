@@ -8,6 +8,7 @@ import {
 } from "../api/client";
 import FeedbackControls from "../components/FeedbackControls";
 import PipelineStatusBanner from "../components/PipelineStatusBanner";
+import RunPipelineButton from "../components/RunPipelineButton";
 import { usePipelineStatus } from "../hooks/usePipelineStatus";
 
 const READING_PIPELINES: readonly PipelineType[] = ["reading_generation"];
@@ -138,9 +139,16 @@ export default function ReadingsPage() {
 
       {readings.length === 0 ? (
         status.running.length === 0 ? (
-          <p className="text-gray-500">
-            No reading recommendations yet. They are generated weekly.
-          </p>
+          <div>
+            <p className="mb-3 text-gray-500">
+              No reading recommendations yet.
+            </p>
+            <RunPipelineButton
+              label="Generate recommendations now"
+              onRun={() => api.pipelines.runReadingGeneration()}
+              onQueued={() => status.refresh()}
+            />
+          </div>
         ) : null
       ) : (
         <div className="space-y-3">
