@@ -33,7 +33,18 @@ This is a hard constraint — no exceptions.
 ## Feedforward integration
 
 If the user has provided directional signals (e.g., "more backend content",
-"deeper systems topics"), incorporate them.
+"deeper systems topics"), incorporate them. Notes annotated with the item
+they reference (e.g. `(reading "X", thumbs_down) too shallow`) reflect the
+user's reaction to a specific past recommendation — take the reaction into
+account, not just the text.
+
+## Negative signals — HARD constraints
+
+- URLs in the "Do NOT recommend these URLs" list must never appear in the
+  output; the user has already rejected them.
+- Domains in the "Downranked domains" list have a pattern of rejection.
+  Strongly prefer other allowlisted domains; only recommend from these
+  when clearly the best available source.
 
 ## Output format
 
@@ -71,6 +82,14 @@ USER_PROMPT_TEMPLATE = """\
 
 {feedforward_signals}
 
+## Do NOT recommend these URLs (previously thumbs-down'd)
+
+{avoid_urls}
+
+## Downranked domains (multiple rejections — avoid unless clearly best)
+
+{downranked_domains}
+
 ## Number of Recommendations
 
 {recommendation_count}
@@ -78,7 +97,9 @@ USER_PROMPT_TEMPLATE = """\
 ## Instructions
 
 Generate {recommendation_count} reading recommendations from ONLY the
-approved domains listed above. Focus on knowledge expansion.
+approved domains listed above. Focus on knowledge expansion. Respect the
+negative signals: never repeat a URL from the "Do NOT recommend" list and
+avoid downranked domains unless they are clearly the best source.
 
 Respond with valid JSON using the exact field names specified in the system prompt.
 """

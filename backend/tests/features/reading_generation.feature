@@ -17,3 +17,9 @@ Feature: Weekly Reading Recommendations
     Given the reading allowlist contains only "go.dev"
     When the reading generation pipeline runs with a response containing a non-allowlisted domain
     Then only recommendations from "go.dev" should be stored
+
+  Scenario: Recommendations with unreachable URLs are filtered out
+    Given the reading allowlist contains "go.dev" and "blog.golang.org"
+    When the reading generation pipeline runs and one URL returns 404
+    Then only recommendations with reachable URLs should be stored
+    And the processing log should record the skipped URL

@@ -11,10 +11,12 @@ import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.config import settings
 from backend.app.models.base import (
+    FeedbackTargetType,
     PipelineStatus,
     PipelineType,
     ProjectStatus,
@@ -22,7 +24,11 @@ from backend.app.models.base import (
     TriageSeverity,
     TriageSource,
 )
-from backend.app.models.project import ProjectEvaluation, ProjectTask, WeeklyProject
+from backend.app.models.project import (
+    ProjectEvaluation,
+    ProjectTask,
+    WeeklyProject,
+)
 from backend.app.models.settings import ProcessingLog
 from backend.app.models.triage import TriageItem
 from backend.app.prompts import project_evaluation, project_generation
@@ -34,6 +40,58 @@ from backend.app.services.llm.client import llm_client
 from backend.app.services.llm.models import ProjectEvaluationResult, ProjectGenerationResult
 
 logger = logging.getLogger(__name__)
+
+
+async def _load_project_title_lookup(db: AsyncSession, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    if not ids:
+        return {}
+    stmt = select(WeeklyProject.id, WeeklyProject.title).where(WeeklyProject.id.in_(ids))
+    result = await db.execute(stmt)
+    return {row[0]: row[1] for row in result.all()}
+
+
+async def _load_task_lookup(
+    db: AsyncSession, ids: set[uuid.UUID]
+) -> dict[uuid.UUID, tuple[str, uuid.UUID]]:
+    if not ids:
+        return {}
+    stmt = select(ProjectTask.id, ProjectTask.title, ProjectTask.project_id).where(
+        ProjectTask.id.in_(ids)
+    )
+    result = await db.execute(stmt)
+    return {row[0]: (row[1], row[2]) for row in result.all()}
+
+
+def _format_project_feedforward(
+    feedback_items,
+    project_titles: dict[uuid.UUID, str],
+    task_info: dict[uuid.UUID, tuple[str, uuid.UUID]],
+    max_items: int = 10,
+) -> str:
+    lines: list[str] = []
+    for fb in feedback_items:
+        if not fb.note:
+            continue
+        descriptor: str | None = None
+        if fb.target_type == FeedbackTargetType.PROJECT:
+            title = project_titles.get(fb.target_id)
+            descriptor = f'project "{title}"' if title else "project (removed)"
+        elif fb.target_type == FeedbackTargetType.PROJECT_TASK:
+            info = task_info.get(fb.target_id)
+            if info is not None:
+                task_title, project_id = info
+                parent = project_titles.get(project_id, "?")
+                descriptor = f'task "{task_title}" in project "{parent}"'
+            else:
+                descriptor = "task (removed)"
+        if descriptor is not None:
+            reaction = f", {fb.reaction.value}" if fb.reaction else ""
+            lines.append(f"- ({descriptor}{reaction}) {fb.note}")
+        else:
+            lines.append(f"- {fb.note}")
+        if len(lines) >= max_items:
+            break
+    return "\n".join(lines) or "None"
 
 
 async def generate_project(
@@ -78,10 +136,31 @@ async def generate_project(
         if onboarding and onboarding.go_experience_level:
             go_experience = onboarding.go_experience_level
 
-        # Feedforward
-        all_feedback = await feedback_svc.list_all_feedback(db, limit=50)
-        feedforward = [f.note for f in all_feedback if f.note]
-        feedforward_text = "\n".join(f"- {n}" for n in feedforward[:10]) or "None"
+        # Feedforward — scoped to projects + project_tasks, with item
+        # descriptors so the LLM knows what each note refers to.
+        relevant_feedback = await feedback_svc.list_feedback_by_target_types(
+            db,
+            [FeedbackTargetType.PROJECT, FeedbackTargetType.PROJECT_TASK],
+            limit=50,
+        )
+        other_feedback = await feedback_svc.list_all_feedback(db, limit=50)
+        seen_ids = {f.id for f in relevant_feedback}
+        for fb in other_feedback:
+            if fb.id not in seen_ids and fb.note:
+                relevant_feedback.append(fb)
+        proj_ids = {
+            fb.target_id for fb in relevant_feedback if fb.target_type == FeedbackTargetType.PROJECT
+        }
+        task_ids = {
+            fb.target_id
+            for fb in relevant_feedback
+            if fb.target_type == FeedbackTargetType.PROJECT_TASK
+        }
+        task_info = await _load_task_lookup(db, task_ids)
+        # Tasks bring in their parent project IDs too
+        proj_ids.update({p for _, p in task_info.values()})
+        project_titles = await _load_project_title_lookup(db, proj_ids)
+        feedforward_text = _format_project_feedforward(relevant_feedback, project_titles, task_info)
 
         # Previous themes
         prev_projects = await project_svc.list_projects(db, limit=5)

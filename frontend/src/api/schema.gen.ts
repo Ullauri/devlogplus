@@ -519,7 +519,11 @@ export interface paths {
         };
         /**
          * List feedback
-         * @description Return all feedback entries ordered by creation date (most recent first).
+         * @description Return feedback entries ordered by creation date (most recent first).
+         *
+         *     If both ``target_type`` and ``target_id`` are supplied, the result is
+         *     narrowed to feedback on that specific item — this is how the UI hydrates
+         *     previously submitted reactions/notes when rendering generated items.
          */
         get: operations["list_feedback_api_v1_feedback_get"];
         put?: never;
@@ -3786,6 +3790,10 @@ export interface operations {
     list_feedback_api_v1_feedback_get: {
         parameters: {
             query?: {
+                /** @description Restrict results to feedback on items of this type. */
+                target_type?: components["schemas"]["FeedbackTargetType"] | null;
+                /** @description Restrict results to a single item. Requires target_type. */
+                target_id?: string | null;
                 /** @description Number of entries to skip */
                 offset?: number;
                 /** @description Maximum entries to return */
@@ -3797,7 +3805,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Paginated list of all feedback entries, most recent first */
+            /** @description Feedback entries, most recent first. When both target_type and target_id are provided, only entries for that item are returned. */
             200: {
                 headers: {
                     [name: string]: unknown;

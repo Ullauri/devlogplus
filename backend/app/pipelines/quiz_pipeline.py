@@ -10,10 +10,12 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.config import settings
 from backend.app.models.base import (
+    FeedbackTargetType,
     PipelineStatus,
     PipelineType,
     QuizCorrectness,
@@ -32,6 +34,44 @@ from backend.app.services.llm.client import llm_client
 from backend.app.services.llm.models import QuizEvaluationResult, QuizGenerationResult
 
 logger = logging.getLogger(__name__)
+
+
+async def _load_question_lookup(
+    db: AsyncSession, ids: set[uuid.UUID]
+) -> dict[uuid.UUID, QuizQuestion]:
+    if not ids:
+        return {}
+    stmt = select(QuizQuestion).where(QuizQuestion.id.in_(ids))
+    result = await db.execute(stmt)
+    return {q.id: q for q in result.scalars().all()}
+
+
+def _truncate(text: str, n: int = 140) -> str:
+    text = text.strip().replace("\n", " ")
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def _format_quiz_feedforward(
+    feedback_items,
+    question_lookup: dict[uuid.UUID, QuizQuestion],
+    max_items: int = 10,
+) -> str:
+    lines: list[str] = []
+    for fb in feedback_items:
+        if not fb.note:
+            continue
+        if fb.target_type == FeedbackTargetType.QUIZ_QUESTION:
+            q = question_lookup.get(fb.target_id)
+            descriptor = (
+                f'question "{_truncate(q.question_text, 80)}"' if q else "question (removed)"
+            )
+            reaction = f", {fb.reaction.value}" if fb.reaction else ""
+            lines.append(f"- ({descriptor}{reaction}) {fb.note}")
+        else:
+            lines.append(f"- {fb.note}")
+        if len(lines) >= max_items:
+            break
+    return "\n".join(lines) or "None"
 
 
 async def generate_quiz(
@@ -66,10 +106,33 @@ async def generate_quiz(
         profile = await profile_svc.get_knowledge_profile(db)
         profile_summary = profile.model_dump_json(indent=2)
 
-        # Gather feedforward signals from recent feedback
-        all_feedback = await feedback_svc.list_all_feedback(db, limit=50)
-        feedforward = [f.note for f in all_feedback if f.note]
-        feedforward_text = "\n".join(f"- {n}" for n in feedforward[:10]) or "None"
+        # Gather thumbs-down questions — asked before and rejected. Surface
+        # their texts to the LLM so near-duplicates are avoided.
+        disliked_q_ids = await feedback_svc.list_disliked_target_ids(
+            db, FeedbackTargetType.QUIZ_QUESTION
+        )
+        disliked_q_lookup = await _load_question_lookup(db, disliked_q_ids)
+        avoid_questions_text = (
+            "\n".join(f"- {_truncate(q.question_text)}" for q in disliked_q_lookup.values())
+            or "None"
+        )
+
+        # Contextualised feedforward, scoped to quiz questions + general notes.
+        relevant_feedback = await feedback_svc.list_feedback_by_target_types(
+            db, [FeedbackTargetType.QUIZ_QUESTION], limit=50
+        )
+        other_feedback = await feedback_svc.list_all_feedback(db, limit=50)
+        seen_ids = {f.id for f in relevant_feedback}
+        for fb in other_feedback:
+            if fb.id not in seen_ids and fb.note:
+                relevant_feedback.append(fb)
+        note_q_ids = {
+            fb.target_id
+            for fb in relevant_feedback
+            if fb.target_type == FeedbackTargetType.QUIZ_QUESTION
+        }
+        note_q_lookup = await _load_question_lookup(db, note_q_ids)
+        feedforward_text = _format_quiz_feedforward(relevant_feedback, note_q_lookup)
 
         question_count = settings.quiz_question_count
 
@@ -77,6 +140,7 @@ async def generate_quiz(
         prompt = quiz_generation.USER_PROMPT_TEMPLATE.format(
             profile_summary=profile_summary,
             feedforward_signals=feedforward_text,
+            avoid_questions=avoid_questions_text,
             question_count=question_count,
         )
 

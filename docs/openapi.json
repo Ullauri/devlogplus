@@ -1261,9 +1261,46 @@
           "feedback"
         ],
         "summary": "List feedback",
-        "description": "Return all feedback entries ordered by creation date (most recent first).",
+        "description": "Return feedback entries ordered by creation date (most recent first).\n\nIf both ``target_type`` and ``target_id`` are supplied, the result is\nnarrowed to feedback on that specific item — this is how the UI hydrates\npreviously submitted reactions/notes when rendering generated items.",
         "operationId": "list_feedback_api_v1_feedback_get",
         "parameters": [
+          {
+            "name": "target_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/FeedbackTargetType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict results to feedback on items of this type.",
+              "title": "Target Type"
+            },
+            "description": "Restrict results to feedback on items of this type."
+          },
+          {
+            "name": "target_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict results to a single item. Requires target_type.",
+              "title": "Target Id"
+            },
+            "description": "Restrict results to a single item. Requires target_type."
+          },
           {
             "name": "offset",
             "in": "query",
@@ -1294,7 +1331,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Paginated list of all feedback entries, most recent first",
+            "description": "Feedback entries, most recent first. When both target_type and target_id are provided, only entries for that item are returned.",
             "content": {
               "application/json": {
                 "schema": {

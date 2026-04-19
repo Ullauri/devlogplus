@@ -13,6 +13,7 @@ vi.mock("../api/client", () => ({
     },
     feedback: {
       create: vi.fn().mockResolvedValue({}),
+      listFor: vi.fn().mockResolvedValue([]),
     },
   },
 }));

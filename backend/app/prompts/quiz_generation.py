@@ -38,7 +38,15 @@ Consider the user's profile to calibrate difficulty:
 ## Feedforward integration
 
 If the user has provided feedforward signals (e.g., "harder questions",
-"more backend focus"), incorporate them into question selection.
+"more backend focus"), incorporate them into question selection. Notes
+annotated with a specific past question reflect the user's reaction to
+that question — take the reaction into account.
+
+## Avoid-list
+
+Questions listed under "Avoid near-duplicates" have previously received a
+thumbs-down. Do NOT re-ask them or near-paraphrases; pick a different
+angle on the topic or a different topic entirely.
 
 ## Output format
 
@@ -69,6 +77,10 @@ USER_PROMPT_TEMPLATE = """\
 
 {feedforward_signals}
 
+## Avoid near-duplicates (previously thumbs-down'd questions)
+
+{avoid_questions}
+
 ## Number of Questions to Generate
 
 {question_count}
@@ -77,7 +89,8 @@ USER_PROMPT_TEMPLATE = """\
 
 Generate {question_count} free-text quiz questions with an even blend
 of reinforcement and exploration. Calibrate difficulty to the user's
-demonstrated level.
+demonstrated level. Do not repeat or closely paraphrase any question
+from the avoid-list.
 
 Respond with valid JSON using the exact field names specified in the system prompt.
 """

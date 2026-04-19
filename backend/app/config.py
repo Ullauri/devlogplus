@@ -42,6 +42,20 @@ class Settings(BaseSettings):
     # --- Application ---
     quiz_question_count: int = Field(default=10, ge=1, le=50)
     reading_recommendation_count: int = Field(default=5, ge=1, le=20)
+    reading_validate_urls: bool = Field(
+        default=True,
+        description=(
+            "If true, the reading pipeline issues HEAD/GET requests against every "
+            "LLM-proposed URL and drops recommendations that don't resolve (2xx/3xx). "
+            "Disable for offline dev or to skip the network round-trip."
+        ),
+    )
+    reading_url_validation_timeout: float = Field(
+        default=5.0,
+        ge=0.5,
+        le=30.0,
+        description="Per-URL timeout (seconds) for reading URL reachability checks.",
+    )
     app_env: str = Field(default="development")
     log_level: str = Field(default="INFO")
 

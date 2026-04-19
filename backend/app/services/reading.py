@@ -1,14 +1,91 @@
 """Reading service — recommendations and allowlist management."""
 
+import asyncio
+import logging
 import uuid
 from datetime import date
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.functions import count
 
 from backend.app.models.reading import ReadingAllowlist, ReadingRecommendation
 from backend.app.schemas.reading import AllowlistEntryCreate, AllowlistEntryUpdate
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# URL reachability validation
+# ---------------------------------------------------------------------------
+# The LLM occasionally hallucinates plausible-but-nonexistent article URLs
+# (e.g. made-up martinfowler.com slugs). Before surfacing a recommendation
+# to the user we confirm the page actually resolves with a cheap HEAD request
+# (falling back to GET for servers that reject HEAD).
+#
+# Kept here — rather than in the pipeline layer — because it is a reusable
+# piece of "reading" domain logic and is easier to unit-test in isolation.
+
+# Browser-ish UA: some sites (notably martinfowler.com CDN) return 403 for
+# bare httpx/<ver> user agents.
+_URL_VALIDATION_UA = "Mozilla/5.0 (compatible; DevLogPlus-LinkCheck/1.0; +https://github.com/)"
+
+
+async def _check_single_url(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    timeout: float,  # noqa: ASYNC109 — passed to httpx, not asyncio.timeout
+) -> tuple[str, bool, str | None]:
+    """Return ``(url, is_reachable, reason)``.
+
+    A URL is considered reachable if the server responds with any status in
+    the range 200–399 (after following redirects). A 405 Method Not Allowed
+    on HEAD triggers a GET fallback, since some origins refuse HEAD.
+    """
+    headers = {"User-Agent": _URL_VALIDATION_UA}
+    try:
+        resp = await client.head(url, follow_redirects=True, timeout=timeout, headers=headers)
+        # Some servers block HEAD — retry once with GET.
+        if resp.status_code in (403, 405, 501):
+            resp = await client.get(url, follow_redirects=True, timeout=timeout, headers=headers)
+        if 200 <= resp.status_code < 400:
+            return url, True, None
+        return url, False, f"HTTP {resp.status_code}"
+    except httpx.TimeoutException:
+        return url, False, "timeout"
+    except httpx.HTTPError as exc:
+        return url, False, f"{type(exc).__name__}: {exc}"
+
+
+async def validate_urls(
+    urls: list[str],
+    *,
+    timeout: float = 5.0,  # noqa: ASYNC109 — passed to httpx, not asyncio.timeout
+    concurrency: int = 8,
+) -> dict[str, tuple[bool, str | None]]:
+    """Concurrently check a batch of URLs.
+
+    Returns a mapping ``{url: (is_reachable, reason_if_unreachable)}``.
+    Never raises — network failures translate to ``(False, reason)``.
+    """
+    if not urls:
+        return {}
+
+    sem = asyncio.Semaphore(concurrency)
+    # Unique list while preserving order so repeats don't get checked twice.
+    unique: list[str] = list(dict.fromkeys(urls))
+
+    async with httpx.AsyncClient() as client:
+
+        async def _bounded(u: str) -> tuple[str, bool, str | None]:
+            async with sem:
+                return await _check_single_url(client, u, timeout=timeout)
+
+        results = await asyncio.gather(*(_bounded(u) for u in unique))
+
+    return {u: (ok, reason) for (u, ok, reason) in results}
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +206,36 @@ DEFAULT_ALLOWLIST = [
     ("engineering.fb.com", "Meta Engineering", "Meta engineering blog"),
     ("netflixtechblog.com", "Netflix Tech Blog", "Netflix engineering blog"),
     ("blog.golang.org", "Go Blog (legacy)", "Legacy Go blog URL"),
+    # Personal blogs from respected practitioners
+    ("joelonsoftware.com", "Joel on Software", "Joel Spolsky on software engineering"),
+    ("blog.codinghorror.com", "Coding Horror", "Jeff Atwood on programming"),
+    ("danluu.com", "Dan Luu", "Deep dives on performance, hardware, and engineering culture"),
+    ("lethain.com", "Irrational Exuberance", "Will Larson on engineering leadership"),
+    ("overreacted.io", "Overreacted", "Dan Abramov on React and JavaScript"),
+    (
+        "blog.pragmaticengineer.com",
+        "The Pragmatic Engineer",
+        "Gergely Orosz on software engineering practice",
+    ),
+    ("allthingsdistributed.com", "All Things Distributed", "Werner Vogels on distributed systems"),
+    # Company engineering blogs
+    ("stackoverflow.blog", "Stack Overflow Blog", "Stack Overflow engineering and community"),
+    ("github.blog", "GitHub Blog", "GitHub product and engineering updates"),
+    ("stripe.com/blog", "Stripe Blog", "Stripe engineering and product"),
+    ("shopify.engineering", "Shopify Engineering", "Shopify engineering blog"),
+    ("slack.engineering", "Slack Engineering", "Slack engineering blog"),
+    ("eng.uber.com", "Uber Engineering", "Uber engineering blog"),
+    ("blog.cloudflare.com", "Cloudflare Blog", "Cloudflare engineering and security"),
+    ("fly.io/blog", "Fly.io Blog", "Fly.io engineering and infrastructure"),
+    ("jepsen.io", "Jepsen", "Distributed systems correctness analyses"),
+    # Research and reference
+    ("research.google", "Google Research", "Google Research publications and blog"),
+    ("highscalability.com", "High Scalability", "Architecture case studies at scale"),
+    ("rust-lang.org", "Rust Lang", "Official Rust language site"),
+    ("doc.rust-lang.org", "Rust Docs", "Official Rust documentation"),
+    ("typescriptlang.org/docs", "TypeScript Docs", "Official TypeScript documentation"),
+    # Learning / tutorials
+    ("geeksforgeeks.org", "GeeksforGeeks", "Tutorials, practice problems, and CS fundamentals"),
 ]
 
 
