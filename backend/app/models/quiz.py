@@ -2,10 +2,12 @@
 
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql.functions import now
 
 from backend.app.models.base import (
     Base,
@@ -15,6 +17,9 @@ from backend.app.models.base import (
     TimestampMixin,
     UUIDMixin,
 )
+
+if TYPE_CHECKING:
+    from backend.app.models.topic import Topic
 
 
 class QuizSession(Base, UUIDMixin, TimestampMixin):
@@ -56,7 +61,7 @@ class QuizQuestion(Base, UUIDMixin):
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default=func.now(),
+        server_default=now(),
         nullable=False,
     )
 
@@ -68,9 +73,7 @@ class QuizQuestion(Base, UUIDMixin):
     evaluation: Mapped["QuizEvaluation | None"] = relationship(
         back_populates="question", uselist=False, cascade="all, delete-orphan"
     )
-    topic: Mapped["Topic | None"] = relationship(  # noqa: F821
-        "Topic", lazy="joined", foreign_keys=[topic_id]
-    )
+    topic: Mapped["Topic | None"] = relationship("Topic", lazy="joined", foreign_keys=[topic_id])
 
     @property
     def topic_name(self) -> str | None:
@@ -96,7 +99,7 @@ class QuizAnswer(Base, UUIDMixin):
     answer_text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default=func.now(),
+        server_default=now(),
         nullable=False,
     )
 
@@ -122,7 +125,7 @@ class QuizEvaluation(Base, UUIDMixin):
     raw_llm_output: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default=func.now(),
+        server_default=now(),
         nullable=False,
     )
 
