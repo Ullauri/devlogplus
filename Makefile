@@ -1,4 +1,4 @@
-.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-mutation-frontend test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp
+.PHONY: lint lint-backend lint-frontend lint-fix lint-check typecheck-frontend format format-backend format-frontend test test-backend test-frontend test-integration test-mutation-frontend test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp
 
 VENV_DIR := .venv-devlogplus
 PYTHON := python3
@@ -48,7 +48,11 @@ lint-check: ## Check lint without fixing (CI mode)
 	poetry run ruff check backend/
 	poetry run ruff format --check backend/
 	cd frontend && npm run lint
+	$(MAKE) typecheck-frontend
 	$(MAKE) openapi-check
+
+typecheck-frontend: ## Type-check frontend (tsc --noEmit)
+	cd frontend && npm run typecheck
 
 lint-fix: lint ## Alias for lint
 

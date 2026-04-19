@@ -132,9 +132,9 @@ describe("QuizPage — active session", () => {
     await waitFor(() => screen.getByText(/Explain goroutines/));
 
     const textareas = screen.getAllByPlaceholderText("Your answer…");
-    await user.type(textareas[0], "concurrent functions");
+    await user.type(textareas[0]!, "concurrent functions");
     const submitBtns = screen.getAllByRole("button", { name: "Submit" });
-    await user.click(submitBtns[0]);
+    await user.click(submitBtns[0]!);
 
     await waitFor(() => {
       expect(mockSubmitAnswer).toHaveBeenCalledWith(
@@ -153,7 +153,7 @@ describe("QuizPage — active session", () => {
     await waitFor(() => screen.getByText(/Explain goroutines/));
 
     const submitBtns = screen.getAllByRole("button", { name: "Submit" });
-    await user.click(submitBtns[0]);
+    await user.click(submitBtns[0]!);
 
     expect(mockSubmitAnswer).not.toHaveBeenCalled();
   });

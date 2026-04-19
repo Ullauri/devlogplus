@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:mock": "vite --mode mock",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
     "preview": "vite preview",
     "mock-api": "prism mock ../docs/openapi.json --host 0.0.0.0 --port 4010 --dynamic --errors",
     "openapi:types": "openapi-typescript ../docs/openapi.json -o src/api/schema.gen.ts",

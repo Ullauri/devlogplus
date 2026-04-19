@@ -75,6 +75,10 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: TypeScript type-check
+        working-directory: frontend
+        run: npm run typecheck
+
   # ── Backend Tests ────────────────────────────────────────────────
   test-backend:
     name: Backend Tests
