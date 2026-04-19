@@ -92,6 +92,11 @@ backup: ## Backup database and workspace/projects to backups/<timestamp>/
 	@bash scripts/backup.sh
 
 # ── Database migrations ──────────────────────────────────────────────
+# NOTE: Always run `make migrate` after pulling changes that touch
+# backend/migrations/versions/ OR backend/app/models/. The testcontainer
+# in backend/tests/conftest.py applies `alembic upgrade head` (not
+# Base.metadata.create_all) so CI catches model/migration drift — but
+# the dev database is only updated when you run `make migrate` locally.
 migrate: backup ## Run database migrations (creates backup first)
 	@echo "▶ Running database migrations…"
 	poetry run alembic upgrade head
