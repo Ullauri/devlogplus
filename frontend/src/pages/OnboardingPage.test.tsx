@@ -95,15 +95,15 @@ describe("OnboardingPage — navigation", () => {
     );
     let bars = container.querySelectorAll("div.h-1\\.5");
     expect(bars).toHaveLength(3);
-    expect(bars[0].className).toContain("bg-brand-500");
-    expect(bars[1].className).toContain("bg-gray-200");
-    expect(bars[2].className).toContain("bg-gray-200");
+    expect(bars[0]!.className).toContain("bg-brand-500");
+    expect(bars[1]!.className).toContain("bg-gray-200");
+    expect(bars[2]!.className).toContain("bg-gray-200");
 
     await user.click(screen.getByText("Next"));
     bars = container.querySelectorAll("div.h-1\\.5");
-    expect(bars[0].className).toContain("bg-brand-500");
-    expect(bars[1].className).toContain("bg-brand-500");
-    expect(bars[2].className).toContain("bg-gray-200");
+    expect(bars[0]!.className).toContain("bg-brand-500");
+    expect(bars[1]!.className).toContain("bg-brand-500");
+    expect(bars[2]!.className).toContain("bg-gray-200");
   });
 });
 
@@ -171,7 +171,7 @@ describe("OnboardingPage — topic toggle", () => {
     await user.click(screen.getByText("Complete Setup"));
 
     await waitFor(() => expect(mockComplete).toHaveBeenCalled());
-    const payload = mockComplete.mock.calls[0][0];
+    const payload = mockComplete.mock.calls[0]![0];
     expect(payload.topic_interests).toEqual(["Databases", "API design"]);
   });
 
@@ -184,7 +184,7 @@ describe("OnboardingPage — topic toggle", () => {
     await user.click(screen.getByText("Complete Setup"));
 
     await waitFor(() => expect(mockComplete).toHaveBeenCalled());
-    const payload = mockComplete.mock.calls[0][0];
+    const payload = mockComplete.mock.calls[0]![0];
     expect(payload.topic_interests).toBeUndefined();
   });
 });
@@ -214,7 +214,7 @@ describe("OnboardingPage — self-assessment payload", () => {
     await user.click(screen.getByText("Complete Setup"));
 
     await waitFor(() => expect(mockComplete).toHaveBeenCalled());
-    const payload = mockComplete.mock.calls[0][0];
+    const payload = mockComplete.mock.calls[0]![0];
     expect(payload.self_assessment.years_experience).toBe(7);
     expect(payload.self_assessment.primary_languages).toEqual([
       "Python",
@@ -234,7 +234,7 @@ describe("OnboardingPage — self-assessment payload", () => {
     await user.click(screen.getByText("Complete Setup"));
 
     await waitFor(() => expect(mockComplete).toHaveBeenCalled());
-    const payload = mockComplete.mock.calls[0][0];
+    const payload = mockComplete.mock.calls[0]![0];
     expect(payload.self_assessment.years_experience).toBeNull();
     expect(payload.self_assessment.primary_languages).toEqual([]);
     expect(payload.self_assessment.comfort_areas).toEqual([]);
