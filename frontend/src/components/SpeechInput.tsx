@@ -1,6 +1,35 @@
 import { Mic, MicOff } from "lucide-react";
 import { useState, useRef, useCallback } from "react";
 
+// Minimal Web Speech API typings (not yet in lib.dom for all TS versions).
+interface SpeechRecognitionAlternative {
+  transcript: string;
+}
+interface SpeechRecognitionResultItem {
+  [index: number]: SpeechRecognitionAlternative;
+}
+interface SpeechRecognitionEventLike {
+  results: ArrayLike<SpeechRecognitionResultItem>;
+}
+interface SpeechRecognitionInstance {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionInstance;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  }
+}
+
 interface Props {
   onTranscript: (text: string) => void;
 }
@@ -8,7 +37,7 @@ interface Props {
 /** Browser Web Speech API dictation button — text only, no audio files. */
 export default function SpeechInput({ onTranscript }: Props) {
   const [listening, setListening] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   const toggle = useCallback(() => {
     if (listening) {
@@ -18,12 +47,7 @@ export default function SpeechInput({ onTranscript }: Props) {
     }
 
     const SpeechRecognition =
-      window.SpeechRecognition ??
-      (
-        window as unknown as {
-          webkitSpeechRecognition: typeof window.SpeechRecognition;
-        }
-      ).webkitSpeechRecognition;
+      window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert("Speech recognition not supported in this browser.");
       return;
@@ -34,7 +58,7 @@ export default function SpeechInput({ onTranscript }: Props) {
     recognition.interimResults = false;
     recognition.lang = "en-US";
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
       const transcript = Array.from(event.results)
         .map((r) => r[0]?.transcript ?? "")
         .join(" ");

@@ -34,52 +34,93 @@ A single-user, self-hosted developer journal for technical learning and skill ma
 
 ## Prerequisites
 
+DevLog+ is designed to run **natively** for real use. Docker is only provided as a convenience for local development (see [Development](#development)).
+
 - Python 3.12+
 - Node.js 20+
-- PostgreSQL 16 with the [pgvector](https://github.com/pgvector/pgvector) extension (or Docker)
+- PostgreSQL 16 with the [pgvector](https://github.com/pgvector/pgvector) extension installed and available to the server
+- A Postgres role with privileges to `CREATE EXTENSION vector` (superuser is simplest; the extension is enabled by the initial migration)
 - An [OpenRouter](https://openrouter.ai/) API key
 
-## Quick Start
+## Quick Start (native)
 
-### 1. Clone and set up the environment
+This is the intended way to run DevLog+ for real use.
+
+### 1. Install PostgreSQL 16 with pgvector
+
+You need both Postgres 16 **and** the `pgvector` extension package installed on the host. The extension itself is enabled automatically by the first migration (`CREATE EXTENSION IF NOT EXISTS vector`), but the shared library must already be available to the server.
+
+```bash
+# Debian / Ubuntu
+sudo apt install postgresql-16 postgresql-16-pgvector
+
+# macOS (Homebrew)
+brew install postgresql@16 pgvector
+
+# Other platforms: see https://github.com/pgvector/pgvector#installation
+```
+
+Create the database and role referenced by the default `DATABASE_URL`:
+
+```bash
+sudo -u postgres createuser -s devlogplus            # superuser simplifies CREATE EXTENSION
+sudo -u postgres createdb -O devlogplus devlogplus
+sudo -u postgres psql -c "ALTER USER devlogplus WITH PASSWORD 'devlogplus';"
+```
+
+> If you prefer a non-superuser role, run `CREATE EXTENSION vector;` once manually as a superuser against the `devlogplus` database before `make migrate`.
+
+### 2. Install project dependencies
 
 ```bash
 make venv
 source .venv-devlogplus/bin/activate
 ```
 
-### 2. Configure environment variables
+This creates `.venv-devlogplus/` and installs both backend (Python) and frontend (npm) dependencies.
 
-Create a `.env` file in the project root:
-
-```env
-DATABASE_URL=postgresql+asyncpg://devlogplus:devlogplus@localhost:5432/devlogplus
-OPENROUTER_API_KEY=your-key-here
-
-# Optional
-LANGFUSE_PUBLIC_KEY=
-LANGFUSE_SECRET_KEY=
-LANGFUSE_HOST=https://cloud.langfuse.com
-```
-
-### 3a. Run natively
+### 3. Configure environment variables
 
 ```bash
-make run
+cp .env.example .env
 ```
 
-This builds the frontend, runs database migrations, and starts the server at **http://localhost:8000**.
+Then edit `.env`:
 
-### 3b. Run with Docker (development)
+- Set `OPENROUTER_API_KEY` (required).
+- Change `DATABASE_URL` host from `@db:` to `@localhost:` (the shipped default targets the Docker compose service name):
+
+  ```env
+  DATABASE_URL=postgresql+asyncpg://devlogplus:devlogplus@localhost:5432/devlogplus
+  ```
+- Optionally fill in Langfuse keys for LLM tracing.
+
+### 4. Run migrations and start the server
 
 ```bash
-make up
-make migrate-docker
+make migrate   # requires Postgres to be running and reachable
+make run       # builds the frontend, applies migrations, and serves on :8000
 ```
 
-The app is available at **http://localhost:8000** with hot-reload enabled.
+Open **http://localhost:8000** for the UI, or **http://localhost:8000/docs** for the API.
+
+### Troubleshooting
+
+- `extension "vector" is not available` — the `pgvector` package isn't installed on the Postgres host. Install it (see step 1) and restart Postgres.
+- `permission denied to create extension "vector"` — the `devlogplus` role isn't a superuser. Either grant superuser, or run `CREATE EXTENSION vector;` manually as a superuser before migrating.
+- `could not translate host name "db"` — you're still using the Docker-style `DATABASE_URL`; change `@db:` to `@localhost:` in `.env`.
 
 ## Development
+
+For local development, a Docker Compose stack is provided that runs Postgres (with pgvector preinstalled) and the backend with hot-reload. **Docker is intended for development only** — production/real runs should use the native path above.
+
+```bash
+make up                # start app + pgvector in Docker
+make migrate-docker    # run migrations inside the container
+make down              # stop the stack
+```
+
+Other common tasks:
 
 ```bash
 # Backend dev server with hot-reload
