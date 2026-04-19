@@ -1,4 +1,4 @@
-.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation
+.PHONY: lint lint-backend lint-frontend lint-fix lint-check format format-backend format-frontend test test-backend test-frontend test-integration test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp
 
 VENV_DIR := .venv-devlogplus
 PYTHON := python3
@@ -104,6 +104,10 @@ down: ## [Dev] Stop all Docker services
 
 migrate-docker: ## [Dev] Run migrations inside Docker container
 	docker compose exec app alembic upgrade head
+
+# ── MCP server ───────────────────────────────────────────────────────
+mcp: ## Start the MCP server (stdio transport, for Claude Code)
+	poetry run python -m backend.app.mcp_server
 
 # ── Development ──────────────────────────────────────────────────────
 dev: ## Start backend dev server locally with hot-reload (no Docker)

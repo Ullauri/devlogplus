@@ -18,6 +18,7 @@ httpx = "^0.28.0"
 langfuse = "^2.51.0"
 pgvector = "^0.3.6"
 python-multipart = "^0.0.20"
+mcp = "^1.27.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"

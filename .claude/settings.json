@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "devlogplus": {
+      "type": "stdio",
+      "command": "poetry",
+      "args": ["run", "python", "-m", "backend.app.mcp_server"],
+      "cwd": "/home/bcabrera/Projects/devlogplus"
+    }
+  }
+}
