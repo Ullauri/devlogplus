@@ -540,6 +540,15 @@ export default function SettingsPage() {
 
       <div className="space-y-6">
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-3 text-lg font-semibold">About</h2>
+          <p className="text-sm text-gray-600">
+            <strong>DevLog+</strong> — A single-user, locally-run developer
+            journal for technical learning and skill maintenance. Powered by
+            LLMs via OpenRouter with Langfuse observability.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="mb-3 text-lg font-semibold">General</h2>
           <p className="mb-4 text-sm text-gray-500">
             These settings are stored in the database. Other configuration (API
@@ -830,15 +839,6 @@ export default function SettingsPage() {
               scripts/setup_cron.sh
             </code>{" "}
             to install crontab entries.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-lg font-semibold">About</h2>
-          <p className="text-sm text-gray-600">
-            <strong>DevLog+</strong> — A single-user, locally-run developer
-            journal for technical learning and skill maintenance. Powered by
-            LLMs via OpenRouter with Langfuse observability.
           </p>
         </div>
 
