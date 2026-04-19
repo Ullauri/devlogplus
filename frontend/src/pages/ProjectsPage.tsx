@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, WeeklyProject } from "../api/client";
+import { api, WeeklyProject, WeeklyProjectDetail } from "../api/client";
 import FeedbackControls from "../components/FeedbackControls";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -18,7 +18,7 @@ const TASK_TYPE_COLOR: Record<string, string> = {
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<WeeklyProject[]>([]);
-  const [current, setCurrent] = useState<WeeklyProject | null>(null);
+  const [current, setCurrent] = useState<WeeklyProjectDetail | null>(null);
 
   useEffect(() => {
     api.projects

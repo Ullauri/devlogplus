@@ -36,7 +36,7 @@ export default function JournalPage() {
   const startEdit = (entry: JournalEntry) => {
     setEditingId(entry.id);
     setTitle(entry.title ?? "");
-    setContent(entry.current_content);
+    setContent(entry.current_content ?? "");
     setShowForm(true);
   };
 

@@ -29,7 +29,16 @@ export default function ProfilePage() {
     );
   }
 
-  const categories = Object.entries(profile.categories);
+  const categories: [string, typeof profile.strengths][] = (
+    [
+      ["strengths", profile.strengths ?? []],
+      ["current_frontier", profile.current_frontier ?? []],
+      ["next_frontier", profile.next_frontier ?? []],
+      ["recurring_themes", profile.recurring_themes ?? []],
+      ["weak_spots", profile.weak_spots ?? []],
+      ["unresolved", profile.unresolved ?? []],
+    ] as [string, typeof profile.strengths][]
+  ).filter(([, topics]) => topics.length > 0);
 
   return (
     <div>

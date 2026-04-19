@@ -1,323 +1,307 @@
 /**
- * Integration tests that hit the Prism mock server.
+ * Contract integration tests — exercise the real `api` client against
+ * a Prism mock server serving docs/openapi.json with `--errors` enabled.
  *
- * These verify that the frontend API client can successfully communicate
- * with a server that implements the OpenAPI spec — validating request
- * shapes, response parsing, and status codes against the single source
- * of truth (docs/openapi.json).
+ * These tests are the trip-wire that catches client↔spec drift.
+ *
+ * Rules:
+ *   1. Always call methods on the exported `api` object — never raw
+ *      fetch/post helpers. The whole point is to validate that the
+ *      generated request shapes in client.ts match the contract.
+ *   2. Prism returns 422 on any spec-violating request body. The `api`
+ *      client throws on non-2xx, so a validation failure becomes a
+ *      rejected promise.
+ *   3. Dynamic mode means response bodies are synthesized from the
+ *      schema. Assertions only check for presence of required fields.
  *
  * The Prism server is started/stopped automatically by the globalSetup
  * defined in vitest.integration.config.ts.
  */
 
 import { describe, it, expect } from "vitest";
+import { api } from "./client";
 
-const PRISM_BASE = "http://localhost:4010/api/v1";
-
-/* ------------------------------------------------------------------ *
- *  Helpers                                                            *
- * ------------------------------------------------------------------ */
-
-async function get(path: string) {
-  const res = await fetch(`${PRISM_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-  });
-  return res;
-}
-
-async function post(path: string, body?: unknown) {
-  const res = await fetch(`${PRISM_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return res;
-}
-
-async function put(path: string, body?: unknown) {
-  const res = await fetch(`${PRISM_BASE}${path}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return res;
-}
-
-async function del(path: string) {
-  const res = await fetch(`${PRISM_BASE}${path}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-  });
-  return res;
-}
+const UUID = "00000000-0000-0000-0000-000000000001";
 
 /* ================================================================== *
- *  Journal endpoints                                                  *
+ *  Journal                                                            *
  * ================================================================== */
-
-describe("Journal API contract", () => {
-  it("GET /journal/entries returns 200 with array", async () => {
-    const res = await get("/journal/entries");
-    expect(res.status).toBe(200);
-    const data = await res.json();
+describe("api.journal contract", () => {
+  it("list() resolves with array", async () => {
+    const data = await api.journal.list();
     expect(Array.isArray(data)).toBe(true);
   });
 
-  it("POST /journal/entries returns 201 with entry object", async () => {
-    const res = await post("/journal/entries", {
+  it("create() with valid body resolves", async () => {
+    const entry = await api.journal.create({
       content: "Learned about channels in Go",
     });
-    expect(res.status).toBe(201);
-    const data = await res.json();
-    expect(data).toHaveProperty("id");
-    expect(data).toHaveProperty("current_content");
+    expect(entry).toHaveProperty("id");
   });
 
-  it("GET /journal/entries/:id returns 200 with entry", async () => {
-    // Prism accepts any UUID-shaped path param in dynamic mode
-    const res = await get(
-      "/journal/entries/00000000-0000-0000-0000-000000000001",
-    );
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("id");
+  it("get() resolves with detail entry", async () => {
+    const entry = await api.journal.get(UUID);
+    expect(entry).toHaveProperty("id");
   });
 
-  it("PUT /journal/entries/:id returns 200", async () => {
-    const res = await put(
-      "/journal/entries/00000000-0000-0000-0000-000000000001",
-      {
-        content: "Updated content",
-      },
-    );
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("id");
+  it("update() with valid body resolves", async () => {
+    const entry = await api.journal.update(UUID, { content: "Updated" });
+    expect(entry).toHaveProperty("id");
   });
 
-  it("DELETE /journal/entries/:id returns 200 with message", async () => {
-    const res = await del(
-      "/journal/entries/00000000-0000-0000-0000-000000000001",
-    );
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("message");
+  it("delete() resolves without throwing", async () => {
+    await expect(api.journal.delete(UUID)).resolves.not.toThrow();
   });
 });
 
 /* ================================================================== *
- *  Profile endpoints                                                  *
+ *  Profile                                                            *
  * ================================================================== */
-
-describe("Profile API contract", () => {
-  it("GET /profile returns 200 with knowledge profile", async () => {
-    const res = await get("/profile");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("total_topics");
+describe("api.profile contract", () => {
+  it("get() resolves with knowledge profile", async () => {
+    const profile = await api.profile.get();
+    expect(profile).toHaveProperty("total_topics");
   });
 
-  it("GET /profile/snapshots returns 200 with array", async () => {
-    const res = await get("/profile/snapshots");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+  it("snapshots() resolves with array", async () => {
+    const snaps = await api.profile.snapshots();
+    expect(Array.isArray(snaps)).toBe(true);
   });
 });
 
 /* ================================================================== *
- *  Quiz endpoints                                                     *
+ *  Quiz                                                               *
  * ================================================================== */
-
-describe("Quiz API contract", () => {
-  it("GET /quizzes/sessions returns 200 with array", async () => {
-    const res = await get("/quizzes/sessions");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+describe("api.quiz contract", () => {
+  it("listSessions() resolves with array", async () => {
+    const sessions = await api.quiz.listSessions();
+    expect(Array.isArray(sessions)).toBe(true);
   });
 
-  it("GET /quizzes/sessions/current returns 200 with session or null", async () => {
-    const res = await get("/quizzes/sessions/current");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    // Spec allows null (no active session) or a session object
-    if (data !== null) {
-      expect(data).toHaveProperty("id");
-      expect(data).toHaveProperty("status");
-    }
-  });
-
-  it("POST /quizzes/questions/:id/answer returns 201", async () => {
-    const res = await post(
-      "/quizzes/questions/00000000-0000-0000-0000-000000000001/answer",
-      {
-        answer_text:
-          "Goroutines are lightweight threads managed by the Go runtime",
-      },
-    );
-    expect(res.status).toBe(201);
+  it("submitAnswer() resolves", async () => {
+    const r = await api.quiz.submitAnswer(UUID, "answer");
+    expect(r).toHaveProperty("id");
   });
 });
 
 /* ================================================================== *
- *  Readings endpoints                                                 *
+ *  Readings                                                           *
  * ================================================================== */
-
-describe("Readings API contract", () => {
-  it("GET /readings/recommendations returns 200 with array", async () => {
-    const res = await get("/readings/recommendations");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+describe("api.readings contract", () => {
+  it("list() resolves with array", async () => {
+    const items = await api.readings.list();
+    expect(Array.isArray(items)).toBe(true);
   });
 
-  it("GET /readings/allowlist returns 200 with array", async () => {
-    const res = await get("/readings/allowlist");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+  it("allowlist() resolves with array", async () => {
+    const items = await api.readings.allowlist();
+    expect(Array.isArray(items)).toBe(true);
   });
 
-  it("POST /readings/allowlist returns 201", async () => {
-    const res = await post("/readings/allowlist", {
+  it("addAllowlist() with valid body resolves", async () => {
+    const entry = await api.readings.addAllowlist({
       domain: "go.dev",
       name: "Official Go site",
     });
-    expect(res.status).toBe(201);
-    const data = await res.json();
-    expect(data).toHaveProperty("id");
-    expect(data).toHaveProperty("domain");
+    expect(entry).toHaveProperty("id");
   });
 });
 
 /* ================================================================== *
- *  Projects endpoints                                                 *
+ *  Projects                                                           *
  * ================================================================== */
-
-describe("Projects API contract", () => {
-  it("GET /projects returns 200 with array", async () => {
-    const res = await get("/projects");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+describe("api.projects contract", () => {
+  it("list() resolves with array", async () => {
+    const items = await api.projects.list();
+    expect(Array.isArray(items)).toBe(true);
   });
 
-  it("GET /projects/current returns 200 with project", async () => {
-    const res = await get("/projects/current");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("id");
-    expect(data).toHaveProperty("title");
+  it("getCurrent() resolves with project", async () => {
+    const p = await api.projects.getCurrent();
+    expect(p).toHaveProperty("id");
+  });
+
+  it("submit() with empty body resolves", async () => {
+    const p = await api.projects.submit(UUID, {});
+    expect(p).toHaveProperty("id");
   });
 });
 
 /* ================================================================== *
- *  Triage endpoints                                                   *
+ *  Triage                                                             *
  * ================================================================== */
-
-describe("Triage API contract", () => {
-  it("GET /triage returns 200 with array", async () => {
-    const res = await get("/triage");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+describe("api.triage contract", () => {
+  it("list() resolves with array", async () => {
+    const items = await api.triage.list();
+    expect(Array.isArray(items)).toBe(true);
   });
 
-  it("GET /triage/blocking returns 200", async () => {
-    const res = await get("/triage/blocking");
-    expect(res.status).toBe(200);
+  it("resolve() with valid enum action resolves", async () => {
+    const r = await api.triage.resolve(UUID, { action: "accepted" });
+    expect(r).toHaveProperty("id");
+  });
+
+  it("resolve() with all enum actions resolves", async () => {
+    for (const action of [
+      "accepted",
+      "rejected",
+      "edited",
+      "deferred",
+    ] as const) {
+      const r = await api.triage.resolve(UUID, {
+        action,
+        resolution_text: "x",
+      });
+      expect(r).toHaveProperty("id");
+    }
   });
 });
 
 /* ================================================================== *
- *  Feedback endpoints                                                 *
+ *  Feedback                                                           *
  * ================================================================== */
-
-describe("Feedback API contract", () => {
-  it("POST /feedback returns 201", async () => {
-    const res = await post("/feedback", {
+describe("api.feedback contract", () => {
+  it("create() with valid enums resolves", async () => {
+    const f = await api.feedback.create({
       target_type: "quiz_question",
-      target_id: "00000000-0000-0000-0000-000000000001",
+      target_id: UUID,
       reaction: "thumbs_up",
       note: "Great question",
     });
-    expect(res.status).toBe(201);
-    const data = await res.json();
-    expect(data).toHaveProperty("id");
+    expect(f).toHaveProperty("id");
   });
 
-  it("GET /feedback returns 200 with array", async () => {
-    const res = await get(
-      "/feedback?target_type=quiz_question&target_id=00000000-0000-0000-0000-000000000001",
-    );
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+  it("listFor() resolves with array", async () => {
+    const items = await api.feedback.listFor("quiz_question", UUID);
+    expect(Array.isArray(items)).toBe(true);
   });
 });
 
 /* ================================================================== *
- *  Settings endpoints                                                 *
+ *  Settings                                                           *
  * ================================================================== */
-
-describe("Settings API contract", () => {
-  it("GET /settings returns 200 with array", async () => {
-    const res = await get("/settings");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(Array.isArray(data)).toBe(true);
+describe("api.settings contract", () => {
+  it("list() resolves with array", async () => {
+    const items = await api.settings.list();
+    expect(Array.isArray(items)).toBe(true);
   });
 
-  it("GET /settings/:key returns 200", async () => {
-    const res = await get("/settings/quiz_question_count");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("key");
-    expect(data).toHaveProperty("value");
-  });
-
-  it("PUT /settings/:key returns 200", async () => {
-    const res = await put("/settings/quiz_question_count", {
-      value: { count: 15 },
-    });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("key");
+  it("update() with valid body resolves", async () => {
+    const s = await api.settings.update("quiz_question_count", { count: 15 });
+    expect(s).toHaveProperty("key");
   });
 });
 
 /* ================================================================== *
- *  Onboarding endpoints                                               *
+ *  Onboarding — the endpoint that started this whole audit            *
  * ================================================================== */
-
-describe("Onboarding API contract", () => {
-  it("GET /onboarding/status returns 200", async () => {
-    const res = await get("/onboarding/status");
-    expect(res.status).toBe(200);
+describe("api.onboarding contract", () => {
+  it("getState() resolves", async () => {
+    const s = await api.onboarding.getState();
+    expect(s).toHaveProperty("completed");
   });
 
-  it("GET /onboarding/state returns 200", async () => {
-    const res = await get("/onboarding/state");
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("completed");
-  });
-
-  it("POST /onboarding/complete returns 200", async () => {
-    const res = await post("/onboarding/complete", {
+  it("complete() with fully-valid body resolves", async () => {
+    const s = await api.onboarding.complete({
       self_assessment: {
-        years_programming: 5,
         primary_languages: ["Python", "TypeScript"],
-        areas_of_experience: ["backend", "devops"],
+        years_experience: 5,
+        primary_domain: "backend",
+        comfort_areas: ["REST APIs"],
+        growth_areas: ["distributed systems"],
       },
-      go_experience: {
-        level: "beginner",
-        months_experience: 2,
-      },
+      go_experience: { level: "beginner", details: "small CLI tools" },
+      topic_interests: ["concurrency"],
     });
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data).toHaveProperty("completed");
+    expect(s).toHaveProperty("completed");
+  });
+
+  it("complete() with the minimal required fields resolves", async () => {
+    // Required-only payload per spec — catches over-eager client validation
+    const s = await api.onboarding.complete({
+      self_assessment: {
+        primary_languages: [],
+        comfort_areas: [],
+        growth_areas: [],
+      },
+      go_experience: { level: "none" },
+    });
+    expect(s).toHaveProperty("completed");
+  });
+});
+
+/* ================================================================== *
+ *  Pipelines                                                          *
+ * ================================================================== */
+describe("api.pipelines contract", () => {
+  it("listRuns() resolves with array", async () => {
+    const runs = await api.pipelines.listRuns();
+    expect(Array.isArray(runs)).toBe(true);
+  });
+
+  it("runProfileUpdate() resolves", async () => {
+    const r = await api.pipelines.runProfileUpdate();
+    expect(r).toHaveProperty("pipeline");
+  });
+
+  it("runQuizGeneration() resolves", async () => {
+    const r = await api.pipelines.runQuizGeneration();
+    expect(r).toHaveProperty("pipeline");
+  });
+
+  it("runReadingGeneration() resolves", async () => {
+    const r = await api.pipelines.runReadingGeneration();
+    expect(r).toHaveProperty("pipeline");
+  });
+
+  it("runProjectGeneration() resolves", async () => {
+    const r = await api.pipelines.runProjectGeneration();
+    expect(r).toHaveProperty("pipeline");
+  });
+});
+
+/* ================================================================== *
+ *  Transfer                                                           *
+ * ================================================================== */
+describe("api.transfer contract", () => {
+  it("metadata() resolves", async () => {
+    const m = await api.transfer.metadata();
+    expect(m).toHaveProperty("format_version");
+  });
+});
+
+/* ================================================================== *
+ *  Negative tests — ensure Prism --errors actually rejects bad bodies *
+ * ================================================================== */
+describe("contract enforcement (negative)", () => {
+  it("raw malformed onboarding body produces 422", async () => {
+    // Directly hit the endpoint with a deliberately bad body.
+    // If this returns 200, Prism --errors is not active and the
+    // contract tests above would silently pass on any shape.
+    const res = await fetch(
+      "http://localhost:4010/api/v1/onboarding/complete",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Old buggy shape — go_experience_level instead of go_experience{}
+        body: JSON.stringify({
+          self_assessment: { years_programming: "5" },
+          go_experience_level: "beginner",
+        }),
+      },
+    );
+    expect(res.status).toBe(422);
+  });
+
+  it("raw malformed triage action produces 422", async () => {
+    const res = await fetch(
+      `http://localhost:4010/api/v1/triage/${UUID}/resolve`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept" }), // short form, not in enum
+      },
+    );
+    expect(res.status).toBe(422);
   });
 });

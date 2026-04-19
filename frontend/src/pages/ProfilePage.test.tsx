@@ -31,19 +31,23 @@ describe("ProfilePage", () => {
 
   it("renders topics grouped by category", async () => {
     mockGet.mockResolvedValue({
-      categories: {
-        "Programming Languages": [
-          {
-            id: "t1",
-            name: "Go concurrency",
-            description: "Goroutines and channels",
-            category: "Programming Languages",
-            evidence_strength: "strong",
-            confidence: 0.85,
-            created_at: "2026-01-01T00:00:00Z",
-          },
-        ],
-      },
+      strengths: [
+        {
+          id: "t1",
+          name: "Go concurrency",
+          description: "Goroutines and channels",
+          category: "demonstrated_strength",
+          evidence_strength: "strong",
+          confidence: 0.85,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+      weak_spots: [],
+      current_frontier: [],
+      next_frontier: [],
+      recurring_themes: [],
+      unresolved: [],
       total_topics: 1,
       last_updated: "2026-01-02T00:00:00Z",
     });
@@ -51,7 +55,7 @@ describe("ProfilePage", () => {
     renderWithRouter(<ProfilePage />);
 
     await waitFor(() => {
-      expect(screen.getByText("Programming Languages")).toBeInTheDocument();
+      expect(screen.getByText("strengths")).toBeInTheDocument();
       expect(screen.getByText("Go concurrency")).toBeInTheDocument();
       expect(screen.getByText("strong")).toBeInTheDocument();
       expect(screen.getByText("85% confidence")).toBeInTheDocument();
@@ -59,9 +63,14 @@ describe("ProfilePage", () => {
     });
   });
 
-  it("shows 'No topics derived yet' when categories are empty", async () => {
+  it("shows 'No topics derived yet' when all categories are empty", async () => {
     mockGet.mockResolvedValue({
-      categories: {},
+      strengths: [],
+      weak_spots: [],
+      current_frontier: [],
+      next_frontier: [],
+      recurring_themes: [],
+      unresolved: [],
       total_topics: 0,
       last_updated: null,
     });

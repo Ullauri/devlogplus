@@ -39,6 +39,7 @@ frontend/
 
 ## Key conventions
 - **API client** (`api/client.ts`): typed wrapper using `fetch()`, all endpoints return typed interfaces. Base URL configurable via `VITE_API_BASE_URL` env var (defaults to `/api/v1` for Vite proxy mode).
+- **Generated types are the contract**: `api/schema.gen.ts` is produced from `docs/openapi.json` by `npm run openapi:types` (also run by `make openapi`). Every request/response type in `client.ts` MUST come from `components["schemas"]` in that file. Hand-rolled inline types are how client↔spec drift happens. An architecture test enforces this.
 - **Tailwind**: custom `brand-*` color palette. No CSS-in-JS.
 - **No state library**: simple `useState`/`useEffect` — app is single-user, low complexity.
 - **Feedback on everything**: `FeedbackControls` component is attached to quiz questions, readings, projects.
@@ -72,7 +73,11 @@ make test-integration
 
 ### How it works
 - `docs/openapi.json` is generated from the FastAPI backend (`make openapi`)
-- Prism reads that spec and serves mock responses matching the schema
-- Integration tests (`*.integration.test.ts`) hit Prism to validate the API contract
+- `make openapi` also regenerates `src/api/schema.gen.ts` so `tsc` sees the latest contract immediately
+- The `openapi-regen` pre-commit hook auto-runs `make openapi` and stages the results whenever a backend router, schema, or `main.py` changes — so the spec and TS types can't drift locally
+- `make openapi-check` (wired into `make lint-check` for CI) fails the build if either file is stale, catching anyone who bypasses hooks with `--no-verify`
+- Prism reads that spec and serves mock responses matching the schema, with `--errors` so any spec-violating request body returns 422
+- Integration tests (`*.integration.test.ts`) call methods on `api` and verify the real client↔contract round-trip
 - Unit tests (`*.test.ts`) remain isolated with `vi.mock()` — no server needed
 - The `dev:mock` mode sets `VITE_API_BASE_URL=http://localhost:4010/api/v1` via `.env.mock`
+- `make openapi-check` (runs in CI via `make lint-check`) fails if either the spec or the generated TS types are stale

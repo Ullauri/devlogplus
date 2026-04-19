@@ -48,3 +48,20 @@ repos:
         language: system
         pass_filenames: false
         files: ^frontend/src/
+
+      # ── OpenAPI contract ────────────────────────────────────────────
+      # Auto-regenerate the spec + generated TS types whenever backend
+      # routers / schemas / app wiring change, and stage the results.
+      # CI still runs `make openapi-check` (via `make lint-check`) to
+      # catch anyone who bypasses hooks with --no-verify.
+      - id: openapi-regen
+        name: Regenerate OpenAPI spec + TS types
+        # Snapshot current content, regenerate, and restore mtimes if
+        # the regenerated output is byte-identical. This avoids the
+        # pre-commit "files were modified by this hook" false-positive
+        # that fires on every touch regardless of net diff. Any real
+        # drift still gets staged and reported.
+        entry: bash scripts/openapi_regen_hook.sh
+        language: system
+        pass_filenames: false
+        files: ^(backend/app/(routers|schemas|main\.py)|docs/openapi\.json|frontend/src/api/schema\.gen\.ts)

@@ -1,19 +1,23 @@
 import { ThumbsUp, ThumbsDown } from "lucide-react";
 import { useState } from "react";
+import type { components } from "../api/schema.gen";
 import { api } from "../api/client";
 
+type TargetType = components["schemas"]["FeedbackTargetType"];
+type Reaction = components["schemas"]["FeedbackReaction"];
+
 interface Props {
-  targetType: string;
+  targetType: TargetType;
   targetId: string;
 }
 
 export default function FeedbackControls({ targetType, targetId }: Props) {
-  const [reaction, setReaction] = useState<string | null>(null);
+  const [reaction, setReaction] = useState<Reaction | null>(null);
   const [note, setNote] = useState("");
   const [showNote, setShowNote] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const submit = async (r: string | null) => {
+  const submit = async (r: Reaction | null) => {
     setReaction(r);
     await api.feedback.create({
       target_type: targetType,

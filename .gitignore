@@ -167,3 +167,4 @@ pnpm-debug.log*
 .cache/
 tmp/
 temp/
+claude-buddy/

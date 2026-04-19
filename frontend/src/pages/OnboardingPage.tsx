@@ -51,9 +51,22 @@ export default function OnboardingPage({ onComplete }: Props) {
   const handleComplete = async () => {
     setSubmitting(true);
     try {
+      const years = parseInt(selfAssessment.years_programming, 10);
+      const languages = selfAssessment.primary_languages
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      const comfort = selfAssessment.strongest_area.trim();
+      const growth = selfAssessment.weakest_area.trim();
+
       await api.onboarding.complete({
-        self_assessment: selfAssessment,
-        go_experience_level: goLevel,
+        self_assessment: {
+          primary_languages: languages,
+          years_experience: Number.isFinite(years) ? years : null,
+          comfort_areas: comfort ? [comfort] : [],
+          growth_areas: growth ? [growth] : [],
+        },
+        go_experience: { level: goLevel },
         topic_interests: selectedTopics.length > 0 ? selectedTopics : undefined,
       });
       onComplete();

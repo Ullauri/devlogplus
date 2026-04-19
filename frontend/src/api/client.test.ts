@@ -114,12 +114,15 @@ describe("api.triage", () => {
   it("resolve() sends POST with action", async () => {
     globalThis.fetch = mockFetch(200, {});
 
-    await api.triage.resolve("t1", { action: "accept", resolution_text: "ok" });
+    await api.triage.resolve("t1", {
+      action: "accepted",
+      resolution_text: "ok",
+    });
 
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(url).toBe("/api/v1/triage/t1/resolve");
     expect(JSON.parse(init.body)).toEqual({
-      action: "accept",
+      action: "accepted",
       resolution_text: "ok",
     });
   });
@@ -163,14 +166,19 @@ describe("api.onboarding", () => {
     globalThis.fetch = mockFetch(200, { completed: true });
 
     await api.onboarding.complete({
-      self_assessment: { years_programming: "5" },
-      go_experience_level: "intermediate",
+      self_assessment: {
+        primary_languages: ["Python"],
+        comfort_areas: [],
+        growth_areas: [],
+        years_experience: 5,
+      },
+      go_experience: { level: "intermediate" },
     });
 
     const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(url).toBe("/api/v1/onboarding/complete");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body).go_experience_level).toBe("intermediate");
+    expect(JSON.parse(init.body).go_experience.level).toBe("intermediate");
   });
 });
 

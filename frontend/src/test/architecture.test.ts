@@ -155,3 +155,33 @@ describe("Architecture: no upward dependencies (cycle prevention)", () => {
     await expect(rule).toPassAsync();
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5. API CLIENT CONTRACT — no hand-rolled request/response types
+// ═════════════════════════════════════════════════════════════════════════════
+// client.ts MUST source its types from schema.gen.ts (which is generated
+// from docs/openapi.json). Hand-rolled types are how client↔spec drift
+// creeps in (see the 2026-04 onboarding/complete 422 postmortem).
+describe("Architecture: api/client.ts uses generated OpenAPI types", () => {
+  it("client.ts imports the generated schema module", async () => {
+    const fs = await import("node:fs/promises");
+    const src = await fs.readFile("src/api/client.ts", "utf8");
+    expect(src).toMatch(/from ["']\.\/schema\.gen["']/);
+  });
+
+  it("client.ts does not use `any` in exported API signatures", async () => {
+    const fs = await import("node:fs/promises");
+    const src = await fs.readFile("src/api/client.ts", "utf8");
+    // Allow `any` in comments but not in code.
+    const withoutComments = src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+    expect(withoutComments).not.toMatch(/:\s*any\b/);
+  });
+
+  it("schema.gen.ts exists and declares components", async () => {
+    const fs = await import("node:fs/promises");
+    const src = await fs.readFile("src/api/schema.gen.ts", "utf8");
+    expect(src).toMatch(/export interface components/);
+  });
+});

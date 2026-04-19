@@ -48,6 +48,7 @@ lint-check: ## Check lint without fixing (CI mode)
 	poetry run ruff check backend/
 	poetry run ruff format --check backend/
 	cd frontend && npm run lint
+	$(MAKE) openapi-check
 
 lint-fix: lint ## Alias for lint
 
@@ -119,7 +120,7 @@ dev-mock: openapi ## Start frontend with Prism mock API (no backend needed)
 	@echo "  → Prism: http://localhost:4010"
 	@echo "  → Vite:  http://localhost:5173"
 	@echo "═══════════════════════════════════════════════════"
-	@cd frontend && npx prism mock ../docs/openapi.json --host 0.0.0.0 --port 4010 --dynamic & \
+	@cd frontend && npx prism mock ../docs/openapi.json --host 0.0.0.0 --port 4010 --dynamic --errors & \
 		PRISM_PID=$$!; \
 		npx wait-on http://localhost:4010 && \
 		npx vite --mode mock; \
@@ -129,11 +130,13 @@ mock-api: openapi ## Start Prism mock server standalone (port 4010)
 	cd frontend && npm run mock-api
 
 # ── OpenAPI ──────────────────────────────────────────────────────────
-openapi: ## Export OpenAPI spec to docs/openapi.json
+openapi: ## Export OpenAPI spec to docs/openapi.json and regenerate frontend types
 	poetry run python scripts/export_openapi.py
+	cd frontend && npm run openapi:types
 
-openapi-check: ## Verify docs/openapi.json is up to date (CI mode)
+openapi-check: ## Verify docs/openapi.json and frontend types are up to date (CI mode)
 	poetry run python scripts/export_openapi.py --check
+	cd frontend && npm run openapi:types:check
 
 # ── Node Evaluations (manual only — never run in CI) ─────────────────
 #    These targets run LLM accuracy/latency evaluations against

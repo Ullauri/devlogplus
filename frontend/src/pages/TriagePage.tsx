@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
+import type { components } from "../api/schema.gen";
 import { api, TriageItem } from "../api/client";
+
+type ResolveAction = components["schemas"]["TriageStatus"];
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: "bg-red-100 text-red-800 border-red-300",
@@ -23,7 +26,7 @@ export default function TriagePage() {
     load();
   }, []);
 
-  const resolve = async (id: string, action: string) => {
+  const resolve = async (id: string, action: ResolveAction) => {
     await api.triage.resolve(id, {
       action,
       resolution_text: resolutionText || undefined,
@@ -86,25 +89,25 @@ export default function TriagePage() {
                         />
                         <div className="flex gap-2">
                           <button
-                            onClick={() => resolve(item.id, "accept")}
+                            onClick={() => resolve(item.id, "accepted")}
                             className="rounded bg-green-600 px-3 py-1 text-sm text-white"
                           >
                             Accept
                           </button>
                           <button
-                            onClick={() => resolve(item.id, "reject")}
+                            onClick={() => resolve(item.id, "rejected")}
                             className="rounded bg-red-600 px-3 py-1 text-sm text-white"
                           >
                             Reject
                           </button>
                           <button
-                            onClick={() => resolve(item.id, "edit")}
+                            onClick={() => resolve(item.id, "edited")}
                             className="rounded bg-yellow-600 px-3 py-1 text-sm text-white"
                           >
                             Edit
                           </button>
                           <button
-                            onClick={() => resolve(item.id, "defer")}
+                            onClick={() => resolve(item.id, "deferred")}
                             className="rounded border border-gray-300 px-3 py-1 text-sm"
                           >
                             Defer

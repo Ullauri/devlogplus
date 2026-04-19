@@ -57,6 +57,10 @@ export async function setup(): Promise<void> {
       "--port",
       String(PRISM_PORT),
       "--dynamic",
+      // Validate request bodies against the spec. Without this, Prism
+      // accepts any shape and returns 200 — defeating the whole point
+      // of integration testing against the contract.
+      "--errors",
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],

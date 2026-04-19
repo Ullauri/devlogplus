@@ -82,7 +82,9 @@ describe("OnboardingPage", () => {
 
     await waitFor(() => {
       expect(mockComplete).toHaveBeenCalledWith(
-        expect.objectContaining({ go_experience_level: "beginner" }),
+        expect.objectContaining({
+          go_experience: expect.objectContaining({ level: "beginner" }),
+        }),
       );
       expect(onComplete).toHaveBeenCalled();
     });
