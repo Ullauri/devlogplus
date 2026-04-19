@@ -578,6 +578,12 @@ export interface paths {
          *
          *     The `value` field accepts any JSON object.  If the key already exists,
          *     its value is replaced.
+         *
+         *     Keys that control LLM model selection or credentials (``llm_model_*``,
+         *     ``openrouter_*``, ``langfuse_*``, ``database_url``, …) are reserved for
+         *     the ``.env`` configuration and will be rejected with 403 — this prevents
+         *     the database (and export bundles) from becoming a surface for altering
+         *     security-sensitive configuration.
          */
         put: operations["set_setting_api_v1_settings__key__put"];
         post?: never;
@@ -3842,6 +3848,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SettingResponse"];
                 };
+            };
+            /** @description Key is reserved for environment variables (e.g. LLM model selection, API credentials) and cannot be set through the API. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -43,3 +43,36 @@ async def test_get_nonexistent_setting(client: AsyncClient):
     """Getting a nonexistent key returns 404."""
     resp = await client.get("/api/v1/settings/does_not_exist")
     assert resp.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "reserved_key",
+    [
+        "llm_model_quiz_generation",
+        "openrouter_api_key",
+        "langfuse_public_key",
+        "database_url",
+        "app_env",
+        "log_level",
+    ],
+)
+async def test_reserved_keys_cannot_be_set(client: AsyncClient, reserved_key: str):
+    """Keys that belong in .env must be rejected with 403 by PUT /settings/{key}.
+
+    This is a defense-in-depth check: the frontend guards the same list for
+    UX, but the API is the authoritative enforcement point (protects against
+    direct curl calls, misbehaving clients, and malicious import bundles
+    being replayed through the API).
+    """
+    resp = await client.put(
+        f"/api/v1/settings/{reserved_key}",
+        json={"value": {"anything": "here"}},
+    )
+    assert resp.status_code == 403
+    body = resp.json()
+    assert reserved_key in body["detail"]
+    assert ".env" in body["detail"]
+
+    # And it must not have been persisted.
+    get_resp = await client.get(f"/api/v1/settings/{reserved_key}")
+    assert get_resp.status_code == 404

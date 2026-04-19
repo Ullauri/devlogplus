@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type PipelineRunInfo } from "../api/client";
+import { api, type PipelineRunInfo, type Setting } from "../api/client";
 
 type TransferStatus =
   | { kind: "idle" }
@@ -12,6 +12,57 @@ type PipelineKey =
   | "quiz_generation"
   | "reading_generation"
   | "project_generation";
+
+// ---- General settings ----
+// Editable DB-backed settings. Values are stored as JSON objects in the
+// backend; by convention scalars live under a "value" key (matches the
+// usage in quiz_pipeline and the transfer tests).
+type GeneralSettingKey = "quiz_question_count" | "reading_recommendation_count";
+
+interface GeneralSettingConfig {
+  key: GeneralSettingKey;
+  label: string;
+  description: string;
+  min: number;
+  max: number;
+  /** Fallback shown when the key has never been set (matches backend defaults). */
+  defaultValue: number;
+}
+
+const GENERAL_SETTINGS: GeneralSettingConfig[] = [
+  {
+    key: "quiz_question_count",
+    label: "Quiz questions per session",
+    description: "Number of questions generated in each weekly quiz.",
+    min: 1,
+    max: 50,
+    defaultValue: 10,
+  },
+  {
+    key: "reading_recommendation_count",
+    label: "Reading recommendations per batch",
+    description: "Number of reading items produced by the weekly pipeline.",
+    min: 1,
+    max: 20,
+    defaultValue: 5,
+  },
+];
+
+type SettingsStatus =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "saving"; key: GeneralSettingKey }
+  | { kind: "saved"; key: GeneralSettingKey }
+  | { kind: "error"; message: string };
+
+function extractNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value === "object" && "value" in value) {
+    const inner = (value as { value: unknown }).value;
+    if (typeof inner === "number" && Number.isFinite(inner)) return inner;
+  }
+  return fallback;
+}
 
 interface PipelineButtonConfig {
   key: PipelineKey;
@@ -26,8 +77,283 @@ type PipelineStatus =
   | { kind: "queued"; message: string }
   | { kind: "error"; message: string };
 
+// Keys that are already edited by the typed General form above — hide them
+// from the generic JSON editor to avoid two UIs for the same value.
+const GENERAL_KEYS: ReadonlySet<string> = new Set(
+  GENERAL_SETTINGS.map((c) => c.key),
+);
+
+// Safety: refuse to let the generic editor touch anything that looks like it
+// belongs in .env. We do *not* fetch these — they're `llm_model_*` / API
+// keys — but a user could still try to create a key with the same name.
+const RESERVED_KEY_PREFIXES = ["llm_model_", "openrouter_", "langfuse_"];
+const RESERVED_KEYS: ReadonlySet<string> = new Set([
+  "database_url",
+  "app_env",
+  "log_level",
+  "workspace_projects_dir",
+  "frontend_dist_dir",
+]);
+
+function isReservedKey(key: string): boolean {
+  if (RESERVED_KEYS.has(key)) return true;
+  return RESERVED_KEY_PREFIXES.some((p) => key.startsWith(p));
+}
+
+function isValidKeyName(key: string): boolean {
+  // Match typical snake_case config keys; keeps things predictable.
+  return /^[a-z][a-z0-9_]{0,62}$/.test(key);
+}
+
+type RawStatus =
+  | { kind: "idle" }
+  | { kind: "saving"; key: string }
+  | { kind: "saved"; key: string }
+  | { kind: "error"; key?: string; message: string };
+
 export default function SettingsPage() {
-  // TODO: wire up saved state for settings persistence
+  // ---- General settings (DB-backed) ----
+  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus>({
+    kind: "loading",
+  });
+  const [settingsValues, setSettingsValues] = useState<
+    Record<GeneralSettingKey, number>
+  >(() => {
+    const init = {} as Record<GeneralSettingKey, number>;
+    for (const cfg of GENERAL_SETTINGS) init[cfg.key] = cfg.defaultValue;
+    return init;
+  });
+  const [settingsDirty, setSettingsDirty] = useState<
+    Record<GeneralSettingKey, boolean>
+  >(() => {
+    const init = {} as Record<GeneralSettingKey, boolean>;
+    for (const cfg of GENERAL_SETTINGS) init[cfg.key] = false;
+    return init;
+  });
+
+  // ---- Generic JSON editor state ----
+  const [rawSettings, setRawSettings] = useState<Setting[]>([]);
+  // Map of key -> draft JSON text (as typed by user). Absent => use server value.
+  const [rawDrafts, setRawDrafts] = useState<Record<string, string>>({});
+  const [rawStatus, setRawStatus] = useState<RawStatus>({ kind: "idle" });
+  const [newKey, setNewKey] = useState("");
+  const [newValueText, setNewValueText] = useState('{\n  "value": ""\n}');
+  const [newKeyError, setNewKeyError] = useState<string | null>(null);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      setSettingsStatus({ kind: "loading" });
+      const list: Setting[] = await api.settings.list();
+      const byKey = new Map(list.map((s) => [s.key, s.value] as const));
+      setSettingsValues((prev) => {
+        const next = { ...prev };
+        for (const cfg of GENERAL_SETTINGS) {
+          next[cfg.key] = extractNumber(byKey.get(cfg.key), cfg.defaultValue);
+        }
+        return next;
+      });
+      setSettingsDirty(() => {
+        const init = {} as Record<GeneralSettingKey, boolean>;
+        for (const cfg of GENERAL_SETTINGS) init[cfg.key] = false;
+        return init;
+      });
+      setRawSettings(list);
+      setRawDrafts({}); // reset drafts to server values
+      setSettingsStatus({ kind: "idle" });
+    } catch (err) {
+      setSettingsStatus({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Failed to load settings",
+      });
+    }
+  }, []);
+
+  const handleRawDraftChange = useCallback((key: string, text: string) => {
+    setRawDrafts((prev) => ({ ...prev, [key]: text }));
+  }, []);
+
+  const handleRawSave = useCallback(
+    async (key: string) => {
+      if (isReservedKey(key)) {
+        setRawStatus({
+          kind: "error",
+          key,
+          message:
+            "This key is reserved for environment variables (.env) and cannot be set here.",
+        });
+        return;
+      }
+      const draft = rawDrafts[key];
+      if (draft === undefined) return; // nothing changed
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(draft);
+      } catch (err) {
+        setRawStatus({
+          kind: "error",
+          key,
+          message:
+            err instanceof Error
+              ? `Invalid JSON: ${err.message}`
+              : "Invalid JSON",
+        });
+        return;
+      }
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
+        setRawStatus({
+          kind: "error",
+          key,
+          message:
+            'Value must be a JSON object (e.g. {"value": 42}). Arrays and scalars aren\'t allowed by the backend schema.',
+        });
+        return;
+      }
+      setRawStatus({ kind: "saving", key });
+      try {
+        const updated = await api.settings.update(
+          key,
+          parsed as Record<string, unknown>,
+        );
+        setRawSettings((prev) => {
+          const idx = prev.findIndex((s) => s.key === key);
+          if (idx === -1)
+            return [...prev, updated].sort((a, b) =>
+              a.key.localeCompare(b.key),
+            );
+          const next = prev.slice();
+          next[idx] = updated;
+          return next;
+        });
+        setRawDrafts((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        setRawStatus({ kind: "saved", key });
+      } catch (err) {
+        setRawStatus({
+          kind: "error",
+          key,
+          message: err instanceof Error ? err.message : "Failed to save",
+        });
+      }
+    },
+    [rawDrafts],
+  );
+
+  const handleRawReset = useCallback((key: string) => {
+    setRawDrafts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const handleCreateNewSetting = useCallback(async () => {
+    setNewKeyError(null);
+    const trimmed = newKey.trim();
+    if (!isValidKeyName(trimmed)) {
+      setNewKeyError(
+        "Key must be snake_case (lowercase, digits, underscores; start with a letter; max 63 chars).",
+      );
+      return;
+    }
+    if (isReservedKey(trimmed)) {
+      setNewKeyError(
+        "That key is reserved for environment variables and cannot be created here.",
+      );
+      return;
+    }
+    if (GENERAL_KEYS.has(trimmed)) {
+      setNewKeyError(
+        "That key is already editable in the General section above.",
+      );
+      return;
+    }
+    if (rawSettings.some((s) => s.key === trimmed)) {
+      setNewKeyError("A setting with that key already exists — edit it below.");
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(newValueText);
+    } catch (err) {
+      setNewKeyError(
+        err instanceof Error ? `Invalid JSON: ${err.message}` : "Invalid JSON",
+      );
+      return;
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      setNewKeyError("Value must be a JSON object.");
+      return;
+    }
+    setRawStatus({ kind: "saving", key: trimmed });
+    try {
+      const created = await api.settings.update(
+        trimmed,
+        parsed as Record<string, unknown>,
+      );
+      setRawSettings((prev) =>
+        [...prev, created].sort((a, b) => a.key.localeCompare(b.key)),
+      );
+      setNewKey("");
+      setNewValueText('{\n  "value": ""\n}');
+      setRawStatus({ kind: "saved", key: trimmed });
+    } catch (err) {
+      setRawStatus({
+        kind: "error",
+        key: trimmed,
+        message: err instanceof Error ? err.message : "Failed to create",
+      });
+    }
+  }, [newKey, newValueText, rawSettings]);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  const handleSettingChange = useCallback(
+    (key: GeneralSettingKey, raw: string) => {
+      const parsed = Number.parseInt(raw, 10);
+      if (Number.isNaN(parsed)) return;
+      setSettingsValues((prev) => ({ ...prev, [key]: parsed }));
+      setSettingsDirty((prev) => ({ ...prev, [key]: true }));
+    },
+    [],
+  );
+
+  const handleSettingSave = useCallback(
+    async (cfg: GeneralSettingConfig) => {
+      const value = settingsValues[cfg.key];
+      if (value < cfg.min || value > cfg.max) {
+        setSettingsStatus({
+          kind: "error",
+          message: `${cfg.label}: value must be between ${cfg.min} and ${cfg.max}.`,
+        });
+        return;
+      }
+      setSettingsStatus({ kind: "saving", key: cfg.key });
+      try {
+        await api.settings.update(cfg.key, { value });
+        setSettingsDirty((prev) => ({ ...prev, [cfg.key]: false }));
+        setSettingsStatus({ kind: "saved", key: cfg.key });
+      } catch (err) {
+        setSettingsStatus({
+          kind: "error",
+          message: err instanceof Error ? err.message : "Failed to save",
+        });
+      }
+    },
+    [settingsValues],
+  );
 
   const [status, setStatus] = useState<TransferStatus>({ kind: "idle" });
   const [metadata, setMetadata] = useState<{
@@ -215,12 +541,269 @@ export default function SettingsPage() {
       <div className="space-y-6">
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="mb-3 text-lg font-semibold">General</h2>
-          <p className="text-sm text-gray-500">
-            Settings are stored in the database and can be modified here. Most
-            configuration (API keys, model selection, etc.) is managed via
-            environment variables in{" "}
+          <p className="mb-4 text-sm text-gray-500">
+            These settings are stored in the database. Other configuration (API
+            keys, model selection, etc.) is managed via environment variables in{" "}
             <code className="rounded bg-gray-100 px-1 text-xs">.env</code>.
           </p>
+
+          {settingsStatus.kind === "loading" ? (
+            <p className="text-xs text-gray-500">Loading settings…</p>
+          ) : (
+            <div className="space-y-4">
+              {GENERAL_SETTINGS.map((cfg) => {
+                const value = settingsValues[cfg.key];
+                const dirty = settingsDirty[cfg.key];
+                const isSaving =
+                  settingsStatus.kind === "saving" &&
+                  settingsStatus.key === cfg.key;
+                const justSaved =
+                  settingsStatus.kind === "saved" &&
+                  settingsStatus.key === cfg.key;
+                const outOfRange = value < cfg.min || value > cfg.max;
+                return (
+                  <div
+                    key={cfg.key}
+                    className="flex flex-wrap items-end gap-3 border-b border-gray-100 pb-3 last:border-b-0 last:pb-0"
+                  >
+                    <div className="min-w-[12rem] flex-1">
+                      <label
+                        htmlFor={`setting-${cfg.key}`}
+                        className="block text-sm font-medium text-gray-800"
+                      >
+                        {cfg.label}
+                      </label>
+                      <p className="text-xs text-gray-500">
+                        {cfg.description}{" "}
+                        <span className="text-gray-400">
+                          (range {cfg.min}–{cfg.max}, default {cfg.defaultValue}
+                          )
+                        </span>
+                      </p>
+                    </div>
+                    <input
+                      id={`setting-${cfg.key}`}
+                      type="number"
+                      min={cfg.min}
+                      max={cfg.max}
+                      value={value}
+                      onChange={(e) =>
+                        handleSettingChange(cfg.key, e.target.value)
+                      }
+                      className="w-24 rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={() => void handleSettingSave(cfg)}
+                      disabled={!dirty || isSaving || outOfRange}
+                      className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+                    >
+                      {isSaving ? (
+                        <>
+                          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          Saving…
+                        </>
+                      ) : (
+                        "Save"
+                      )}
+                    </button>
+                    {justSaved && !dirty && (
+                      <span className="text-xs text-green-700">✓ Saved</span>
+                    )}
+                  </div>
+                );
+              })}
+              {settingsStatus.kind === "error" && (
+                <div className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+                  ✗ {settingsStatus.message}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ---- Advanced JSON editor ---- */}
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold">
+                Advanced settings (JSON){" "}
+                <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-800">
+                  Advanced
+                </span>
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Raw JSON editor for every{" "}
+                <code className="rounded bg-gray-100 px-1 text-xs">
+                  user_settings
+                </code>{" "}
+                row. Each value must be a JSON object (the backend schema
+                rejects bare scalars and arrays). Use the{" "}
+                <code className="rounded bg-gray-100 px-1 text-xs">
+                  {'{"value": ...}'}
+                </code>{" "}
+                convention for single-value keys.
+              </p>
+              <p className="mt-2 text-xs text-amber-700">
+                🔒 For security, LLM model selection and credentials (API keys,
+                database URL, Langfuse config) can only be changed via{" "}
+                <code className="rounded bg-amber-50 px-1">.env</code>{" "}
+                environment variables — not here.
+              </p>
+            </div>
+          </div>
+
+          {settingsStatus.kind === "loading" ? (
+            <p className="text-xs text-gray-500">Loading…</p>
+          ) : (
+            <>
+              {/* Existing rows (excluding ones shown in General) */}
+              <div className="space-y-3">
+                {rawSettings
+                  .filter((s) => !GENERAL_KEYS.has(s.key))
+                  .map((s) => {
+                    const draft = rawDrafts[s.key];
+                    const serverText = JSON.stringify(s.value, null, 2);
+                    const displayText = draft ?? serverText;
+                    const dirty = draft !== undefined && draft !== serverText;
+                    const isSaving =
+                      rawStatus.kind === "saving" && rawStatus.key === s.key;
+                    const justSaved =
+                      rawStatus.kind === "saved" &&
+                      rawStatus.key === s.key &&
+                      !dirty;
+                    const errorMsg =
+                      rawStatus.kind === "error" && rawStatus.key === s.key
+                        ? rawStatus.message
+                        : null;
+                    return (
+                      <div
+                        key={s.id}
+                        className="rounded-md border border-gray-200 p-3"
+                      >
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <code className="text-sm font-medium text-gray-800">
+                            {s.key}
+                          </code>
+                          <div className="flex items-center gap-2">
+                            {dirty && (
+                              <button
+                                onClick={() => handleRawReset(s.key)}
+                                disabled={isSaving}
+                                className="text-xs font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                              >
+                                Reset
+                              </button>
+                            )}
+                            <button
+                              onClick={() => void handleRawSave(s.key)}
+                              disabled={!dirty || isSaving}
+                              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+                            >
+                              {isSaving ? (
+                                <>
+                                  <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                  Saving…
+                                </>
+                              ) : (
+                                "Save"
+                              )}
+                            </button>
+                            {justSaved && (
+                              <span className="text-xs text-green-700">
+                                ✓ Saved
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <textarea
+                          value={displayText}
+                          onChange={(e) =>
+                            handleRawDraftChange(s.key, e.target.value)
+                          }
+                          spellCheck={false}
+                          rows={Math.min(
+                            10,
+                            Math.max(2, displayText.split("\n").length),
+                          )}
+                          className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <p className="mt-1 text-[11px] text-gray-400">
+                          Last updated {new Date(s.updated_at).toLocaleString()}
+                        </p>
+                        {errorMsg && (
+                          <p className="mt-2 text-xs text-red-700">
+                            ✗ {errorMsg}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                {rawSettings.filter((s) => !GENERAL_KEYS.has(s.key)).length ===
+                  0 && (
+                  <p className="text-xs text-gray-500">
+                    No custom settings stored. Use the form below to create one.
+                  </p>
+                )}
+              </div>
+
+              {/* New-key form */}
+              <div className="mt-5 border-t border-gray-200 pt-4">
+                <h3 className="mb-2 text-sm font-semibold text-gray-800">
+                  Add new setting
+                </h3>
+                <div className="space-y-2">
+                  <div>
+                    <label
+                      htmlFor="new-setting-key"
+                      className="block text-xs font-medium text-gray-700"
+                    >
+                      Key
+                    </label>
+                    <input
+                      id="new-setting-key"
+                      type="text"
+                      value={newKey}
+                      onChange={(e) => setNewKey(e.target.value)}
+                      placeholder="my_custom_setting"
+                      className="mt-1 w-full max-w-md rounded-md border border-gray-300 px-3 py-1.5 font-mono text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="new-setting-value"
+                      className="block text-xs font-medium text-gray-700"
+                    >
+                      Value (JSON object)
+                    </label>
+                    <textarea
+                      id="new-setting-value"
+                      value={newValueText}
+                      onChange={(e) => setNewValueText(e.target.value)}
+                      spellCheck={false}
+                      rows={4}
+                      className="mt-1 w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => void handleCreateNewSetting()}
+                      disabled={
+                        rawStatus.kind === "saving" || newKey.trim() === ""
+                      }
+                      className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+                    >
+                      Create
+                    </button>
+                    {newKeyError && (
+                      <span className="text-xs text-red-700">
+                        ✗ {newKeyError}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
