@@ -5,8 +5,9 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.app.config import settings
@@ -211,4 +212,39 @@ app.include_router(pipelines.router, prefix=api_prefix)
 # ---------------------------------------------------------------------------
 frontend_path = Path(settings.frontend_dist_dir)
 if frontend_path.is_dir():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+    # Serve hashed build assets (JS/CSS/images) under /assets/*
+    assets_dir = frontend_path / "assets"
+    if assets_dir.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(assets_dir)),
+            name="frontend-assets",
+        )
+
+    index_file = frontend_path / "index.html"
+
+    # SPA fallback: any non-API GET that isn't a real file returns index.html
+    # so client-side routes (e.g. /onboarding) work on full-page loads/refresh.
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        # Never hijack API or docs routes
+        if (
+            full_path.startswith("api/")
+            or full_path.startswith("docs")
+            or full_path.startswith("redoc")
+            or full_path.startswith("openapi.json")
+        ):
+            raise HTTPException(status_code=404)
+
+        # Serve real static files (favicon.ico, robots.txt, etc.) if present
+        candidate = (frontend_path / full_path).resolve()
+        try:
+            candidate.relative_to(frontend_path.resolve())
+        except ValueError:
+            raise HTTPException(status_code=404) from None
+        if candidate.is_file():
+            return FileResponse(candidate)
+
+        if index_file.is_file():
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404)
