@@ -15,6 +15,9 @@ vi.mock("../api/client", () => ({
       create: vi.fn().mockResolvedValue({}),
       listFor: vi.fn().mockResolvedValue([]),
     },
+    pipelines: {
+      listRuns: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 

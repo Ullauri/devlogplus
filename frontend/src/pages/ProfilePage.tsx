@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
-import { api, KnowledgeProfile } from "../api/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api, KnowledgeProfile, type PipelineType } from "../api/client";
+import PipelineStatusBanner from "../components/PipelineStatusBanner";
+import { usePipelineStatus } from "../hooks/usePipelineStatus";
 
 const STRENGTH_COLOR: Record<string, string> = {
   strong: "bg-green-100 text-green-800",
@@ -7,24 +9,61 @@ const STRENGTH_COLOR: Record<string, string> = {
   limited: "bg-gray-100 text-gray-600",
 };
 
+// Profile snapshots are refreshed by the nightly profile_update pipeline.
+// We deliberately do NOT include topic_extraction here: it runs on every
+// journal save and would make the banner flap "Generating your profile…"
+// even though the visible profile snapshot only changes nightly.
+const PROFILE_PIPELINES: readonly PipelineType[] = ["profile_update"];
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<KnowledgeProfile | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const pipelines = useMemo(() => PROFILE_PIPELINES, []);
+  const status = usePipelineStatus(pipelines);
 
-  useEffect(() => {
-    api.profile
+  const loadProfile = useCallback(() => {
+    return api.profile
       .get()
       .then(setProfile)
       .catch(() => setProfile(null));
   }, []);
 
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadProfile(), status.refresh()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadProfile, status]);
+
+  const banner = (
+    <PipelineStatusBanner
+      label="profile"
+      running={status.running}
+      runningSince={status.runningSince}
+      lastCompletedAt={status.lastCompletedAt}
+      loaded={status.loaded}
+      onRefresh={handleRefresh}
+      refreshing={refreshing}
+    />
+  );
+
   if (!profile) {
     return (
       <div>
         <h1 className="mb-6 text-2xl font-bold">Knowledge Profile</h1>
-        <p className="text-gray-500">
-          No profile data yet. Write some journal entries and wait for the
-          nightly update.
-        </p>
+        {banner}
+        {status.running.length === 0 && (
+          <p className="text-gray-500">
+            No profile data yet. Write some journal entries and wait for the
+            nightly update.
+          </p>
+        )}
       </div>
     );
   }
@@ -48,6 +87,8 @@ export default function ProfilePage() {
           {profile.total_topics} topics
         </span>
       </div>
+
+      {banner}
 
       {categories.length === 0 ? (
         <p className="text-gray-500">No topics derived yet.</p>

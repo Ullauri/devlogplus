@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { components } from "../api/schema.gen";
-import { api, TriageItem } from "../api/client";
+import { api, TriageItem, type PipelineRunInfo } from "../api/client";
 
 type ResolveAction = components["schemas"]["TriageStatus"];
 
@@ -13,18 +13,28 @@ const SEVERITY_COLOR: Record<string, string> = {
 
 export default function TriagePage() {
   const [items, setItems] = useState<TriageItem[]>([]);
+  const [failedRuns, setFailedRuns] = useState<PipelineRunInfo[]>([]);
   const [resolving, setResolving] = useState<string | null>(null);
   const [resolutionText, setResolutionText] = useState("");
 
-  const load = () =>
+  const load = useCallback(() => {
     api.triage
       .list()
       .then(setItems)
       .catch(() => {});
+    // Pull a generous window of recent runs and filter client-side so we
+    // also capture failures from older pipelines without extra endpoints.
+    api.pipelines
+      .listRuns(50)
+      .then((runs) =>
+        setFailedRuns(runs.filter((r) => r.status === "failed").slice(0, 10)),
+      )
+      .catch(() => setFailedRuns([]));
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   const resolve = async (id: string, action: ResolveAction) => {
     await api.triage.resolve(id, {
@@ -43,10 +53,51 @@ export default function TriagePage() {
     <div>
       <h1 className="mb-6 text-2xl font-bold">Triage</h1>
 
+      {failedRuns.length > 0 && (
+        <div className="mb-8">
+          <h2 className="mb-3 text-lg font-semibold">
+            Failed pipeline runs{" "}
+            <span className="text-sm font-normal text-gray-500">
+              ({failedRuns.length})
+            </span>
+          </h2>
+          <div className="space-y-2">
+            {failedRuns.map((run) => (
+              <div
+                key={run.id}
+                className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-red-900">
+                    {run.pipeline}
+                  </span>
+                  <span className="text-xs text-red-700">
+                    {new Date(run.started_at).toLocaleString()}
+                  </span>
+                </div>
+                {run.error && (
+                  <p className="mt-1 whitespace-pre-wrap break-words text-xs text-red-800">
+                    {run.error.length > 500
+                      ? run.error.slice(0, 500) + "…"
+                      : run.error}
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  Retry from the Settings page.
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {pending.length === 0 && resolved.length === 0 ? (
-        <p className="text-gray-500">
-          No triage items. The system creates them when it encounters ambiguity.
-        </p>
+        failedRuns.length === 0 ? (
+          <p className="text-gray-500">
+            No triage items. The system creates them when it encounters
+            ambiguity.
+          </p>
+        ) : null
       ) : (
         <>
           {pending.length > 0 && (

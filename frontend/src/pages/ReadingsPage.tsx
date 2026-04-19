@@ -1,7 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ExternalLink, Plus, Trash2 } from "lucide-react";
-import { api, ReadingRecommendation, AllowlistEntry } from "../api/client";
+import {
+  api,
+  ReadingRecommendation,
+  AllowlistEntry,
+  type PipelineType,
+} from "../api/client";
 import FeedbackControls from "../components/FeedbackControls";
+import PipelineStatusBanner from "../components/PipelineStatusBanner";
+import { usePipelineStatus } from "../hooks/usePipelineStatus";
+
+const READING_PIPELINES: readonly PipelineType[] = ["reading_generation"];
 
 export default function ReadingsPage() {
   const [readings, setReadings] = useState<ReadingRecommendation[]>([]);
@@ -9,17 +18,35 @@ export default function ReadingsPage() {
   const [showAllowlist, setShowAllowlist] = useState(false);
   const [newDomain, setNewDomain] = useState("");
   const [newName, setNewName] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const pipelines = useMemo(() => READING_PIPELINES, []);
+  const status = usePipelineStatus(pipelines);
+
+  const loadReadings = useCallback(
+    () =>
+      api.readings
+        .list()
+        .then(setReadings)
+        .catch(() => {}),
+    [],
+  );
 
   useEffect(() => {
-    api.readings
-      .list()
-      .then(setReadings)
-      .catch(() => {});
+    void loadReadings();
     api.readings
       .allowlist()
       .then(setAllowlist)
       .catch(() => {});
-  }, []);
+  }, [loadReadings]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadReadings(), status.refresh()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadReadings, status]);
 
   const addDomain = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +73,16 @@ export default function ReadingsPage() {
           {showAllowlist ? "Hide" : "Manage"} Allowlist
         </button>
       </div>
+
+      <PipelineStatusBanner
+        label="readings"
+        running={status.running}
+        runningSince={status.runningSince}
+        lastCompletedAt={status.lastCompletedAt}
+        loaded={status.loaded}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+      />
 
       {showAllowlist && (
         <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
@@ -100,9 +137,11 @@ export default function ReadingsPage() {
       )}
 
       {readings.length === 0 ? (
-        <p className="text-gray-500">
-          No reading recommendations yet. They are generated weekly.
-        </p>
+        status.running.length === 0 ? (
+          <p className="text-gray-500">
+            No reading recommendations yet. They are generated weekly.
+          </p>
+        ) : null
       ) : (
         <div className="space-y-3">
           {readings.map((r) => (

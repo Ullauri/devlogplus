@@ -10,14 +10,19 @@ vi.mock("../api/client", () => ({
       list: vi.fn(),
       resolve: vi.fn(),
     },
+    pipelines: {
+      listRuns: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 
 import { api } from "../api/client";
 const mockList = api.triage.list as ReturnType<typeof vi.fn>;
+const mockListRuns = api.pipelines.listRuns as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockListRuns.mockResolvedValue([]);
 });
 
 describe("TriagePage", () => {
@@ -29,6 +34,37 @@ describe("TriagePage", () => {
     await waitFor(() => {
       expect(screen.getByText(/No triage items/)).toBeInTheDocument();
     });
+  });
+
+  it("surfaces failed pipeline runs in their own section", async () => {
+    mockList.mockResolvedValue([]);
+    mockListRuns.mockResolvedValue([
+      {
+        id: "r1",
+        pipeline: "quiz_generation",
+        status: "failed",
+        started_at: "2026-04-19T10:00:00Z",
+        completed_at: "2026-04-19T10:01:00Z",
+        error: "LLM timeout after 60s",
+      },
+      {
+        id: "r2",
+        pipeline: "profile_update",
+        status: "completed",
+        started_at: "2026-04-19T02:00:00Z",
+        completed_at: "2026-04-19T02:05:00Z",
+      },
+    ]);
+
+    renderWithRouter(<TriagePage />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed pipeline runs/)).toBeInTheDocument();
+    });
+    expect(screen.getByText("quiz_generation")).toBeInTheDocument();
+    expect(screen.getByText(/LLM timeout after 60s/)).toBeInTheDocument();
+    // Succeeded run must not be rendered in the failed section.
+    expect(screen.queryByText("profile_update")).not.toBeInTheDocument();
   });
 
   it("renders pending and resolved sections", async () => {

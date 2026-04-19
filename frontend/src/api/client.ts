@@ -38,6 +38,8 @@ export type Feedback = Schemas["FeedbackResponse"];
 export type OnboardingState = Schemas["OnboardingStateResponse"];
 export type PipelineRunAccepted = Schemas["PipelineRunAccepted"];
 export type PipelineRunInfo = Schemas["PipelineRunInfo"];
+export type PipelineType = Schemas["PipelineType"];
+export type PipelineStatus = Schemas["PipelineStatus"];
 export type Setting = Schemas["SettingResponse"];
 
 export type ManualPipelineName = Schemas["PipelineRunAccepted"]["pipeline"];
@@ -187,8 +189,11 @@ export const api = {
       post<PipelineRunAccepted>("/pipelines/readings/run"),
     runProjectGeneration: () =>
       post<PipelineRunAccepted>("/pipelines/project/run"),
-    listRuns: (limit = 20) =>
-      get<PipelineRunInfo[]>(`/pipelines/runs?limit=${limit}`),
+    listRuns: (limit = 20, pipeline?: Schemas["PipelineType"]) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (pipeline) params.set("pipeline", pipeline);
+      return get<PipelineRunInfo[]>(`/pipelines/runs?${params.toString()}`);
+    },
   },
 
   transfer: {

@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react";
-import { api, WeeklyProject, WeeklyProjectDetail } from "../api/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  api,
+  WeeklyProject,
+  WeeklyProjectDetail,
+  type PipelineType,
+} from "../api/client";
 import FeedbackControls from "../components/FeedbackControls";
+import PipelineStatusBanner from "../components/PipelineStatusBanner";
+import { usePipelineStatus } from "../hooks/usePipelineStatus";
 
 const STATUS_COLOR: Record<string, string> = {
   issued: "bg-blue-100 text-blue-800",
@@ -16,20 +23,43 @@ const TASK_TYPE_COLOR: Record<string, string> = {
   optimization: "bg-blue-100 text-blue-700",
 };
 
+const PROJECT_PIPELINES: readonly PipelineType[] = [
+  "project_generation",
+  "project_evaluation",
+];
+
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<WeeklyProject[]>([]);
   const [current, setCurrent] = useState<WeeklyProjectDetail | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const pipelines = useMemo(() => PROJECT_PIPELINES, []);
+  const status = usePipelineStatus(pipelines);
+
+  const loadAll = useCallback(() => {
+    return Promise.all([
+      api.projects
+        .list()
+        .then(setProjects)
+        .catch(() => {}),
+      api.projects
+        .getCurrent()
+        .then(setCurrent)
+        .catch(() => setCurrent(null)),
+    ]);
+  }, []);
 
   useEffect(() => {
-    api.projects
-      .list()
-      .then(setProjects)
-      .catch(() => {});
-    api.projects
-      .getCurrent()
-      .then(setCurrent)
-      .catch(() => setCurrent(null));
-  }, []);
+    void loadAll();
+  }, [loadAll]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadAll(), status.refresh()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadAll, status]);
 
   const submit = async () => {
     if (!current) return;
@@ -44,6 +74,16 @@ export default function ProjectsPage() {
   return (
     <div>
       <h1 className="mb-6 text-2xl font-bold">Weekly Projects</h1>
+
+      <PipelineStatusBanner
+        label="project"
+        running={status.running}
+        runningSince={status.runningSince}
+        lastCompletedAt={status.lastCompletedAt}
+        loaded={status.loaded}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+      />
 
       {current ? (
         <div className="mb-8 rounded-lg border-2 border-brand-200 bg-white p-5 shadow-sm">
@@ -100,9 +140,11 @@ export default function ProjectsPage() {
           )}
         </div>
       ) : (
-        <p className="mb-6 text-gray-500">
-          No active project. A new project is issued weekly.
-        </p>
+        status.running.length === 0 && (
+          <p className="mb-6 text-gray-500">
+            No active project. A new project is issued weekly.
+          </p>
+        )
       )}
 
       {projects.length > 0 && (

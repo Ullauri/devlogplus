@@ -1,6 +1,18 @@
-import { useEffect, useState } from "react";
-import { api, QuizSession, QuizQuestion } from "../api/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  api,
+  QuizSession,
+  QuizQuestion,
+  type PipelineType,
+} from "../api/client";
 import FeedbackControls from "../components/FeedbackControls";
+import PipelineStatusBanner from "../components/PipelineStatusBanner";
+import { usePipelineStatus } from "../hooks/usePipelineStatus";
+
+const QUIZ_PIPELINES: readonly PipelineType[] = [
+  "quiz_generation",
+  "quiz_evaluation",
+];
 
 export default function QuizPage() {
   const [sessions, setSessions] = useState<QuizSession[]>([]);
@@ -8,17 +20,35 @@ export default function QuizPage() {
     (QuizSession & { questions: QuizQuestion[] }) | null
   >(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [refreshing, setRefreshing] = useState(false);
+  const pipelines = useMemo(() => QUIZ_PIPELINES, []);
+  const status = usePipelineStatus(pipelines);
+
+  const loadAll = useCallback(() => {
+    return Promise.all([
+      api.quiz
+        .listSessions()
+        .then(setSessions)
+        .catch(() => {}),
+      api.quiz
+        .getCurrent()
+        .then(setCurrent)
+        .catch(() => setCurrent(null)),
+    ]);
+  }, []);
 
   useEffect(() => {
-    api.quiz
-      .listSessions()
-      .then(setSessions)
-      .catch(() => {});
-    api.quiz
-      .getCurrent()
-      .then(setCurrent)
-      .catch(() => setCurrent(null));
-  }, []);
+    void loadAll();
+  }, [loadAll]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadAll(), status.refresh()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadAll, status]);
 
   const submitAnswer = async (qId: string) => {
     const text = answers[qId];
@@ -44,11 +74,23 @@ export default function QuizPage() {
     <div>
       <h1 className="mb-6 text-2xl font-bold">Quiz</h1>
 
+      <PipelineStatusBanner
+        label="quiz"
+        running={status.running}
+        runningSince={status.runningSince}
+        lastCompletedAt={status.lastCompletedAt}
+        loaded={status.loaded}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
+      />
+
       {!current ? (
         <div>
-          <p className="mb-4 text-gray-500">
-            No active quiz. A new quiz is generated weekly.
-          </p>
+          {status.running.length === 0 && (
+            <p className="mb-4 text-gray-500">
+              No active quiz. A new quiz is generated weekly.
+            </p>
+          )}
           {sessions.length > 0 && (
             <div>
               <h2 className="mb-2 text-lg font-semibold">Past Sessions</h2>
