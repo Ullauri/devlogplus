@@ -582,7 +582,7 @@
           "readings"
         ],
         "summary": "List reading recommendations",
-        "description": "Return reading recommendations ordered by batch date (most recent first).\n\nRecommendations are generated weekly from the Knowledge Profile and limited\nto domains on the user's allowlist.  Each batch typically contains 3–5 links.\nThe response is wrapped in a :class:`PaginatedResponse` envelope so agent\nclients know the full size of the archive in a single request.",
+        "description": "Return reading recommendations ordered by batch date (most recent first).\n\nRecommendations are generated weekly from the Knowledge Profile and limited\nto domains on the user's allowlist.  Each batch typically contains 3–5 links.\n\nPass ``active_only=true`` to render the user's current reading list — the\nlatest batch plus any still-saved items from earlier batches, with\ndismissed items filtered out.  The default (``false``) returns the full\narchive for history / analytics use cases.",
         "operationId": "list_recommendations_api_v1_readings_recommendations_get",
         "parameters": [
           {
@@ -611,6 +611,18 @@
               "title": "Limit"
             },
             "description": "Maximum recommendations to return"
+          },
+          {
+            "name": "active_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "If true, return only the 'active' list: latest batch + any saved items from prior batches, excluding dismissed items.",
+              "default": false,
+              "title": "Active Only"
+            },
+            "description": "If true, return only the 'active' list: latest batch + any saved items from prior batches, excluding dismissed items."
           }
         ],
         "responses": {
@@ -623,6 +635,63 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/readings/recommendations/{recommendation_id}": {
+      "patch": {
+        "tags": [
+          "readings"
+        ],
+        "summary": "Update reading recommendation state",
+        "description": "Mark a reading recommendation as read / saved / dismissed (or clear those flags).\n\nEach field is independently tri-state (``True`` = set now, ``False`` = clear,\n``None`` = leave alone).  Dismissing clears ``saved``; saving clears\n``dismissed``.  Idempotent — re-marking an already-read item keeps the\noriginal ``read_at`` timestamp.",
+        "operationId": "update_recommendation_api_v1_readings_recommendations__recommendation_id__patch",
+        "parameters": [
+          {
+            "name": "recommendation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Recommendation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingRecommendationUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated recommendation with its new state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingRecommendationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recommendation not found"
           },
           "422": {
             "description": "Validation Error",
@@ -4555,6 +4624,56 @@
             "title": "Batch Date",
             "description": "The weekly batch date this recommendation belongs to"
           },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At",
+            "description": "When the user marked the recommendation as read, if ever"
+          },
+          "saved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved At",
+            "description": "When the user saved the recommendation for later, if ever"
+          },
+          "dismissed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed At",
+            "description": "When the user dismissed the recommendation, if ever"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "unread",
+              "read",
+              "saved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "description": "Derived per-item state. Priority: dismissed > read > saved > unread. A saved-then-read item reports as 'read'."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -4578,6 +4697,7 @@
           "topic_id",
           "recommendation_type",
           "batch_date",
+          "status",
           "created_at",
           "updated_at"
         ],
@@ -4592,6 +4712,49 @@
           "deep_dive"
         ],
         "title": "ReadingRecommendationType"
+      },
+      "ReadingRecommendationUpdate": {
+        "properties": {
+          "read": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read",
+            "description": "Mark as read (True) or unread (False)"
+          },
+          "saved": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved",
+            "description": "Save for later (True) or unsave (False)"
+          },
+          "dismissed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed",
+            "description": "Dismiss (True) or un-dismiss (False)"
+          }
+        },
+        "type": "object",
+        "title": "ReadingRecommendationUpdate",
+        "description": "Partial update for a reading recommendation's user state.\n\nEach field is a tri-state toggle:\n\n* ``True``  — mark the flag now (sets the matching ``*_at`` column).\n* ``False`` — clear the flag (un-read / un-save / un-dismiss).\n* ``None``  — leave unchanged.\n\nDismissing an item implicitly clears ``saved``; saving an item implicitly\nclears ``dismissed``."
       },
       "SettingResponse": {
         "properties": {

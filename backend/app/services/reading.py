@@ -3,15 +3,19 @@
 import asyncio
 import logging
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.functions import count
 
 from backend.app.models.reading import ReadingAllowlist, ReadingRecommendation
-from backend.app.schemas.reading import AllowlistEntryCreate, AllowlistEntryUpdate
+from backend.app.schemas.reading import (
+    AllowlistEntryCreate,
+    AllowlistEntryUpdate,
+    ReadingRecommendationUpdate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,16 +99,33 @@ async def list_recommendations(
     db: AsyncSession,
     *,
     batch_date: date | None = None,
+    active_only: bool = False,
     offset: int = 0,
     limit: int = 20,
 ) -> list[ReadingRecommendation]:
-    """List reading recommendations, optionally filtered by batch date."""
+    """List reading recommendations, optionally filtered by batch date.
+
+    When ``active_only`` is ``True`` the result is restricted to the "active
+    list" — items the user might still care about: the latest batch plus any
+    prior-batch items they explicitly saved, excluding anything dismissed.
+    Dismissed items never appear in the active list regardless of batch.
+    """
     stmt = select(ReadingRecommendation).order_by(
         ReadingRecommendation.batch_date.desc(),
         ReadingRecommendation.created_at.desc(),
     )
     if batch_date is not None:
         stmt = stmt.where(ReadingRecommendation.batch_date == batch_date)
+    if active_only:
+        latest = await get_latest_batch_date(db)
+        stmt = stmt.where(ReadingRecommendation.dismissed_at.is_(None))
+        if latest is not None:
+            stmt = stmt.where(
+                or_(
+                    ReadingRecommendation.batch_date == latest,
+                    ReadingRecommendation.saved_at.is_not(None),
+                )
+            )
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
@@ -114,11 +135,22 @@ async def count_recommendations(
     db: AsyncSession,
     *,
     batch_date: date | None = None,
+    active_only: bool = False,
 ) -> int:
     """Return the total number of reading recommendations matching the filter."""
     stmt = select(count(ReadingRecommendation.id))
     if batch_date is not None:
         stmt = stmt.where(ReadingRecommendation.batch_date == batch_date)
+    if active_only:
+        latest = await get_latest_batch_date(db)
+        stmt = stmt.where(ReadingRecommendation.dismissed_at.is_(None))
+        if latest is not None:
+            stmt = stmt.where(
+                or_(
+                    ReadingRecommendation.batch_date == latest,
+                    ReadingRecommendation.saved_at.is_not(None),
+                )
+            )
     result = await db.execute(stmt)
     return int(result.scalar_one())
 
@@ -132,6 +164,70 @@ async def get_latest_batch_date(db: AsyncSession) -> date | None:
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def get_recommendation(
+    db: AsyncSession, recommendation_id: uuid.UUID
+) -> ReadingRecommendation | None:
+    """Fetch a single recommendation by id."""
+    stmt = select(ReadingRecommendation).where(ReadingRecommendation.id == recommendation_id)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def update_recommendation_state(
+    db: AsyncSession,
+    recommendation_id: uuid.UUID,
+    data: ReadingRecommendationUpdate,
+) -> ReadingRecommendation | None:
+    """Apply a partial state update (read / saved / dismissed) to a recommendation.
+
+    Semantics:
+
+    * ``True`` stamps the corresponding ``*_at`` column with ``now()``,
+      *preserving* any prior value (idempotent — re-marking read does not
+      reset the timestamp).
+    * ``False`` clears the column back to ``NULL``.
+    * ``None`` leaves it untouched.
+
+    Cross-field invariants (applied after explicit updates):
+
+    * Dismissing an item clears ``saved_at`` — dismissed trumps saved.
+    * Saving an item clears ``dismissed_at`` — un-dismisses.
+    """
+    rec = await get_recommendation(db, recommendation_id)
+    if rec is None:
+        return None
+
+    now = datetime.now(UTC)
+
+    if data.read is True and rec.read_at is None:
+        rec.read_at = now
+    elif data.read is False:
+        rec.read_at = None
+
+    if data.saved is True and rec.saved_at is None:
+        rec.saved_at = now
+    elif data.saved is False:
+        rec.saved_at = None
+
+    if data.dismissed is True and rec.dismissed_at is None:
+        rec.dismissed_at = now
+    elif data.dismissed is False:
+        rec.dismissed_at = None
+
+    # Invariants
+    if data.dismissed is True:
+        rec.saved_at = None
+    if data.saved is True:
+        rec.dismissed_at = None
+
+    await db.flush()
+    # ``updated_at`` is refreshed server-side via ``onupdate=func.now()``;
+    # eagerly reload it so the response schema can access it without
+    # triggering lazy IO during Pydantic serialization.
+    await db.refresh(rec)
+    return rec
 
 
 # ---------------------------------------------------------------------------

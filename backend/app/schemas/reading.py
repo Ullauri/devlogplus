@@ -2,11 +2,14 @@
 
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from backend.app.models.base import ReadingRecommendationType
 from backend.app.schemas.common import BaseSchema
+
+ReadingStatus = Literal["unread", "read", "saved", "dismissed"]
 
 
 # ---------------------------------------------------------------------------
@@ -38,8 +41,41 @@ class ReadingRecommendationResponse(BaseSchema):
         description="Type of recommendation (deepening, broadening, refresher)"
     )
     batch_date: date = Field(description="The weekly batch date this recommendation belongs to")
+    read_at: datetime | None = Field(
+        default=None, description="When the user marked the recommendation as read, if ever"
+    )
+    saved_at: datetime | None = Field(
+        default=None, description="When the user saved the recommendation for later, if ever"
+    )
+    dismissed_at: datetime | None = Field(
+        default=None, description="When the user dismissed the recommendation, if ever"
+    )
+    status: ReadingStatus = Field(
+        description=(
+            "Derived per-item state. Priority: dismissed > read > saved > unread. "
+            "A saved-then-read item reports as 'read'."
+        )
+    )
     created_at: datetime = Field(description="When the recommendation was generated")
     updated_at: datetime = Field(description="Last modification timestamp")
+
+
+class ReadingRecommendationUpdate(BaseModel):
+    """Partial update for a reading recommendation's user state.
+
+    Each field is a tri-state toggle:
+
+    * ``True``  — mark the flag now (sets the matching ``*_at`` column).
+    * ``False`` — clear the flag (un-read / un-save / un-dismiss).
+    * ``None``  — leave unchanged.
+
+    Dismissing an item implicitly clears ``saved``; saving an item implicitly
+    clears ``dismissed``.
+    """
+
+    read: bool | None = Field(None, description="Mark as read (True) or unread (False)")
+    saved: bool | None = Field(None, description="Save for later (True) or unsave (False)")
+    dismissed: bool | None = Field(None, description="Dismiss (True) or un-dismiss (False)")
 
 
 # ---------------------------------------------------------------------------

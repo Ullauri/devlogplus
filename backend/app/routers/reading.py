@@ -12,6 +12,7 @@ from backend.app.schemas.reading import (
     AllowlistEntryResponse,
     AllowlistEntryUpdate,
     ReadingRecommendationResponse,
+    ReadingRecommendationUpdate,
 )
 from backend.app.services import reading as reading_svc
 
@@ -30,23 +31,60 @@ router = APIRouter(prefix="/readings", tags=["readings"])
 async def list_recommendations(
     offset: int = Query(0, ge=0, description="Number of recommendations to skip"),
     limit: int = Query(20, ge=1, le=100, description="Maximum recommendations to return"),
+    active_only: bool = Query(
+        False,
+        description=(
+            "If true, return only the 'active' list: latest batch + any saved items "
+            "from prior batches, excluding dismissed items."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> PaginatedResponse[ReadingRecommendationResponse]:
     """Return reading recommendations ordered by batch date (most recent first).
 
     Recommendations are generated weekly from the Knowledge Profile and limited
     to domains on the user's allowlist.  Each batch typically contains 3–5 links.
-    The response is wrapped in a :class:`PaginatedResponse` envelope so agent
-    clients know the full size of the archive in a single request.
+
+    Pass ``active_only=true`` to render the user's current reading list — the
+    latest batch plus any still-saved items from earlier batches, with
+    dismissed items filtered out.  The default (``false``) returns the full
+    archive for history / analytics use cases.
     """
-    recs = await reading_svc.list_recommendations(db, offset=offset, limit=limit)
-    total = await reading_svc.count_recommendations(db)
+    recs = await reading_svc.list_recommendations(
+        db, offset=offset, limit=limit, active_only=active_only
+    )
+    total = await reading_svc.count_recommendations(db, active_only=active_only)
     return PaginatedResponse[ReadingRecommendationResponse](
         items=[ReadingRecommendationResponse.model_validate(r) for r in recs],
         total=total,
         offset=offset,
         limit=limit,
     )
+
+
+@router.patch(
+    "/recommendations/{recommendation_id}",
+    response_model=ReadingRecommendationResponse,
+    summary="Update reading recommendation state",
+    response_description="The updated recommendation with its new state",
+    responses={404: {"description": "Recommendation not found"}},
+)
+async def update_recommendation(
+    recommendation_id: uuid.UUID,
+    data: ReadingRecommendationUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> ReadingRecommendationResponse:
+    """Mark a reading recommendation as read / saved / dismissed (or clear those flags).
+
+    Each field is independently tri-state (``True`` = set now, ``False`` = clear,
+    ``None`` = leave alone).  Dismissing clears ``saved``; saving clears
+    ``dismissed``.  Idempotent — re-marking an already-read item keeps the
+    original ``read_at`` timestamp.
+    """
+    rec = await reading_svc.update_recommendation_state(db, recommendation_id, data)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recommendation not found")
+    return ReadingRecommendationResponse.model_validate(rec)
 
 
 # ---------------------------------------------------------------------------

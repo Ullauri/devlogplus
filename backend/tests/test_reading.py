@@ -1,9 +1,14 @@
 """Tests for the reading recommendations and allowlist API endpoints."""
 
+from datetime import date, timedelta
+
 import httpx
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.models.base import ReadingRecommendationType
+from backend.app.models.reading import ReadingRecommendation
 from backend.app.services import reading as reading_svc
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -21,6 +26,133 @@ async def test_list_recommendations_empty(client: AsyncClient):
     assert body["total"] == 0
     assert body["offset"] == 0
     assert body["limit"] == 20
+
+
+# ---------------------------------------------------------------------------
+# Per-item state (read / saved / dismissed)
+# ---------------------------------------------------------------------------
+async def _make_rec(
+    db: AsyncSession, *, batch_date: date, title: str = "T"
+) -> ReadingRecommendation:
+    rec = ReadingRecommendation(
+        title=title,
+        url=f"https://example.com/{title}",
+        source_domain="example.com",
+        description=None,
+        topic_id=None,
+        recommendation_type=ReadingRecommendationType.DEEP_DIVE,
+        batch_date=batch_date,
+    )
+    db.add(rec)
+    await db.flush()
+    return rec
+
+
+async def test_fresh_recommendation_is_unread(client: AsyncClient, db_session: AsyncSession):
+    """Newly generated items default to status='unread' with all timestamps null."""
+    rec = await _make_rec(db_session, batch_date=date.today())
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/readings/recommendations")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    item = next(i for i in items if i["id"] == str(rec.id))
+    assert item["status"] == "unread"
+    assert item["read_at"] is None
+    assert item["saved_at"] is None
+    assert item["dismissed_at"] is None
+
+
+async def test_mark_read_sets_status_and_timestamp(client: AsyncClient, db_session: AsyncSession):
+    rec = await _make_rec(db_session, batch_date=date.today())
+    await db_session.commit()
+
+    resp = await client.patch(f"/api/v1/readings/recommendations/{rec.id}", json={"read": True})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "read"
+    assert data["read_at"] is not None
+    assert data["dismissed_at"] is None
+
+
+async def test_mark_read_is_idempotent(client: AsyncClient, db_session: AsyncSession):
+    """Re-marking an item as read preserves the original timestamp."""
+    rec = await _make_rec(db_session, batch_date=date.today())
+    await db_session.commit()
+
+    first = await client.patch(f"/api/v1/readings/recommendations/{rec.id}", json={"read": True})
+    second = await client.patch(f"/api/v1/readings/recommendations/{rec.id}", json={"read": True})
+    assert first.json()["read_at"] == second.json()["read_at"]
+
+
+async def test_dismiss_clears_saved(client: AsyncClient, db_session: AsyncSession):
+    """Dismissing an item implicitly clears the saved flag."""
+    rec = await _make_rec(db_session, batch_date=date.today())
+    await db_session.commit()
+
+    await client.patch(f"/api/v1/readings/recommendations/{rec.id}", json={"saved": True})
+    resp = await client.patch(
+        f"/api/v1/readings/recommendations/{rec.id}", json={"dismissed": True}
+    )
+    data = resp.json()
+    assert data["status"] == "dismissed"
+    assert data["saved_at"] is None
+    assert data["dismissed_at"] is not None
+
+
+async def test_save_clears_dismissed(client: AsyncClient, db_session: AsyncSession):
+    """Saving an item un-dismisses it."""
+    rec = await _make_rec(db_session, batch_date=date.today())
+    await db_session.commit()
+
+    await client.patch(f"/api/v1/readings/recommendations/{rec.id}", json={"dismissed": True})
+    resp = await client.patch(f"/api/v1/readings/recommendations/{rec.id}", json={"saved": True})
+    data = resp.json()
+    assert data["status"] == "saved"
+    assert data["dismissed_at"] is None
+    assert data["saved_at"] is not None
+
+
+async def test_patch_unknown_id_returns_404(client: AsyncClient):
+    resp = await client.patch(
+        "/api/v1/readings/recommendations/00000000-0000-0000-0000-000000000000",
+        json={"read": True},
+    )
+    assert resp.status_code == 404
+
+
+async def test_active_only_excludes_old_unread_and_dismissed(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """Active list = latest batch + saved items from prior batches, minus dismissed."""
+    today = date.today()
+    old = today - timedelta(days=14)
+
+    old_unread = await _make_rec(db_session, batch_date=old, title="old-unread")
+    old_saved = await _make_rec(db_session, batch_date=old, title="old-saved")
+    current = await _make_rec(db_session, batch_date=today, title="current")
+    current_dismissed = await _make_rec(db_session, batch_date=today, title="current-dismissed")
+    await db_session.commit()
+
+    # Mark the old one as saved and the current one as dismissed.
+    await client.patch(f"/api/v1/readings/recommendations/{old_saved.id}", json={"saved": True})
+    await client.patch(
+        f"/api/v1/readings/recommendations/{current_dismissed.id}", json={"dismissed": True}
+    )
+
+    resp = await client.get("/api/v1/readings/recommendations?active_only=true")
+    assert resp.status_code == 200
+    ids = {i["id"] for i in resp.json()["items"]}
+
+    assert str(current.id) in ids
+    assert str(old_saved.id) in ids
+    assert str(old_unread.id) not in ids  # old & not saved → dropped
+    assert str(current_dismissed.id) not in ids  # dismissed → dropped
+
+    # Without the filter, the full archive is returned.
+    resp_all = await client.get("/api/v1/readings/recommendations")
+    all_ids = {i["id"] for i in resp_all.json()["items"]}
+    assert {str(old_unread.id), str(current_dismissed.id)} <= all_ids
 
 
 # ---------------------------------------------------------------------------

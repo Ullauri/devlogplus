@@ -257,8 +257,11 @@ export interface paths {
          *
          *     Recommendations are generated weekly from the Knowledge Profile and limited
          *     to domains on the user's allowlist.  Each batch typically contains 3–5 links.
-         *     The response is wrapped in a :class:`PaginatedResponse` envelope so agent
-         *     clients know the full size of the archive in a single request.
+         *
+         *     Pass ``active_only=true`` to render the user's current reading list — the
+         *     latest batch plus any still-saved items from earlier batches, with
+         *     dismissed items filtered out.  The default (``false``) returns the full
+         *     archive for history / analytics use cases.
          */
         get: operations["list_recommendations_api_v1_readings_recommendations_get"];
         put?: never;
@@ -267,6 +270,31 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/readings/recommendations/{recommendation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update reading recommendation state
+         * @description Mark a reading recommendation as read / saved / dismissed (or clear those flags).
+         *
+         *     Each field is independently tri-state (``True`` = set now, ``False`` = clear,
+         *     ``None`` = leave alone).  Dismissing clears ``saved``; saving clears
+         *     ``dismissed``.  Idempotent — re-marking an already-read item keeps the
+         *     original ``read_at`` timestamp.
+         */
+        patch: operations["update_recommendation_api_v1_readings_recommendations__recommendation_id__patch"];
         trace?: never;
     };
     "/api/v1/readings/allowlist": {
@@ -2427,6 +2455,27 @@ export interface components {
              */
             batch_date: string;
             /**
+             * Read At
+             * @description When the user marked the recommendation as read, if ever
+             */
+            read_at?: string | null;
+            /**
+             * Saved At
+             * @description When the user saved the recommendation for later, if ever
+             */
+            saved_at?: string | null;
+            /**
+             * Dismissed At
+             * @description When the user dismissed the recommendation, if ever
+             */
+            dismissed_at?: string | null;
+            /**
+             * Status
+             * @description Derived per-item state. Priority: dismissed > read > saved > unread. A saved-then-read item reports as 'read'.
+             * @enum {string}
+             */
+            status: "unread" | "read" | "saved" | "dismissed";
+            /**
              * Created At
              * Format: date-time
              * @description When the recommendation was generated
@@ -2444,6 +2493,36 @@ export interface components {
          * @enum {string}
          */
         ReadingRecommendationType: "next_frontier" | "weak_spot" | "deep_dive";
+        /**
+         * ReadingRecommendationUpdate
+         * @description Partial update for a reading recommendation's user state.
+         *
+         *     Each field is a tri-state toggle:
+         *
+         *     * ``True``  — mark the flag now (sets the matching ``*_at`` column).
+         *     * ``False`` — clear the flag (un-read / un-save / un-dismiss).
+         *     * ``None``  — leave unchanged.
+         *
+         *     Dismissing an item implicitly clears ``saved``; saving an item implicitly
+         *     clears ``dismissed``.
+         */
+        ReadingRecommendationUpdate: {
+            /**
+             * Read
+             * @description Mark as read (True) or unread (False)
+             */
+            read?: boolean | null;
+            /**
+             * Saved
+             * @description Save for later (True) or unsave (False)
+             */
+            saved?: boolean | null;
+            /**
+             * Dismissed
+             * @description Dismiss (True) or un-dismiss (False)
+             */
+            dismissed?: boolean | null;
+        };
         /**
          * SettingResponse
          * @description A single application setting (key-value pair).
@@ -3360,6 +3439,8 @@ export interface operations {
                 offset?: number;
                 /** @description Maximum recommendations to return */
                 limit?: number;
+                /** @description If true, return only the 'active' list: latest batch + any saved items from prior batches, excluding dismissed items. */
+                active_only?: boolean;
             };
             header?: never;
             path?: never;
@@ -3375,6 +3456,48 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PaginatedResponse_ReadingRecommendationResponse_"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_recommendation_api_v1_readings_recommendations__recommendation_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                recommendation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingRecommendationUpdate"];
+            };
+        };
+        responses: {
+            /** @description The updated recommendation with its new state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingRecommendationResponse"];
+                };
+            };
+            /** @description Recommendation not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
