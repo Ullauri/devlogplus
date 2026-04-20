@@ -23,3 +23,16 @@ Feature: Weekly Reading Recommendations
     When the reading generation pipeline runs and one URL returns 404
     Then only recommendations with reachable URLs should be stored
     And the processing log should record the skipped URL
+
+  Scenario: A previously thumbs-upped recommendation is not re-recommended
+    Given the reading allowlist contains "go.dev" and "blog.golang.org"
+    And I have thumbs-upped a previous reading at "https://go.dev/doc/effective_go#concurrency"
+    When the reading generation pipeline runs and proposes that same URL again
+    Then the previously-liked URL should not appear in the new batch
+    And the processing log should record one skipped already-liked recommendation
+
+  Scenario: Multiple recommendations on the same topic are deduplicated for diversity
+    Given the reading allowlist contains "go.dev" and "blog.golang.org"
+    When the reading generation pipeline runs with two recommendations targeting the same topic
+    Then only one recommendation should be stored for that topic
+    And the processing log should record one skipped duplicate-topic recommendation

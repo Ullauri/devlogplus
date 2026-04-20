@@ -44,9 +44,38 @@ that question — take the reaction into account.
 
 ## Avoid-list
 
-Questions listed under "Avoid near-duplicates" have previously received a
-thumbs-down. Do NOT re-ask them or near-paraphrases; pick a different
-angle on the topic or a different topic entirely.
+Questions listed under "Avoid near-duplicates" must NOT be re-asked or
+closely paraphrased. The list contains both:
+- Questions the user thumbs-down'd (they rejected them), AND
+- Questions the user thumbs-up'd (they already engaged with them — re-asking
+  yields little new signal).
+
+In both cases, pick a different angle on the topic or a different topic
+entirely.
+
+## Positive signals — directional, NOT prescriptive
+
+The "Liked directions" block lists past questions the user thumbs-upped,
+annotated with their topic and question_type. Treat these as *steering*,
+not as a template to copy:
+
+- DO lean toward the same topics and question styles (reinforcement vs.
+  exploration) the user has positively engaged with.
+- DO probe the same topics from new angles, or push to adjacent /
+  next-frontier topics in the same family.
+- DO NOT re-ask the literal questions — they are already on the avoid list.
+
+## Diversity — REQUIRED within every batch
+
+A quiz batch must cover a *spread* of topics, not pile multiple questions
+onto the same one. Concretely:
+
+- Each question in the batch must have a DISTINCT ``target_topic``.
+  Do not return two questions that both target the same topic.
+- Honour the reinforcement/exploration blend across the batch — do not
+  return all of one type.
+- Prefer breadth across the user's profile (strengths, frontiers, weak
+  spots) over exhaustively drilling a single area.
 
 ## Output format
 
@@ -77,9 +106,13 @@ USER_PROMPT_TEMPLATE = """\
 
 {feedforward_signals}
 
-## Avoid near-duplicates (previously thumbs-down'd questions)
+## Avoid near-duplicates (previously thumbs-down'd OR already-asked & liked)
 
 {avoid_questions}
+
+## Liked directions (thumbs-up'd in the past — lean toward, do NOT repeat)
+
+{liked_directions}
 
 ## Number of Questions to Generate
 
@@ -89,8 +122,17 @@ USER_PROMPT_TEMPLATE = """\
 
 Generate {question_count} free-text quiz questions with an even blend
 of reinforcement and exploration. Calibrate difficulty to the user's
-demonstrated level. Do not repeat or closely paraphrase any question
-from the avoid-list.
+demonstrated level.
+
+Do not repeat or closely paraphrase any question from the avoid-list.
+
+Use the "Liked directions" as steering — generate NEW questions in the
+same topic/style the user has positively engaged with, never the literal
+questions they already saw.
+
+Ensure the batch is DIVERSE: each question must have a distinct
+``target_topic``, and the set should span multiple areas of the user's
+profile rather than clustering on one.
 
 Respond with valid JSON using the exact field names specified in the system prompt.
 """

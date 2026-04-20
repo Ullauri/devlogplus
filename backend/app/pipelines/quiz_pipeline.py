@@ -107,6 +107,27 @@ def _format_quiz_feedforward(
     return "\n".join(lines) or "None"
 
 
+def _format_liked_question_directions(
+    liked_questions: list[QuizQuestion],
+    max_items: int = 10,
+) -> str:
+    """Summarise thumbs-up'd questions as positive *directional* signals.
+
+    We surface topic + question_type + a truncated stem so the LLM can lean
+    toward the same flavour of question without re-asking the literal one
+    (the literal text is added to the hard avoid list separately).
+    """
+    if not liked_questions:
+        return "None"
+    sorted_likes = sorted(liked_questions, key=lambda q: q.created_at or datetime.min, reverse=True)
+    lines: list[str] = []
+    for q in sorted_likes[:max_items]:
+        topic = q.topic_name or "?"
+        q_type = q.question_type.value if q.question_type else "?"
+        lines.append(f'- [{topic} / {q_type}] "{_truncate(q.question_text, 100)}"')
+    return "\n".join(lines)
+
+
 async def generate_quiz(
     db: AsyncSession,
     *,
@@ -145,10 +166,25 @@ async def generate_quiz(
             db, FeedbackTargetType.QUIZ_QUESTION
         )
         disliked_q_lookup = await _load_question_lookup(db, disliked_q_ids)
+        disliked_q_texts = {q.question_text.strip() for q in disliked_q_lookup.values()}
+
+        # Gather thumbs-up questions — positive *directional* signal.
+        # We hard-block the exact question texts (re-asking a question the
+        # user already engaged with positively yields little new signal) but
+        # surface topic + question_type so the LLM can lean in the same
+        # direction with NEW questions.
+        liked_q_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.QUIZ_QUESTION)
+        liked_q_lookup = await _load_question_lookup(db, liked_q_ids)
+        liked_questions = list(liked_q_lookup.values())
+        liked_q_texts = {q.question_text.strip() for q in liked_questions}
+
+        # Combined hard-avoid set: disliked + already-liked question texts.
+        # Both are dead-ends for re-asking, just for opposite reasons.
+        avoid_q_texts = disliked_q_texts | liked_q_texts
         avoid_questions_text = (
-            "\n".join(f"- {_truncate(q.question_text)}" for q in disliked_q_lookup.values())
-            or "None"
+            "\n".join(f"- {_truncate(t)}" for t in sorted(avoid_q_texts)) or "None"
         )
+        liked_directions_text = _format_liked_question_directions(liked_questions)
 
         # Contextualised feedforward, scoped to quiz questions + general notes.
         relevant_feedback = await feedback_svc.list_feedback_by_target_types(
@@ -174,6 +210,7 @@ async def generate_quiz(
             profile_summary=profile_summary,
             feedforward_signals=feedforward_text,
             avoid_questions=avoid_questions_text,
+            liked_directions=liked_directions_text,
             question_count=question_count,
         )
 
@@ -199,8 +236,43 @@ async def generate_quiz(
         db.add(session)
         await db.flush()
 
-        # Create questions
-        for i, q in enumerate(gen_result.questions):
+        # Create questions, applying hard-avoid + diversity gates as a
+        # belt-and-braces enforcement on top of the prompt instructions.
+        skipped_disliked = 0
+        skipped_already_liked = 0
+        skipped_duplicate_topic = 0
+        seen_topics: set[str] = set()
+        stored_count = 0
+
+        for q in gen_result.questions:
+            text_key = q.question_text.strip()
+
+            # Hard filter: never re-ask a question the user has already
+            # reacted to. Thumbs-down → they rejected it; thumbs-up → they
+            # already engaged with it, so re-asking yields little new signal.
+            if text_key in disliked_q_texts:
+                logger.info("Skipping previously-disliked question: %s", _truncate(text_key))
+                skipped_disliked += 1
+                continue
+            if text_key in liked_q_texts:
+                logger.info("Skipping already-liked question: %s", _truncate(text_key))
+                skipped_already_liked += 1
+                continue
+
+            # Diversity guard: refuse a second question targeting the same
+            # topic in this session. The prompt asks for distinct topics;
+            # this enforces it so a single hot topic can't dominate the
+            # quiz even if the LLM ignores the instruction.
+            topic_key = (q.target_topic or "").strip().lower()
+            if topic_key and topic_key in seen_topics:
+                logger.info(
+                    "Skipping duplicate-topic question (topic=%s): %s",
+                    q.target_topic,
+                    _truncate(text_key),
+                )
+                skipped_duplicate_topic += 1
+                continue
+
             try:
                 q_type = QuizQuestionType(q.question_type)
             except ValueError:
@@ -218,9 +290,16 @@ async def generate_quiz(
                 question_text=q.question_text,
                 question_type=q_type,
                 topic_id=resolved_topic_id,
-                order_index=i,
+                order_index=stored_count,
             )
             db.add(question)
+            stored_count += 1
+            if topic_key:
+                seen_topics.add(topic_key)
+
+        # Reflect the actual stored count on the session so downstream
+        # consumers (UI progress, evaluation pipeline) see the truth.
+        session.question_count = stored_count
 
         await db.flush()
 
@@ -228,13 +307,21 @@ async def generate_quiz(
         log.completed_at = datetime.now(UTC)
         log.metadata_ = {
             "session_id": str(session.id),
-            "question_count": len(gen_result.questions),
+            "generated": len(gen_result.questions),
+            "stored": stored_count,
+            "skipped_disliked": skipped_disliked,
+            "skipped_already_liked": skipped_already_liked,
+            "skipped_duplicate_topic": skipped_duplicate_topic,
+            "distinct_topics": len(seen_topics),
+            # Kept for backwards-compat with anything reading the old key.
+            "question_count": stored_count,
         }
         await db.flush()
 
         logger.info(
-            "Quiz generated: session=%s questions=%d",
+            "Quiz generated: session=%s stored=%d of %d generated",
             session.id,
+            stored_count,
             len(gen_result.questions),
         )
         return session

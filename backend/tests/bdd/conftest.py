@@ -460,3 +460,63 @@ def create_allowlist_entries(
         return entries
 
     return run_async(_create())
+
+
+def create_reading_recommendation(
+    db: AsyncSession,
+    *,
+    url: str,
+    source_domain: str,
+    title: str = "A previous recommendation",
+    recommendation_type: str = "deep_dive",
+) -> Any:
+    """Insert a single ReadingRecommendation row and return it."""
+    from datetime import date
+
+    from backend.app.models.base import ReadingRecommendationType
+    from backend.app.models.reading import ReadingRecommendation
+
+    async def _create():
+        rec = ReadingRecommendation(
+            title=title,
+            url=url,
+            source_domain=source_domain,
+            description="seeded for tests",
+            recommendation_type=ReadingRecommendationType(recommendation_type),
+            batch_date=date.today(),
+        )
+        db.add(rec)
+        await db.flush()
+        return rec
+
+    return run_async(_create())
+
+
+def create_feedback(
+    db: AsyncSession,
+    *,
+    target_type: str,
+    target_id: Any,
+    reaction: str,
+    note: str | None = None,
+) -> Any:
+    """Insert a Feedback row and return it.
+
+    ``target_type`` and ``reaction`` accept the enum *values*
+    (e.g. ``"reading"``, ``"thumbs_up"``).
+    """
+    from backend.app.models.base import FeedbackReaction, FeedbackTargetType
+    from backend.app.models.feedback import Feedback
+
+    async def _create():
+        fb = Feedback(
+            target_type=FeedbackTargetType(target_type),
+            target_id=target_id,
+            reaction=FeedbackReaction(reaction),
+            note=note,
+        )
+        db.add(fb)
+        await db.flush()
+        return fb
+
+    return run_async(_create())
