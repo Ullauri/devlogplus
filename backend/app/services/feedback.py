@@ -82,3 +82,21 @@ async def list_disliked_target_ids(
     )
     result = await db.execute(stmt)
     return {row for row in result.scalars().all()}
+
+
+async def list_liked_target_ids(
+    db: AsyncSession, target_type: FeedbackTargetType
+) -> set[uuid.UUID]:
+    """Return the set of target IDs that received a ``thumbs_up`` reaction.
+
+    Used by generation pipelines to learn what kinds of items the user has
+    responded positively to, so future recommendations can lean in the same
+    *direction* (topic / domain / type) without re-recommending the exact
+    same item.
+    """
+    stmt = select(Feedback.target_id).where(
+        Feedback.target_type == target_type,
+        Feedback.reaction == FeedbackReaction.THUMBS_UP,
+    )
+    result = await db.execute(stmt)
+    return {row for row in result.scalars().all()}

@@ -46,6 +46,29 @@ account, not just the text.
   Strongly prefer other allowlisted domains; only recommend from these
   when clearly the best available source.
 
+## Positive signals — directional, NOT prescriptive
+
+The "Liked directions" block lists past recommendations the user thumbs-upped.
+Treat these as *steering*, not as a template to copy:
+
+- DO lean toward the same themes, domains, and recommendation types.
+- DO go deeper, broader, or laterally adjacent to those themes.
+- DO NOT re-recommend any of the listed liked URLs — the user has already
+  read them. Surface NEW material in the same direction instead.
+
+## Diversity — REQUIRED within every batch
+
+A batch must cover a *spread* of topics drawn from the user's profile, not
+pile multiple recommendations onto a single narrow topic. Concretely:
+
+- Each recommendation in the batch must have a DISTINCT ``target_topic``.
+  Do not return two articles that both target the same topic.
+- Aim to mix ``recommendation_type`` values across the batch (e.g. some
+  ``next_frontier``, some ``weak_spot``, some ``deep_dive``) when the
+  profile supports it, rather than all of one type.
+- Prefer breadth across the user's frontier and weak-spot topics over
+  exhaustively covering a single area.
+
 ## Output format
 
 Respond with a JSON object using EXACTLY this structure:
@@ -82,13 +105,17 @@ USER_PROMPT_TEMPLATE = """\
 
 {feedforward_signals}
 
-## Do NOT recommend these URLs (previously thumbs-down'd)
+## Do NOT recommend these URLs (previously thumbs-down'd OR already shown)
 
 {avoid_urls}
 
 ## Downranked domains (multiple rejections — avoid unless clearly best)
 
 {downranked_domains}
+
+## Liked directions (thumbs-up'd in the past — lean toward, do NOT repeat)
+
+{liked_directions}
 
 ## Number of Recommendations
 
@@ -97,9 +124,17 @@ USER_PROMPT_TEMPLATE = """\
 ## Instructions
 
 Generate {recommendation_count} reading recommendations from ONLY the
-approved domains listed above. Focus on knowledge expansion. Respect the
-negative signals: never repeat a URL from the "Do NOT recommend" list and
-avoid downranked domains unless they are clearly the best source.
+approved domains listed above. Focus on knowledge expansion.
+
+Respect the negative signals: never repeat a URL from the "Do NOT recommend"
+list and avoid downranked domains unless they are clearly the best source.
+
+Use the "Liked directions" as steering — recommend NEW material along the
+same themes/domains/types, never the same URL the user already liked.
+
+Ensure the batch is DIVERSE: each recommendation must have a distinct
+``target_topic``, and the set should span multiple areas of the user's
+profile rather than clustering on one.
 
 Respond with valid JSON using the exact field names specified in the system prompt.
 """

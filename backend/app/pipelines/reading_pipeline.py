@@ -70,6 +70,27 @@ def _format_feedforward(
     return "\n".join(lines) or "None"
 
 
+def _format_liked_directions(
+    liked_readings: list[ReadingRecommendation],
+    max_items: int = 10,
+) -> str:
+    """Summarise thumbs-up'd readings as positive *directional* signals.
+
+    We surface theme + domain + recommendation_type (not the URL itself
+    in this block — the URL is added to the hard avoid list separately so
+    the model never re-recommends the exact link).
+    """
+    if not liked_readings:
+        return "None"
+    # Most recent first (created_at desc); cap to keep prompt focused.
+    sorted_likes = sorted(liked_readings, key=lambda r: r.created_at or datetime.min, reverse=True)
+    lines: list[str] = []
+    for r in sorted_likes[:max_items]:
+        rec_type = r.recommendation_type.value if r.recommendation_type else "?"
+        lines.append(f'- "{r.title}" — {r.source_domain} ({rec_type})')
+    return "\n".join(lines)
+
+
 async def generate_readings(
     db: AsyncSession,
     *,
@@ -118,13 +139,27 @@ async def generate_readings(
         domain_dislike_counts = Counter(r.source_domain for r in disliked_lookup.values())
         downranked_domains = {d for d, n in domain_dislike_counts.items() if n >= 2}
 
-        avoid_urls_text = "\n".join(f"- {u}" for u in sorted(disliked_urls)) or "None"
+        # Gather thumbs-up readings: positive *directional* signal.
+        # We hard-block the exact URLs (no point re-recommending what the user
+        # already liked + read) but surface theme/domain/type so the LLM can
+        # lean in the same direction with NEW material.
+        liked_reading_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.READING)
+        liked_lookup = await _load_reading_lookup(db, liked_reading_ids)
+        liked_readings = list(liked_lookup.values())
+        liked_urls = {r.url for r in liked_readings}
+
+        # Combined hard-avoid set: disliked URLs + already-liked URLs.
+        # Both are dead-ends for re-recommendation, just for opposite reasons.
+        avoid_urls = disliked_urls | liked_urls
+
+        avoid_urls_text = "\n".join(f"- {u}" for u in sorted(avoid_urls)) or "None"
         downrank_text = (
             "\n".join(
                 f"- {d} ({domain_dislike_counts[d]} rejections)" for d in sorted(downranked_domains)
             )
             or "None"
         )
+        liked_directions_text = _format_liked_directions(liked_readings)
 
         # Feedforward signals — scoped to readings + general notes,
         # and contextualised with the item they reference.
@@ -154,6 +189,7 @@ async def generate_readings(
             feedforward_signals=feedforward_text,
             avoid_urls=avoid_urls_text,
             downranked_domains=downrank_text,
+            liked_directions=liked_directions_text,
             recommendation_count=recommendation_count,
         )
 
@@ -183,14 +219,22 @@ async def generate_readings(
         batch_date = date.today()
         created: list[ReadingRecommendation] = []
         skipped_disliked = 0
+        skipped_already_liked = 0
+        skipped_duplicate_topic = 0
         skipped_unreachable: list[dict[str, str]] = []
+        seen_topics: set[str] = set()
 
         for rec in gen_result.recommendations:
             # Hard filter: never re-recommend a URL the user has already
-            # thumbs-down'd, even if the LLM proposes it.
+            # reacted to. Thumbs-down → they rejected it; thumbs-up → they
+            # already read it, so the value of re-surfacing is zero.
             if rec.url in disliked_urls:
                 logger.info("Skipping previously-disliked recommendation: %s", rec.url)
                 skipped_disliked += 1
+                continue
+            if rec.url in liked_urls:
+                logger.info("Skipping already-liked recommendation: %s", rec.url)
+                skipped_already_liked += 1
                 continue
 
             # Validate domain is on allowlist
@@ -217,6 +261,23 @@ async def generate_readings(
                     skipped_unreachable.append({"url": rec.url, "reason": reason or "unknown"})
                     continue
 
+            # Diversity guard (final gate): refuse a second otherwise-valid rec
+            # with the same target_topic in this batch. Prompt asks for distinct
+            # topics; this is the belt-and-braces enforcement so a single hot
+            # topic can't dominate the list even if the LLM ignores the
+            # instruction. Applied AFTER domain + reachability checks so that
+            # an invalid candidate doesn't "burn" a topic slot a valid candidate
+            # could have used.
+            topic_key = (rec.target_topic or "").strip().lower()
+            if topic_key and topic_key in seen_topics:
+                logger.info(
+                    "Skipping duplicate-topic recommendation '%s' (topic=%s)",
+                    rec.title,
+                    rec.target_topic,
+                )
+                skipped_duplicate_topic += 1
+                continue
+
             try:
                 rec_type = ReadingRecommendationType(rec.recommendation_type)
             except ValueError:
@@ -232,6 +293,8 @@ async def generate_readings(
             )
             db.add(reading)
             created.append(reading)
+            if topic_key:
+                seen_topics.add(topic_key)
 
         await db.flush()
 
@@ -241,8 +304,11 @@ async def generate_readings(
             "generated": len(gen_result.recommendations),
             "stored": len(created),
             "skipped_disliked": skipped_disliked,
+            "skipped_already_liked": skipped_already_liked,
+            "skipped_duplicate_topic": skipped_duplicate_topic,
             "skipped_unreachable": skipped_unreachable,
             "batch_date": str(batch_date),
+            "distinct_topics": len(seen_topics),
         }
         await db.flush()
 

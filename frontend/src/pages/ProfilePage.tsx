@@ -77,6 +77,15 @@ export default function ProfilePage() {
     );
   }
 
+  const categoryLabels: Record<string, string> = {
+    strengths: "Strengths",
+    current_frontier: "Current Frontier",
+    next_frontier: "Next Frontier",
+    recurring_themes: "Recurring Themes",
+    weak_spots: "Weak Spots",
+    unresolved: "Unresolved",
+  };
+
   const categories: [string, typeof profile.strengths][] = (
     [
       ["strengths", profile.strengths ?? []],
@@ -105,8 +114,8 @@ export default function ProfilePage() {
         <div className="space-y-6">
           {categories.map(([category, topics]) => (
             <div key={category}>
-              <h2 className="mb-3 text-lg font-semibold capitalize">
-                {category}
+              <h2 className="mb-3 text-lg font-semibold">
+                {categoryLabels[category] ?? category}
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {topics.map((t) => (
