@@ -165,8 +165,8 @@ describe("QuizPage — active session", () => {
   it("clicking Complete Quiz calls api.quiz.completeSession with session id", async () => {
     mockListSessions.mockResolvedValue([]);
     mockGetCurrent.mockResolvedValueOnce(activeSession);
-    mockGetCurrent.mockRejectedValueOnce(new Error("none"));
     mockCompleteSession.mockResolvedValue({});
+    mockGetSession.mockResolvedValue({ ...activeSession, status: "completed" });
     const user = userEvent.setup();
 
     renderWithRouter(<QuizPage />);
@@ -175,6 +175,10 @@ describe("QuizPage — active session", () => {
 
     await waitFor(() => {
       expect(mockCompleteSession).toHaveBeenCalledWith("s1");
+    });
+    // After completion, review view should show
+    await waitFor(() => {
+      expect(screen.getByText("Quiz Results")).toBeInTheDocument();
     });
   });
 });
@@ -277,5 +281,195 @@ describe("QuizPage — answered questions render evaluation badges", () => {
     renderWithRouter(<QuizPage />);
     await screen.findByText(/1\. First/);
     expect(screen.getByText(/2\. Second/)).toBeInTheDocument();
+  });
+});
+
+describe("QuizPage — review past session", () => {
+  const pastSession = {
+    id: "s1",
+    status: "evaluated",
+    question_count: 2,
+    created_at: "2026-01-01T00:00:00Z",
+    completed_at: "2026-01-01T12:00:00Z",
+    questions: [
+      {
+        id: "q1",
+        question_text: "Explain goroutines",
+        question_type: "free_text",
+        order_index: 0,
+        answer: { answer_text: "Lightweight threads" },
+        evaluation: {
+          correctness: "full",
+          explanation: "Correct — goroutines are lightweight.",
+        },
+        reference_answer:
+          "Goroutines are lightweight threads managed by the Go runtime.",
+      },
+      {
+        id: "q2",
+        question_text: "What is a channel?",
+        question_type: "free_text",
+        order_index: 1,
+        answer: { answer_text: "A pipe" },
+        evaluation: {
+          correctness: "partial",
+          explanation: "Partially correct.",
+        },
+      },
+    ],
+  };
+
+  it("clicking a past session opens the review view with questions and evaluations", async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s1",
+        status: "evaluated",
+        question_count: 2,
+        created_at: "2026-01-01T00:00:00Z",
+        completed_at: "2026-01-01T12:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+    mockGetSession.mockResolvedValue(pastSession);
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Past Sessions")).toBeInTheDocument();
+    });
+
+    // Past session items are now buttons
+    const sessionBtn = screen.getByText(/2 questions/).closest("button")!;
+    await user.click(sessionBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Quiz Results")).toBeInTheDocument();
+    });
+    expect(mockGetSession).toHaveBeenCalledWith("s1");
+    expect(screen.getByText(/Explain goroutines/)).toBeInTheDocument();
+    expect(screen.getByText("full")).toBeInTheDocument();
+    expect(screen.getByText("partial")).toBeInTheDocument();
+  });
+
+  it("shows score summary with correct/partial/incorrect counts", async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s1",
+        status: "evaluated",
+        question_count: 2,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+    mockGetSession.mockResolvedValue(pastSession);
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+    await waitFor(() => screen.getByText("Past Sessions"));
+    await user.click(screen.getByText(/2 questions/).closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Quiz Results")).toBeInTheDocument();
+    });
+    // Score summary: 1 full, 1 partial, 0 incorrect
+    expect(screen.getByText("Correct")).toBeInTheDocument();
+    expect(screen.getByText("Partial")).toBeInTheDocument();
+    expect(screen.getByText("Incorrect")).toBeInTheDocument();
+  });
+
+  it("back button returns to the main quiz view", async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s1",
+        status: "evaluated",
+        question_count: 2,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+    mockGetSession.mockResolvedValue(pastSession);
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+    await waitFor(() => screen.getByText("Past Sessions"));
+    await user.click(screen.getByText(/2 questions/).closest("button")!);
+    await waitFor(() => screen.getByText("Quiz Results"));
+
+    await user.click(screen.getByText("← Back to Quiz"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Past Sessions")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Quiz Results")).not.toBeInTheDocument();
+  });
+
+  it("shows pending evaluation banner when session is not yet evaluated", async () => {
+    const pendingSession = {
+      ...pastSession,
+      status: "completed",
+      questions: pastSession.questions.map((q) => ({
+        ...q,
+        evaluation: undefined,
+      })),
+    };
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s1",
+        status: "completed",
+        question_count: 2,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+    mockGetSession.mockResolvedValue(pendingSession);
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+    await waitFor(() => screen.getByText("Past Sessions"));
+    await user.click(screen.getByText(/2 questions/).closest("button")!);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Evaluations are still being generated/),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("completing a quiz redirects to the review view", async () => {
+    const activeSession = {
+      id: "s1",
+      status: "in_progress",
+      question_count: 1,
+      created_at: "2026-01-01T00:00:00Z",
+      questions: [
+        {
+          id: "q1",
+          question_text: "Explain goroutines",
+          question_type: "free_text",
+          order_index: 0,
+          answer: { answer_text: "Lightweight threads" },
+        },
+      ],
+    };
+    mockListSessions.mockResolvedValue([]);
+    mockGetCurrent.mockResolvedValue(activeSession);
+    mockCompleteSession.mockResolvedValue({});
+    mockGetSession.mockResolvedValue({
+      ...pastSession,
+      question_count: 1,
+      questions: [pastSession.questions[0]],
+    });
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+    await waitFor(() => screen.getByText("Complete Quiz"));
+    await user.click(screen.getByRole("button", { name: "Complete Quiz" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Quiz Results")).toBeInTheDocument();
+    });
+    expect(mockCompleteSession).toHaveBeenCalledWith("s1");
+    expect(mockGetSession).toHaveBeenCalledWith("s1");
   });
 });
