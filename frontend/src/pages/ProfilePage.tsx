@@ -140,9 +140,27 @@ export default function ProfilePage() {
                         style={{ width: `${Math.round(t.confidence * 100)}%` }}
                       />
                     </div>
-                    <span className="text-xs text-gray-400">
-                      {Math.round(t.confidence * 100)}% confidence
-                    </span>
+                    <div className="mt-2 flex items-center gap-1 text-xs text-gray-400">
+                      <span>{Math.round(t.confidence * 100)}% confidence</span>
+                      <span className="group relative inline-flex">
+                        <span
+                          aria-label="What does confidence mean?"
+                          tabIndex={0}
+                          className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-gray-300 text-[10px] font-semibold text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        >
+                          ?
+                        </span>
+                        <span
+                          role="tooltip"
+                          className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 w-64 -translate-x-1/2 rounded-md bg-gray-900 px-2 py-1.5 text-[11px] font-normal leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100"
+                        >
+                          How confident the system is in your mastery of this
+                          topic, based on cumulative evidence from your journal
+                          entries and quiz results. Higher % means more
+                          consistent, multi-source evidence of understanding.
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
