@@ -58,7 +58,12 @@ export default function ProfilePage() {
   if (!profile) {
     return (
       <div>
-        <h1 className="mb-6 text-2xl font-bold">Knowledge Profile</h1>
+        <div className="mb-6 flex items-baseline gap-3">
+          <h1 className="text-2xl font-bold">Knowledge Profile</h1>
+          <span className="text-sm text-gray-400">
+            Your strengths, frontiers, and gaps
+          </span>
+        </div>
         {banner}
         {status.running.length === 0 && (
           <div>
@@ -100,7 +105,12 @@ export default function ProfilePage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Knowledge Profile</h1>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-2xl font-bold">Knowledge Profile</h1>
+          <span className="text-sm text-gray-400">
+            Your strengths, frontiers, and gaps
+          </span>
+        </div>
         <span className="text-sm text-gray-500">
           {profile.total_topics} topics
         </span>

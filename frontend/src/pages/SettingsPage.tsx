@@ -536,7 +536,12 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Settings</h1>
+      <div className="mb-6 flex items-baseline gap-3">
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <span className="text-sm text-gray-400">
+          Configure your learning companion
+        </span>
+      </div>
 
       <div className="space-y-6">
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">

@@ -50,7 +50,12 @@ export default function JournalPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Journal</h1>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-2xl font-bold">Journal</h1>
+          <span className="text-sm text-gray-400">
+            Log what you learned today
+          </span>
+        </div>
         <button
           onClick={() => {
             setShowForm(true);

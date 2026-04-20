@@ -74,7 +74,12 @@ export default function ProjectsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Projects</h1>
+      <div className="mb-6 flex items-baseline gap-3">
+        <h1 className="text-2xl font-bold">Projects</h1>
+        <span className="text-sm text-gray-400">
+          Hands-on Go practice tailored to your level
+        </span>
+      </div>
 
       <PipelineStatusBanner
         label="project"

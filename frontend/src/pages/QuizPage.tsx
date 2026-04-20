@@ -73,7 +73,12 @@ export default function QuizPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Quiz</h1>
+      <div className="mb-6 flex items-baseline gap-3">
+        <h1 className="text-2xl font-bold">Quiz</h1>
+        <span className="text-sm text-gray-400">
+          Test and reinforce your knowledge
+        </span>
+      </div>
 
       <PipelineStatusBanner
         label="quiz"

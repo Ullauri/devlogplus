@@ -66,7 +66,12 @@ export default function ReadingsPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Readings</h1>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-2xl font-bold">Readings</h1>
+          <span className="text-sm text-gray-400">
+            Curated articles matched to your profile
+          </span>
+        </div>
         <button
           onClick={() => setShowAllowlist(!showAllowlist)}
           className="text-sm text-brand-600 hover:underline"

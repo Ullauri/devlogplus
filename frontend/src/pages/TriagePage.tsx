@@ -51,7 +51,12 @@ export default function TriagePage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">Triage</h1>
+      <div className="mb-6 flex items-baseline gap-3">
+        <h1 className="text-2xl font-bold">Triage</h1>
+        <span className="text-sm text-gray-400">
+          Items that need your attention
+        </span>
+      </div>
 
       {failedRuns.length > 0 && (
         <div className="mb-8">
