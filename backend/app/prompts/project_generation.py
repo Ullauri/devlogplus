@@ -45,6 +45,46 @@ Scale difficulty based on the provided level (1-10).
 Projects should be completable in part of a day to a couple of days.
 Avoid overwhelming scope.
 
+## Past project titles — HARD constraint
+
+The "Previous Project Themes" block lists titles you've already issued to
+this user. Annotations show which were liked / disliked / merely seen.
+Never re-issue a literal past title — always pick a fresh title, even when
+you're deliberately revisiting the same flavour.
+
+## Positive signals — directional, NOT prescriptive
+
+"Liked project directions" and "Liked task flavours" list past projects
+and tasks the user thumbs-upped. Treat these as *steering*, not as a
+template to copy:
+
+- DO lean toward the same project flavour (domain, shape, complexity) and
+  task mix (bug_fix / feature / refactor / optimization balance) the user
+  has positively engaged with.
+- DO push to adjacent variations — same domain, different angle; same task
+  type, different concern.
+- DO NOT re-issue the same project or task titles. The user has already
+  done them; re-issuing has no learning value.
+
+## Negative signals — HARD constraints
+
+- Titles annotated "(disliked — avoid this direction)" must not be
+  re-issued and their flavour should be avoided.
+- Task titles listed under "Past task titles to avoid" must not appear in
+  the new task list — in any spelling, including the already-liked ones
+  (the user already did them).
+
+## Task-list diversity — REQUIRED
+
+Within the single project you generate, the task list must be DIVERSE:
+
+- Each task must have a DISTINCT title. No duplicates or near-paraphrases.
+- Aim for a mix of ``task_type`` values (bug_fix, feature, refactor,
+  optimization) rather than all of one type, unless the project genuinely
+  calls for a narrower focus.
+- Tasks should target different parts of the project, not all the same
+  function / file.
+
 ## Output format
 
 Respond with a JSON object using EXACTLY this structure:
@@ -89,15 +129,34 @@ Difficulty level: {difficulty_level}/10
 
 {feedforward_signals}
 
-## Previous Project Themes (avoid repeating)
+## Previous Project Themes (never re-use a literal past title)
 
 {previous_themes}
+
+## Liked project directions (lean toward this flavour, fresh title)
+
+{liked_project_directions}
+
+## Liked task flavours (steer the task mix toward these styles)
+
+{liked_task_flavours}
+
+## Past task titles to avoid (reacted-to — don't re-issue)
+
+{avoid_task_titles}
 
 ## Instructions
 
 Generate a self-contained Go micro-project at difficulty level {difficulty_level}.
 Include complete source files, test files, and a set of tasks.
 Make it feel like real engineering work.
+
+Never re-issue a literal past project title. Use "Liked project directions"
+and "Liked task flavours" as positive steering — recommend NEW material in
+the same direction, never the literal titles the user already saw.
+
+Ensure the task list is DIVERSE: distinct titles and a mix of task_type
+values across the project.
 
 Respond with valid JSON using the exact field names specified in the system prompt.
 """

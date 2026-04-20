@@ -50,6 +50,21 @@ async def _load_project_title_lookup(db: AsyncSession, ids: set[uuid.UUID]) -> d
     return {row[0]: row[1] for row in result.all()}
 
 
+async def _load_project_detail_lookup(
+    db: AsyncSession, ids: set[uuid.UUID]
+) -> dict[uuid.UUID, WeeklyProject]:
+    """Return full ``{id: WeeklyProject}`` for directional-steering use.
+
+    Unlike ``_load_project_title_lookup`` we need description + difficulty
+    here so the prompt can surface meaningful flavour, not just a title.
+    """
+    if not ids:
+        return {}
+    stmt = select(WeeklyProject).where(WeeklyProject.id.in_(ids))
+    result = await db.execute(stmt)
+    return {p.id: p for p in result.scalars().all()}
+
+
 async def _load_task_lookup(
     db: AsyncSession, ids: set[uuid.UUID]
 ) -> dict[uuid.UUID, tuple[str, uuid.UUID]]:
@@ -60,6 +75,22 @@ async def _load_task_lookup(
     )
     result = await db.execute(stmt)
     return {row[0]: (row[1], row[2]) for row in result.all()}
+
+
+async def _load_task_detail_lookup(
+    db: AsyncSession, ids: set[uuid.UUID]
+) -> dict[uuid.UUID, ProjectTask]:
+    """Return full ``{id: ProjectTask}`` for directional-steering use."""
+    if not ids:
+        return {}
+    stmt = select(ProjectTask).where(ProjectTask.id.in_(ids))
+    result = await db.execute(stmt)
+    return {t.id: t for t in result.scalars().all()}
+
+
+def _truncate(text: str, n: int = 140) -> str:
+    text = (text or "").strip().replace("\n", " ")
+    return text if len(text) <= n else text[: n - 1] + "…"
 
 
 def _format_project_feedforward(
@@ -92,6 +123,68 @@ def _format_project_feedforward(
         if len(lines) >= max_items:
             break
     return "\n".join(lines) or "None"
+
+
+def _format_liked_project_directions(
+    liked_projects: list[WeeklyProject], max_items: int = 5
+) -> str:
+    """Summarise thumbs-up'd projects as *directional* signals.
+
+    We surface title + difficulty + a short description so the LLM can lean
+    toward the same flavour of project without re-issuing the literal one
+    (titles are added to the hard avoid list separately).
+    """
+    if not liked_projects:
+        return "None"
+    sorted_likes = sorted(liked_projects, key=lambda p: p.created_at or datetime.min, reverse=True)
+    lines: list[str] = []
+    for p in sorted_likes[:max_items]:
+        lines.append(f'- "{p.title}" (L{p.difficulty_level}): {_truncate(p.description, 120)}')
+    return "\n".join(lines)
+
+
+def _format_liked_task_flavours(
+    liked_tasks: list[ProjectTask],
+    project_titles: dict[uuid.UUID, str],
+    max_items: int = 8,
+) -> str:
+    """Summarise thumbs-up'd tasks as *directional* signals for the task mix."""
+    if not liked_tasks:
+        return "None"
+    sorted_likes = sorted(liked_tasks, key=lambda t: t.created_at or datetime.min, reverse=True)
+    lines: list[str] = []
+    for t in sorted_likes[:max_items]:
+        t_type = t.task_type.value if t.task_type else "?"
+        parent = project_titles.get(t.project_id, "?")
+        lines.append(f'- [{t_type}] "{t.title}" (from "{parent}")')
+    return "\n".join(lines)
+
+
+def _format_avoid_titles(titles: set[str]) -> str:
+    if not titles:
+        return "None"
+    return "\n".join(f"- {t}" for t in sorted(titles))
+
+
+def _format_previous_themes(
+    prev_projects: list[WeeklyProject],
+    liked_ids: set[uuid.UUID],
+    disliked_ids: set[uuid.UUID],
+) -> str:
+    """Previous project titles with reaction markers so the LLM knows which
+    past directions were loved / hated vs. merely seen."""
+    if not prev_projects:
+        return "None (first project)"
+    lines: list[str] = []
+    for p in prev_projects:
+        if p.id in liked_ids:
+            marker = " (liked — lean toward this flavour, different title)"
+        elif p.id in disliked_ids:
+            marker = " (disliked — avoid this direction)"
+        else:
+            marker = ""
+        lines.append(f"- {p.title}{marker}")
+    return "\n".join(lines)
 
 
 async def generate_project(
@@ -162,9 +255,52 @@ async def generate_project(
         project_titles = await _load_project_title_lookup(db, proj_ids)
         feedforward_text = _format_project_feedforward(relevant_feedback, project_titles, task_info)
 
-        # Previous themes
+        # ── Reacted-to projects: thumbs-up (positive steering) and
+        # thumbs-down (hard avoid). Both flavours also contribute TITLES to
+        # a hard avoid list — re-issuing a literal past title is a waste
+        # whether the user loved or hated it.
+        liked_project_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.PROJECT)
+        disliked_project_ids = await feedback_svc.list_disliked_target_ids(
+            db, FeedbackTargetType.PROJECT
+        )
+        reacted_project_ids = liked_project_ids | disliked_project_ids
+        reacted_project_lookup = await _load_project_detail_lookup(db, reacted_project_ids)
+        liked_projects = [
+            p for pid, p in reacted_project_lookup.items() if pid in liked_project_ids
+        ]
+        avoid_project_titles = {p.title.strip() for p in reacted_project_lookup.values() if p.title}
+
+        # Reacted-to tasks: same treatment. Titles go onto the per-task
+        # avoid list; liked tasks additionally steer the task MIX.
+        liked_task_ids = await feedback_svc.list_liked_target_ids(
+            db, FeedbackTargetType.PROJECT_TASK
+        )
+        disliked_task_ids = await feedback_svc.list_disliked_target_ids(
+            db, FeedbackTargetType.PROJECT_TASK
+        )
+        reacted_task_ids = liked_task_ids | disliked_task_ids
+        reacted_task_lookup = await _load_task_detail_lookup(db, reacted_task_ids)
+        liked_tasks = [t for tid, t in reacted_task_lookup.items() if tid in liked_task_ids]
+        avoid_task_titles_set = {
+            t.title.strip().lower() for t in reacted_task_lookup.values() if t.title
+        }
+        # Parent-title lookup for liked-task flavour rendering.
+        liked_task_parent_ids = {t.project_id for t in liked_tasks}
+        liked_task_parent_titles = await _load_project_title_lookup(db, liked_task_parent_ids)
+
+        # Previous themes — annotated so the LLM can distinguish loved /
+        # hated / merely-seen past directions.
         prev_projects = await project_svc.list_projects(db, limit=5)
-        previous_themes = "\n".join(f"- {p.title}" for p in prev_projects) or "None (first project)"
+        previous_themes = _format_previous_themes(
+            prev_projects, liked_project_ids, disliked_project_ids
+        )
+        liked_project_directions_text = _format_liked_project_directions(liked_projects)
+        liked_task_flavours_text = _format_liked_task_flavours(
+            liked_tasks, liked_task_parent_titles
+        )
+        avoid_task_titles_text = _format_avoid_titles(
+            {t.title.strip() for t in reacted_task_lookup.values() if t.title}
+        )
 
         # Generate via LLM
         prompt = project_generation.USER_PROMPT_TEMPLATE.format(
@@ -173,6 +309,9 @@ async def generate_project(
             profile_summary=profile_summary,
             feedforward_signals=feedforward_text,
             previous_themes=previous_themes,
+            liked_project_directions=liked_project_directions_text,
+            liked_task_flavours=liked_task_flavours_text,
+            avoid_task_titles=avoid_task_titles_text,
         )
 
         raw_result = await llm_client.chat_completion_json(
@@ -200,6 +339,15 @@ async def generate_project(
         readme_path = project_dir / "README.md"
         readme_path.write_text(gen_result.readme_content)
 
+        # ── Title-collision check on the generated project ──────────────
+        # A single project is issued per run, so we can't drop-and-continue
+        # the way the readings pipeline does for a batch. If the LLM ignored
+        # the avoid list and chose a title we've already reacted to, log it
+        # so it's visible in the run metadata but proceed — dropping would
+        # leave the user with no weekly project.
+        gen_title = (gen_result.title or "").strip()
+        project_title_collision = gen_title in avoid_project_titles
+
         # Store project record
         project = WeeklyProject(
             title=gen_result.title,
@@ -215,8 +363,31 @@ async def generate_project(
         db.add(project)
         await db.flush()
 
-        # Store tasks
-        for i, t in enumerate(gen_result.tasks):
+        # Store tasks, applying hard-avoid + diversity gates as a
+        # belt-and-braces enforcement on top of the prompt instructions.
+        skipped_avoid_tasks = 0
+        skipped_duplicate_tasks = 0
+        seen_task_titles: set[str] = set()
+        stored_task_count = 0
+
+        for t in gen_result.tasks:
+            title_key = (t.title or "").strip().lower()
+
+            # Hard filter: never re-issue a task the user has already
+            # reacted to. Thumbs-down → they rejected it; thumbs-up → they
+            # already did it, so it has no learning value this week.
+            if title_key and title_key in avoid_task_titles_set:
+                logger.info("Skipping previously-reacted task: %s", t.title)
+                skipped_avoid_tasks += 1
+                continue
+
+            # Diversity guard: refuse duplicate task titles within this
+            # project. Projects should have a DISTINCT set of tasks.
+            if title_key and title_key in seen_task_titles:
+                logger.info("Skipping duplicate task title within project: %s", t.title)
+                skipped_duplicate_tasks += 1
+                continue
+
             try:
                 task_type = ProjectTaskType(t.task_type)
             except ValueError:
@@ -227,9 +398,12 @@ async def generate_project(
                 title=t.title,
                 description=t.description,
                 task_type=task_type,
-                order_index=i,
+                order_index=stored_task_count,
             )
             db.add(task)
+            stored_task_count += 1
+            if title_key:
+                seen_task_titles.add(title_key)
 
         await db.flush()
 
@@ -239,11 +413,29 @@ async def generate_project(
             "project_id": str(project.id),
             "difficulty": difficulty,
             "files": len(gen_result.files),
-            "tasks": len(gen_result.tasks),
+            "tasks_generated": len(gen_result.tasks),
+            "tasks_stored": stored_task_count,
+            "skipped_avoid_tasks": skipped_avoid_tasks,
+            "skipped_duplicate_tasks": skipped_duplicate_tasks,
+            "project_title_collision": project_title_collision,
+            # Kept for backwards-compat with anything reading the old key.
+            "tasks": stored_task_count,
         }
         await db.flush()
 
-        logger.info("Project generated: %s (difficulty=%d)", project.title, difficulty)
+        if project_title_collision:
+            logger.warning(
+                "Generated project title collides with a previously-reacted title: %r",
+                gen_title,
+            )
+
+        logger.info(
+            "Project generated: %s (difficulty=%d, tasks stored=%d of %d)",
+            project.title,
+            difficulty,
+            stored_task_count,
+            len(gen_result.tasks),
+        )
         return project
 
     except Exception as e:

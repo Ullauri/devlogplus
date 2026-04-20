@@ -24,3 +24,20 @@ Feature: Weekly Project Generation, Submission, and Evaluation
     Then the project should have an evaluation
     And the project status should be "evaluated"
     And the evaluation should include a code quality score
+
+  Scenario: Project title collision with a previously-reacted project is logged
+    Given a previously issued project titled "Concurrent File Processor" has been thumbs-upped
+    When the project generation pipeline runs and proposes that same title
+    Then the project should still be created
+    And the processing log should flag the project title collision
+
+  Scenario: Duplicate task titles within a generated project are deduplicated
+    When the project generation pipeline runs with two tasks sharing the same title
+    Then only one task with that title should be stored
+    And the processing log should record one skipped duplicate task
+
+  Scenario: A thumbs-upped past task title is not re-issued in a new project
+    Given a previously issued project with a thumbs-upped task titled "Fix race condition"
+    When the project generation pipeline runs and proposes that same task title
+    Then the previously-liked task title should not appear in the new project
+    And the processing log should record one skipped reacted-to task

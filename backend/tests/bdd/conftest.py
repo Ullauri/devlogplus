@@ -379,13 +379,22 @@ def create_project(
     *,
     status: str = "issued",
     with_files: bool = False,
+    title: str = "Test Project",
+    tasks: list[tuple[str, str]] | None = None,
 ) -> Any:
-    from backend.app.models.base import ProjectStatus
+    """Seed a WeeklyProject with at least one task.
+
+    ``tasks`` is an optional list of ``(title, task_type)`` tuples. When
+    omitted, a single ``("Implement feature", "feature")`` task is created.
+    """
+    from backend.app.models.base import ProjectStatus, ProjectTaskType
     from backend.app.models.project import ProjectTask, WeeklyProject
+
+    task_specs = tasks or [("Implement feature", "feature")]
 
     async def _create():
         project = WeeklyProject(
-            title="Test Project",
+            title=title,
             description="A test Go project",
             difficulty_level=3,
             project_path="/tmp/devlogplus_test_project",
@@ -394,14 +403,17 @@ def create_project(
         db.add(project)
         await db.flush()
 
-        task = ProjectTask(
-            project_id=project.id,
-            title="Implement feature",
-            description="Build a feature",
-            task_type="feature",
-            order_index=0,
-        )
-        db.add(task)
+        created_tasks = []
+        for i, (t_title, t_type) in enumerate(task_specs):
+            task = ProjectTask(
+                project_id=project.id,
+                title=t_title,
+                description=f"{t_title} (seeded for tests)",
+                task_type=ProjectTaskType(t_type),
+                order_index=i,
+            )
+            db.add(task)
+            created_tasks.append(task)
         await db.flush()
 
         if with_files:
@@ -413,6 +425,10 @@ def create_project(
                 'package main\n\nfunc main() {\n\tprintln("hello")\n}\n'
             )
 
+        # Stash tasks on the project object for caller convenience
+        # (accessing project.tasks directly would trigger a lazy load from
+        # sync code).
+        project._seeded_tasks = created_tasks  # type: ignore[attr-defined]
         return project
 
     return run_async(_create())
