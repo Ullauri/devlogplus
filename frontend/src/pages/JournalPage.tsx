@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { api, JournalEntry } from "../api/client";
 import SpeechInput from "../components/SpeechInput";
+import RunPipelineButton from "../components/RunPipelineButton";
 
 export default function JournalPage() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -11,6 +12,8 @@ export default function JournalPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const load = () => api.journal.list().then(setEntries);
+
+  const hasUnprocessed = entries.some((e) => !e.is_processed);
 
   useEffect(() => {
     load();
@@ -56,17 +59,26 @@ export default function JournalPage() {
             Log what you learned today
           </span>
         </div>
-        <button
-          onClick={() => {
-            setShowForm(true);
-            setEditingId(null);
-            setTitle("");
-            setContent("");
-          }}
-          className="flex items-center gap-1 rounded-md bg-brand-600 px-3 py-2 text-sm text-white hover:bg-brand-700"
-        >
-          <Plus size={16} /> New Entry
-        </button>
+        <div className="flex items-center gap-3">
+          {hasUnprocessed && (
+            <RunPipelineButton
+              label="Process entries"
+              onRun={() => api.pipelines.runProfileUpdate()}
+              onQueued={load}
+            />
+          )}
+          <button
+            onClick={() => {
+              setShowForm(true);
+              setEditingId(null);
+              setTitle("");
+              setContent("");
+            }}
+            className="flex items-center gap-1 rounded-md bg-brand-600 px-3 py-2 text-sm text-white hover:bg-brand-700"
+          >
+            <Plus size={16} /> New Entry
+          </button>
+        </div>
       </div>
 
       {showForm && (
