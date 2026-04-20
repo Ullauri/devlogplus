@@ -71,6 +71,15 @@ class QuizQuestionResponse(BaseSchema):
     session_id: uuid.UUID = Field(description="Parent quiz session ID")
     question_text: str = Field(description="The question text")
     question_type: QuizQuestionType = Field(description="Question type (always free_text)")
+    reference_answer: str | None = Field(
+        default=None,
+        description=(
+            "LLM-generated model answer for this question. Revealed to the "
+            "user after they submit their own answer so they can compare it "
+            "against a strong reference response. Null for questions "
+            "generated before this feature was introduced."
+        ),
+    )
     topic_id: uuid.UUID | None = Field(
         description="ID of the Knowledge Profile topic this question targets"
     )

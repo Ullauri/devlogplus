@@ -2214,6 +2214,11 @@ export interface components {
             /** @description Question type (always free_text) */
             question_type: components["schemas"]["QuizQuestionType"];
             /**
+             * Reference Answer
+             * @description LLM-generated model answer for this question. Revealed to the user after they submit their own answer so they can compare it against a strong reference response. Null for questions generated before this feature was introduced.
+             */
+            reference_answer?: string | null;
+            /**
              * Topic Id
              * @description ID of the Knowledge Profile topic this question targets
              */

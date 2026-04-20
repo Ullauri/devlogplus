@@ -77,6 +77,21 @@ onto the same one. Concretely:
 - Prefer breadth across the user's profile (strengths, frontiers, weak
   spots) over exhaustively drilling a single area.
 
+## Reference answers — REQUIRED
+
+For every question you generate, also produce a ``reference_answer``: a
+concise but substantive model answer (2–6 sentences, or a short bulleted
+list when that's genuinely clearer) that demonstrates what a strong,
+correct response looks like. This is shown to the user *after* they
+submit their own answer so they can compare against a good reference.
+
+- Write the reference answer in plain prose, no meta-commentary like
+  "A good answer would mention…".
+- It should stand on its own as an answer, not as a rubric.
+- Cover the key points the question is probing. Don't pad.
+- Match the depth the question asks for: a conceptual question gets a
+  conceptual reference answer; a tradeoff question discusses tradeoffs.
+
 ## Output format
 
 Respond with a JSON object using EXACTLY this structure:
@@ -88,7 +103,8 @@ Respond with a JSON object using EXACTLY this structure:
       "question_text": "the full question",
       "question_type": "reinforcement or exploration",
       "target_topic": "topic this question targets",
-      "difficulty_rationale": "why this difficulty level was chosen"
+      "difficulty_rationale": "why this difficulty level was chosen",
+      "reference_answer": "a model answer shown after submission"
     }
   ]
 }

@@ -289,6 +289,9 @@ async def generate_quiz(
                 session_id=session.id,
                 question_text=q.question_text,
                 question_type=q_type,
+                reference_answer=(q.reference_answer.strip() or None)
+                if q.reference_answer
+                else None,
                 topic_id=resolved_topic_id,
                 order_index=stored_count,
             )

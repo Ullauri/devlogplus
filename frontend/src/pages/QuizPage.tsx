@@ -182,6 +182,19 @@ export default function QuizPage() {
                         </p>
                       </div>
                     )}
+                    {q.reference_answer && (
+                      <details
+                        className="mt-2 border-t pt-2"
+                        open={!!q.evaluation}
+                      >
+                        <summary className="cursor-pointer text-xs font-semibold text-brand-700 hover:text-brand-800">
+                          Expected answer
+                        </summary>
+                        <p className="mt-1 whitespace-pre-line text-xs text-gray-700">
+                          {q.reference_answer}
+                        </p>
+                      </details>
+                    )}
                   </div>
                 ) : (
                   <div className="mt-2 flex gap-2">

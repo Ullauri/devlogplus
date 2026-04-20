@@ -53,6 +53,16 @@ class QuizQuestion(Base, UUIDMixin):
     )
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
     question_type: Mapped[QuizQuestionType] = mapped_column(nullable=False)
+    reference_answer: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc=(
+            "LLM-generated model/expected answer shown to the user after they "
+            "submit their own answer, so they can compare against a reference. "
+            "Nullable for backwards-compatibility with questions generated "
+            "before this field was introduced."
+        ),
+    )
     topic_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("topics.id", ondelete="SET NULL"),

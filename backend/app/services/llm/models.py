@@ -42,6 +42,14 @@ class GeneratedQuestion(BaseModel):
     question_type: str = Field(..., description="'reinforcement' or 'exploration'")
     target_topic: str = Field(..., description="Topic this question targets")
     difficulty_rationale: str = Field(..., description="Why this difficulty level")
+    reference_answer: str = Field(
+        default="",
+        description=(
+            "Model answer the user will see after they submit their own "
+            "response. Should be a concise but substantive paragraph that "
+            "demonstrates a strong answer. May be empty for legacy responses."
+        ),
+    )
 
 
 class QuizGenerationResult(BaseModel):

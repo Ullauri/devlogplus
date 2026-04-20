@@ -4175,6 +4175,18 @@
             "$ref": "#/components/schemas/QuizQuestionType",
             "description": "Question type (always free_text)"
           },
+          "reference_answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Answer",
+            "description": "LLM-generated model answer for this question. Revealed to the user after they submit their own answer so they can compare it against a strong reference response. Null for questions generated before this feature was introduced."
+          },
           "topic_id": {
             "anyOf": [
               {
