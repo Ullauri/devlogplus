@@ -5,8 +5,8 @@ Adds a second batch of curated, validated trusted domains to the
 security, frontend development, cloud native, and tech journalism.
 Idempotent — existing domains are left untouched.
 
-Revision ID: 003
-Revises: 002
+Revision ID: 005
+Revises: 004
 Create Date: 2026-04-25
 """
 
@@ -16,8 +16,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "003"
-down_revision: str | None = "002"
+revision: str = "005"
+down_revision: str | None = "004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
