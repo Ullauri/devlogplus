@@ -22,6 +22,7 @@ export default function QuizPage() {
   >(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
   const [reviewSession, setReviewSession] = useState<
     (QuizSession & { questions: QuizQuestion[] }) | null
   >(null);
@@ -66,6 +67,7 @@ export default function QuizPage() {
 
   const openReview = async (sessionId: string) => {
     const detail = await api.quiz.getSession(sessionId);
+    setEvaluating(false);
     setReviewSession(detail);
   };
 
@@ -235,13 +237,20 @@ export default function QuizPage() {
             </button>
             {!status.running.some((r) => r === "quiz_evaluation") && (
               <button
+                disabled={evaluating}
                 onClick={async () => {
-                  await api.pipelines.runQuizEvaluation(reviewSession.id);
-                  await status.refresh();
+                  if (evaluating) return;
+                  setEvaluating(true);
+                  try {
+                    await api.pipelines.runQuizEvaluation(reviewSession.id);
+                    await status.refresh();
+                  } finally {
+                    setEvaluating(false);
+                  }
                 }}
-                className="ml-2 rounded bg-yellow-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-yellow-800"
+                className="ml-2 rounded bg-yellow-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-yellow-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Evaluate now
+                {evaluating ? "Queuing…" : "Evaluate now"}
               </button>
             )}
           </div>
