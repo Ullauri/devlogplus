@@ -75,6 +75,11 @@ export default function QuizPage() {
     await api.quiz.completeSession(completedId);
     setCurrent(null);
     api.quiz.listSessions().then(setSessions);
+    // Kick off LLM evaluation immediately (runs in background on the server)
+    api.pipelines
+      .runQuizEvaluation(completedId)
+      .then(() => status.refresh())
+      .catch(() => {}); // evaluation can be re-triggered manually from the review view
     // Show results immediately
     openReview(completedId);
   };
@@ -217,13 +222,28 @@ export default function QuizPage() {
 
         {reviewSession.status !== "evaluated" && (
           <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
-            Evaluations are still being generated. Refresh to check for updates.
+            {status.running.some((r) => r === "quiz_evaluation") ? (
+              <>Evaluation is running… Refresh to check for updates.</>
+            ) : (
+              <>Evaluations have not been generated yet.</>
+            )}
             <button
               onClick={() => openReview(reviewSession.id)}
               className="ml-2 font-medium text-yellow-900 underline hover:no-underline"
             >
               Refresh
             </button>
+            {!status.running.some((r) => r === "quiz_evaluation") && (
+              <button
+                onClick={async () => {
+                  await api.pipelines.runQuizEvaluation(reviewSession.id);
+                  await status.refresh();
+                }}
+                className="ml-2 rounded bg-yellow-700 px-2 py-0.5 text-xs font-medium text-white hover:bg-yellow-800"
+              >
+                Evaluate now
+              </button>
+            )}
           </div>
         )}
 

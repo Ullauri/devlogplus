@@ -18,11 +18,10 @@ from backend.app.models.base import PipelineStatus, PipelineType
 from backend.app.schemas.common import BaseSchema
 
 # The pipelines that are safe to trigger as a single top-level "run".
-# Evaluation pipelines (quiz_evaluation, project_evaluation, topic_extraction)
-# are driven by user-submitted content and are not exposed here.
 ManualPipelineName = Literal[
     "profile_update",
     "quiz_generation",
+    "quiz_evaluation",
     "reading_generation",
     "project_generation",
 ]

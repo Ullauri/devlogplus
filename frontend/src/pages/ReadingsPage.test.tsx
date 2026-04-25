@@ -11,6 +11,7 @@ vi.mock("../api/client", () => ({
       allowlist: vi.fn(),
       addAllowlist: vi.fn(),
       deleteAllowlist: vi.fn(),
+      markRead: vi.fn(),
     },
     feedback: {
       create: vi.fn().mockResolvedValue({}),

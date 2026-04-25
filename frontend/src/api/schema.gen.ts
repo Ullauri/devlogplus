@@ -233,9 +233,9 @@ export interface paths {
          * Complete quiz session
          * @description Mark a quiz session as completed.
          *
-         *     All answers should be submitted before completing.  Once completed, the
-         *     quiz evaluation pipeline will assess each answer and update the Knowledge
-         *     Profile accordingly.
+         *     All answers should be submitted before completing.  Once completed, use
+         *     the quiz evaluation endpoint to assess answers and update the Knowledge
+         *     Profile.
          */
         post: operations["complete_session_api_v1_quizzes_sessions__session_id__complete_post"];
         delete?: never;
@@ -802,6 +802,26 @@ export interface paths {
          * @description Generates a new weekly quiz session immediately rather than waiting for the Monday 3:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.
          */
         post: operations["run_quiz_generation_api_v1_pipelines_quiz_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pipelines/quiz-evaluation/run/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manually trigger quiz evaluation for a completed session
+         * @description Re-runs the quiz evaluation pipeline for a specific completed quiz session. Use this when automatic evaluation failed or was never triggered. Runs in the background; poll `GET /pipelines/runs` for progress.
+         */
+        post: operations["run_quiz_evaluation_api_v1_pipelines_quiz_evaluation_run__session_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1738,7 +1758,7 @@ export interface components {
              * @description Name of the pipeline that was queued.
              * @enum {string}
              */
-            pipeline: "profile_update" | "quiz_generation" | "reading_generation" | "project_generation";
+            pipeline: "profile_update" | "quiz_generation" | "quiz_evaluation" | "reading_generation" | "project_generation";
             /**
              * Run Id
              * Format: uuid
@@ -4274,6 +4294,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PipelineRunAccepted"];
+                };
+            };
+        };
+    };
+    run_quiz_evaluation_api_v1_pipelines_quiz_evaluation_run__session_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineRunAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

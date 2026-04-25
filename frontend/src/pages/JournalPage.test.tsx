@@ -12,6 +12,9 @@ vi.mock("../api/client", () => ({
       update: vi.fn(),
       delete: vi.fn(),
     },
+    pipelines: {
+      listRuns: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 

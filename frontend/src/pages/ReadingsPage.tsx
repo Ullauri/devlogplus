@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, ExternalLink, Plus, Trash2 } from "lucide-react";
 import {
   api,
   ReadingRecommendation,
@@ -22,6 +22,16 @@ export default function ReadingsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const pipelines = useMemo(() => READING_PIPELINES, []);
   const status = usePipelineStatus(pipelines);
+
+  const isGenerating = status.running.length > 0;
+  const allRead =
+    readings.length > 0 &&
+    readings.every((r) => r.status === "read" || r.status === "dismissed");
+
+  const markRead = async (id: string, isRead: boolean) => {
+    const updated = await api.readings.markRead(id, isRead);
+    setReadings((prev) => prev.map((r) => (r.id === id ? updated : r)));
+  };
 
   const loadReadings = useCallback(
     () =>
@@ -151,16 +161,40 @@ export default function ReadingsPage() {
             <RunPipelineButton
               label="Generate recommendations now"
               onRun={() => api.pipelines.runReadingGeneration()}
-              onQueued={() => status.refresh()}
+              onQueued={async () => {
+                await status.refresh();
+              }}
             />
           </div>
         ) : null
       ) : (
         <div className="space-y-3">
+          {allRead && (
+            <div className="mb-2 flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3">
+              <CheckCircle2 size={16} className="text-green-600" aria-hidden />
+              <span className="flex-1 text-sm text-green-800">
+                All caught up! Generate a new batch of recommendations.
+              </span>
+              <RunPipelineButton
+                label={
+                  isGenerating ? "Generating…" : "Generate new recommendations"
+                }
+                onRun={() => api.pipelines.runReadingGeneration()}
+                onQueued={async () => {
+                  await status.refresh();
+                }}
+                disabled={isGenerating}
+              />
+            </div>
+          )}
           {readings.map((r) => (
             <div
               key={r.id}
-              className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+              className={`rounded-lg border bg-white p-4 shadow-sm ${
+                r.status === "read" || r.status === "dismissed"
+                  ? "border-gray-100 opacity-60"
+                  : "border-gray-200"
+              }`}
             >
               <div className="mb-1 flex items-start justify-between">
                 <div>
@@ -176,7 +210,22 @@ export default function ReadingsPage() {
                     {r.source_domain}
                   </span>
                 </div>
-                <FeedbackControls targetType="reading" targetId={r.id} />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => markRead(r.id, r.status !== "read")}
+                    title={
+                      r.status === "read" ? "Mark as unread" : "Mark as read"
+                    }
+                    className={`rounded p-1 transition-colors ${
+                      r.status === "read"
+                        ? "text-green-500 hover:text-gray-400"
+                        : "text-gray-300 hover:text-green-500"
+                    }`}
+                  >
+                    <CheckCircle2 size={16} />
+                  </button>
+                  <FeedbackControls targetType="reading" targetId={r.id} />
+                </div>
               </div>
               {r.description && (
                 <p className="text-sm text-gray-600">{r.description}</p>

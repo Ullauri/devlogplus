@@ -121,9 +121,9 @@ async def complete_session(
 ) -> QuizSessionResponse:
     """Mark a quiz session as completed.
 
-    All answers should be submitted before completing.  Once completed, the
-    quiz evaluation pipeline will assess each answer and update the Knowledge
-    Profile accordingly.
+    All answers should be submitted before completing.  Once completed, use
+    the quiz evaluation endpoint to assess answers and update the Knowledge
+    Profile.
     """
     session = await quiz_svc.complete_session(db, session_id)
     if session is None:

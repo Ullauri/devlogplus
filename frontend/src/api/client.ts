@@ -87,6 +87,12 @@ function put<T>(path: string, body?: unknown) {
     body: body ? JSON.stringify(body) : undefined,
   });
 }
+function patch<T>(path: string, body?: unknown) {
+  return request<T>(path, {
+    method: "PATCH",
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
 function del<T>(path: string) {
   return request<T>(path, { method: "DELETE" });
 }
@@ -136,6 +142,8 @@ export const api = {
       get<PaginatedResponse<ReadingRecommendation>>(
         "/readings/recommendations",
       ).then((r) => r.items),
+    markRead: (id: string, read: boolean) =>
+      patch<ReadingRecommendation>(`/readings/recommendations/${id}`, { read }),
     allowlist: () => get<AllowlistEntry[]>("/readings/allowlist"),
     addAllowlist: (data: Schemas["AllowlistEntryCreate"]) =>
       post<AllowlistEntry>("/readings/allowlist", data),
@@ -185,6 +193,8 @@ export const api = {
     runProfileUpdate: () =>
       post<PipelineRunAccepted>("/pipelines/profile-update/run"),
     runQuizGeneration: () => post<PipelineRunAccepted>("/pipelines/quiz/run"),
+    runQuizEvaluation: (sessionId: string) =>
+      post<PipelineRunAccepted>(`/pipelines/quiz-evaluation/run/${sessionId}`),
     runReadingGeneration: () =>
       post<PipelineRunAccepted>("/pipelines/readings/run"),
     runProjectGeneration: () =>

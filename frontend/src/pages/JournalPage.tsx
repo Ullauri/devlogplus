@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import { api, JournalEntry } from "../api/client";
+import { api, JournalEntry, type PipelineType } from "../api/client";
 import SpeechInput from "../components/SpeechInput";
 import RunPipelineButton from "../components/RunPipelineButton";
+import { usePipelineStatus } from "../hooks/usePipelineStatus";
+
+const JOURNAL_PIPELINES: readonly PipelineType[] = ["profile_update"];
 
 export default function JournalPage() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -10,6 +13,10 @@ export default function JournalPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const pipelines = useMemo(() => JOURNAL_PIPELINES, []);
+  const pipelineStatus = usePipelineStatus(pipelines);
+  const isProcessing = pipelineStatus.running.length > 0;
 
   const load = () => api.journal.list().then(setEntries);
 
@@ -60,11 +67,15 @@ export default function JournalPage() {
           </span>
         </div>
         <div className="flex items-center gap-3">
-          {hasUnprocessed && (
+          {(hasUnprocessed || isProcessing) && (
             <RunPipelineButton
-              label="Process entries"
+              label={isProcessing ? "Processing…" : "Process entries"}
               onRun={() => api.pipelines.runProfileUpdate()}
-              onQueued={load}
+              onQueued={async () => {
+                await pipelineStatus.refresh();
+                load();
+              }}
+              disabled={isProcessing}
             />
           )}
           <button

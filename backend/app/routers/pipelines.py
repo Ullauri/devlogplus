@@ -129,6 +129,36 @@ async def run_quiz_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
 
 
 @router.post(
+    "/quiz-evaluation/run/{session_id}",
+    response_model=PipelineRunAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Manually trigger quiz evaluation for a completed session",
+    description=(
+        "Re-runs the quiz evaluation pipeline for a specific completed quiz "
+        "session. Use this when automatic evaluation failed or was never "
+        "triggered. Runs in the background; poll `GET /pipelines/runs` for "
+        "progress."
+    ),
+)
+async def run_quiz_evaluation(
+    session_id: uuid.UUID,
+    bg: BackgroundTasks,
+) -> PipelineRunAccepted:
+    run_id = pipelines_svc.new_run_id()
+
+    async def _evaluate(db: AsyncSession, *, run_id: uuid.UUID) -> None:  # noqa: ARG001
+        await quiz_pipeline.evaluate_quiz(db, session_id)
+
+    bg.add_task(
+        _run_in_background,
+        _evaluate,
+        "quiz_evaluation",
+        run_id,
+    )
+    return _accepted("quiz_evaluation", "Quiz evaluation", run_id)
+
+
+@router.post(
     "/readings/run",
     response_model=PipelineRunAccepted,
     status_code=status.HTTP_202_ACCEPTED,

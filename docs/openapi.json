@@ -535,7 +535,7 @@
           "quizzes"
         ],
         "summary": "Complete quiz session",
-        "description": "Mark a quiz session as completed.\n\nAll answers should be submitted before completing.  Once completed, the\nquiz evaluation pipeline will assess each answer and update the Knowledge\nProfile accordingly.",
+        "description": "Mark a quiz session as completed.\n\nAll answers should be submitted before completing.  Once completed, use\nthe quiz evaluation endpoint to assess answers and update the Knowledge\nProfile.",
         "operationId": "complete_session_api_v1_quizzes_sessions__session_id__complete_post",
         "parameters": [
           {
@@ -1770,6 +1770,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PipelineRunAccepted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/quiz-evaluation/run/{session_id}": {
+      "post": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "Manually trigger quiz evaluation for a completed session",
+        "description": "Re-runs the quiz evaluation pipeline for a specific completed quiz session. Use this when automatic evaluation failed or was never triggered. Runs in the background; poll `GET /pipelines/runs` for progress.",
+        "operationId": "run_quiz_evaluation_api_v1_pipelines_quiz_evaluation_run__session_id__post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRunAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3393,6 +3437,7 @@
             "enum": [
               "profile_update",
               "quiz_generation",
+              "quiz_evaluation",
               "reading_generation",
               "project_generation"
             ],
