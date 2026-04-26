@@ -37,6 +37,9 @@ export default function RunPipelineButton({
   disabled = false,
 }: RunPipelineButtonProps) {
   const [busy, setBusy] = useState(false);
+  // Stays true after a successful queue so the button can't be double-fired
+  // while the parent's `disabled` prop catches up to the running pipeline.
+  const [queued, setQueued] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const click = async () => {
@@ -44,6 +47,7 @@ export default function RunPipelineButton({
     setError(null);
     try {
       await onRun();
+      setQueued(true);
       if (onQueued) await onQueued();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start pipeline");
@@ -52,18 +56,25 @@ export default function RunPipelineButton({
     }
   };
 
+  const isDisabled = disabled || busy || queued;
+
   return (
     <div>
       <button
         type="button"
         onClick={click}
-        disabled={disabled || busy}
-        className="inline-flex items-center gap-2 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:opacity-50"
+        disabled={isDisabled}
+        className="inline-flex items-center gap-2 rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {busy ? (
           <>
             <Loader2 size={14} className="animate-spin" aria-hidden />
             Starting…
+          </>
+        ) : queued ? (
+          <>
+            <Loader2 size={14} className="animate-spin" aria-hidden />
+            Queued…
           </>
         ) : (
           <>
