@@ -293,6 +293,7 @@ export default function QuizPage() {
                 label="Generate quiz now"
                 onRun={() => api.pipelines.runQuizGeneration()}
                 onQueued={() => status.refresh()}
+                disabled={!status.loaded}
               />
             </div>
           )}

@@ -163,6 +163,7 @@ export default function ProjectsPage() {
               label="Generate project now"
               onRun={() => api.pipelines.runProjectGeneration()}
               onQueued={() => status.refresh()}
+              disabled={!status.loaded}
             />
           </div>
         )

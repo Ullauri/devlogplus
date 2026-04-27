@@ -75,7 +75,7 @@ export default function JournalPage() {
                 await pipelineStatus.refresh();
                 load();
               }}
-              disabled={isProcessing}
+              disabled={!pipelineStatus.loaded || isProcessing}
             />
           )}
           <button

@@ -21,6 +21,7 @@ vi.mock("../api/client", () => ({
 import { api } from "../api/client";
 const mockList = api.journal.list as ReturnType<typeof vi.fn>;
 const mockCreate = api.journal.create as ReturnType<typeof vi.fn>;
+const mockListRuns = api.pipelines.listRuns as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -110,5 +111,37 @@ describe("JournalPage", () => {
     await waitFor(() => {
       expect(screen.getByText(/✅ Processed/)).toBeInTheDocument();
     });
+  });
+
+  it("disables Process entries button until pipeline status has loaded", async () => {
+    // Simulate an unresolved pipeline status fetch — this is what happens
+    // when a user navigates back to the tab and the component remounts.
+    let resolveRuns!: (v: unknown[]) => void;
+    mockListRuns.mockReturnValue(
+      new Promise<unknown[]>((r) => {
+        resolveRuns = r;
+      }),
+    );
+    mockList.mockResolvedValue([
+      {
+        id: "1",
+        title: null,
+        current_content: "Unprocessed entry",
+        is_processed: false,
+        processed_at: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+
+    renderWithRouter(<JournalPage />);
+
+    // Button should be present but disabled while status is loading
+    const btn = await screen.findByRole("button", { name: /process entries/i });
+    expect(btn).toBeDisabled();
+
+    // Once the status fetch resolves with no running pipelines, button becomes active
+    resolveRuns([]);
+    await waitFor(() => expect(btn).not.toBeDisabled());
   });
 });

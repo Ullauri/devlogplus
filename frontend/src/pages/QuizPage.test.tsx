@@ -31,6 +31,7 @@ const mockSubmitAnswer = api.quiz.submitAnswer as ReturnType<typeof vi.fn>;
 const mockCompleteSession = api.quiz.completeSession as ReturnType<
   typeof vi.fn
 >;
+const mockListRuns = api.pipelines.listRuns as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,6 +48,28 @@ describe("QuizPage — empty state", () => {
       expect(screen.getByText(/No active quiz/)).toBeInTheDocument();
     });
     expect(screen.queryByText("Past Sessions")).not.toBeInTheDocument();
+  });
+
+  it("disables Generate quiz button until pipeline status has loaded", async () => {
+    // Unresolved fetch simulates the remount-after-tab-switch race window
+    let resolveRuns!: (v: unknown[]) => void;
+    mockListRuns.mockReturnValue(
+      new Promise<unknown[]>((r) => {
+        resolveRuns = r;
+      }),
+    );
+    mockListSessions.mockResolvedValue([]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+
+    renderWithRouter(<QuizPage />);
+
+    const btn = await screen.findByRole("button", {
+      name: /generate quiz now/i,
+    });
+    expect(btn).toBeDisabled();
+
+    resolveRuns([]);
+    await waitFor(() => expect(btn).not.toBeDisabled());
   });
 
   it("renders past sessions", async () => {

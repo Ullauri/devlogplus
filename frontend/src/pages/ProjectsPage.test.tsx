@@ -25,6 +25,7 @@ import { api } from "../api/client";
 const mockList = api.projects.list as ReturnType<typeof vi.fn>;
 const mockGetCurrent = api.projects.getCurrent as ReturnType<typeof vi.fn>;
 const mockSubmit = api.projects.submit as ReturnType<typeof vi.fn>;
+const mockListRuns = api.pipelines.listRuns as ReturnType<typeof vi.fn>;
 
 function makeProject(overrides: Record<string, unknown> = {}) {
   return {
@@ -53,6 +54,28 @@ describe("ProjectsPage — empty state", () => {
       expect(screen.getByText(/No active project/)).toBeInTheDocument();
     });
     expect(screen.queryByText("Past Projects")).not.toBeInTheDocument();
+  });
+
+  it("disables Generate project button until pipeline status has loaded", async () => {
+    // Unresolved fetch simulates the remount-after-tab-switch race window
+    let resolveRuns!: (v: unknown[]) => void;
+    mockListRuns.mockReturnValue(
+      new Promise<unknown[]>((r) => {
+        resolveRuns = r;
+      }),
+    );
+    mockList.mockResolvedValue([]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+
+    renderWithRouter(<ProjectsPage />);
+
+    const btn = await screen.findByRole("button", {
+      name: /generate project now/i,
+    });
+    expect(btn).toBeDisabled();
+
+    resolveRuns([]);
+    await waitFor(() => expect(btn).not.toBeDisabled());
   });
 });
 
