@@ -19,6 +19,7 @@ vi.mock("../api/client", () => ({
     },
     pipelines: {
       listRuns: vi.fn().mockResolvedValue([]),
+      runQuizEvaluation: vi.fn().mockResolvedValue({}),
     },
   },
 }));
@@ -454,7 +455,7 @@ describe("QuizPage — review past session", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Evaluations are still being generated/),
+        screen.getByText(/Evaluations have not been generated yet/),
       ).toBeInTheDocument();
     });
   });

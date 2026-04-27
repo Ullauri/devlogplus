@@ -85,7 +85,7 @@ describe("ProfilePage", () => {
     renderWithRouter(<ProfilePage />);
 
     await waitFor(() => {
-      expect(screen.getByText("strengths")).toBeInTheDocument();
+      expect(screen.getByText("Strengths")).toBeInTheDocument();
       expect(screen.getByText("Go concurrency")).toBeInTheDocument();
       expect(screen.getByText("strong")).toBeInTheDocument();
       expect(screen.getByText("85% confidence")).toBeInTheDocument();
