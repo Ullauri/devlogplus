@@ -343,3 +343,82 @@ def then_log_records_duplicate_topic(bdd_db):
     md = log.metadata_ or {}
     assert md.get("skipped_duplicate_topic") == 1
     assert md.get("distinct_topics") == 1
+
+
+# ---------------------------------------------------------------------------
+# Duplicate URL (cross-batch) scenario
+# ---------------------------------------------------------------------------
+
+
+@given(parsers.parse('a reading at "{url}" already exists in the database'))
+def given_existing_reading_url(bdd_db, ctx, url):
+    reading = create_reading_recommendation(
+        bdd_db,
+        url=url,
+        source_domain=url.split("://", 1)[-1].split("/", 1)[0],
+        title="Original title",
+    )
+    run_async(bdd_db.commit())
+    ctx["existing_url"] = url
+    ctx["existing_reading"] = reading
+
+
+@when("the reading generation pipeline runs and proposes that same URL with a different title")
+def when_generate_proposes_existing_url(bdd_db, ctx):
+    from backend.app.pipelines.reading_pipeline import generate_readings
+
+    existing_url = ctx["existing_url"]
+    domain = existing_url.split("://", 1)[-1].split("/", 1)[0]
+    mock_response = make_reading_generation_response(
+        recommendations=[
+            {
+                "title": "Completely Different Title for Same Page",
+                "url": existing_url,
+                "source_domain": domain,
+                "description": "Different description, same URL",
+                "recommendation_type": "deep_dive",
+                "target_topic": "Kubernetes resource management",
+                "rationale": "LLM suggested the same link it already stored",
+            },
+            {
+                "title": "A genuinely new article",
+                "url": "https://go.dev/doc/faq",
+                "source_domain": "go.dev",
+                "description": "Go FAQ — fresh content",
+                "recommendation_type": "next_frontier",
+                "target_topic": "Go language basics",
+                "rationale": "New content",
+            },
+        ]
+    )
+
+    with (
+        patch(
+            "backend.app.pipelines.reading_pipeline.llm_client.chat_completion_json",
+            new_callable=AsyncMock,
+            return_value=mock_response,
+        ),
+        patch(
+            "backend.app.pipelines.reading_pipeline.reading_svc.validate_urls",
+            new_callable=AsyncMock,
+            return_value={},
+        ),
+    ):
+        readings = run_async(generate_readings(bdd_db))
+        run_async(bdd_db.commit())
+
+    ctx["readings"] = readings
+
+
+@then("the duplicate URL should not appear in the new batch")
+def then_duplicate_url_excluded(ctx):
+    existing_url = ctx["existing_url"]
+    for r in ctx["readings"]:
+        assert r.url != existing_url, f"Duplicate URL was stored: {existing_url}"
+
+
+@then("the processing log should record one skipped duplicate-url recommendation")
+def then_log_records_duplicate_url(bdd_db):
+    log = _latest_reading_log(bdd_db)
+    md = log.metadata_ or {}
+    assert md.get("skipped_duplicate_url") == 1

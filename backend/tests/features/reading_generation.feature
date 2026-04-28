@@ -31,6 +31,13 @@ Feature: Weekly Reading Recommendations
     Then the previously-liked URL should not appear in the new batch
     And the processing log should record one skipped already-liked recommendation
 
+  Scenario: A previously recommended URL is not re-recommended even if the title differs
+    Given the reading allowlist contains "go.dev" and "blog.golang.org"
+    And a reading at "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/" already exists in the database
+    When the reading generation pipeline runs and proposes that same URL with a different title
+    Then the duplicate URL should not appear in the new batch
+    And the processing log should record one skipped duplicate-url recommendation
+
   Scenario: Multiple recommendations on the same topic are deduplicated for diversity
     Given the reading allowlist contains "go.dev" and "blog.golang.org"
     When the reading generation pipeline runs with two recommendations targeting the same topic

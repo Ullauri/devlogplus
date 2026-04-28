@@ -166,6 +166,18 @@ async def get_latest_batch_date(db: AsyncSession) -> date | None:
     return result.scalar_one_or_none()
 
 
+async def get_all_recommendation_urls(db: AsyncSession) -> set[str]:
+    """Return the set of all URLs that have ever been recommended.
+
+    Used by the reading-generation pipeline to prevent the same link from
+    being surfaced again in a later batch, regardless of whether the user
+    has reacted to it.
+    """
+    stmt = select(ReadingRecommendation.url)
+    result = await db.execute(stmt)
+    return set(result.scalars().all())
+
+
 async def get_recommendation(
     db: AsyncSession, recommendation_id: uuid.UUID
 ) -> ReadingRecommendation | None:

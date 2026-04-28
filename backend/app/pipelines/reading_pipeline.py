@@ -148,9 +148,14 @@ async def generate_readings(
         liked_readings = list(liked_lookup.values())
         liked_urls = {r.url for r in liked_readings}
 
-        # Combined hard-avoid set: disliked URLs + already-liked URLs.
-        # Both are dead-ends for re-recommendation, just for opposite reasons.
-        avoid_urls = disliked_urls | liked_urls
+        # All URLs ever stored — regardless of feedback status.  A URL the
+        # user hasn't rated is still a duplicate if it already appeared in a
+        # previous batch; only the title/description would differ, not the
+        # content. Using the URL as the canonical identity prevents that.
+        all_stored_urls = await reading_svc.get_all_recommendation_urls(db)
+
+        # Combined hard-avoid set: any URL already stored + disliked + liked.
+        avoid_urls = all_stored_urls | disliked_urls | liked_urls
 
         avoid_urls_text = "\n".join(f"- {u}" for u in sorted(avoid_urls)) or "None"
         downrank_text = (
@@ -220,6 +225,7 @@ async def generate_readings(
         created: list[ReadingRecommendation] = []
         skipped_disliked = 0
         skipped_already_liked = 0
+        skipped_duplicate_url = 0
         skipped_duplicate_topic = 0
         skipped_unreachable: list[dict[str, str]] = []
         seen_topics: set[str] = set()
@@ -235,6 +241,14 @@ async def generate_readings(
             if rec.url in liked_urls:
                 logger.info("Skipping already-liked recommendation: %s", rec.url)
                 skipped_already_liked += 1
+                continue
+
+            # Hard filter: skip any URL that already exists in the database,
+            # even if the user hasn't reacted to it yet. The link is the same
+            # resource regardless of how the LLM labels it.
+            if rec.url in all_stored_urls:
+                logger.info("Skipping already-recommended URL: %s", rec.url)
+                skipped_duplicate_url += 1
                 continue
 
             # Validate domain is on allowlist
@@ -305,6 +319,7 @@ async def generate_readings(
             "stored": len(created),
             "skipped_disliked": skipped_disliked,
             "skipped_already_liked": skipped_already_liked,
+            "skipped_duplicate_url": skipped_duplicate_url,
             "skipped_duplicate_topic": skipped_duplicate_topic,
             "skipped_unreachable": skipped_unreachable,
             "batch_date": str(batch_date),
