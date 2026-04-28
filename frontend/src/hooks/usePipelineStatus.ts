@@ -45,6 +45,11 @@ export function usePipelineStatus(
   const key = pipelineTypes.join(",");
 
   const refresh = useCallback(async () => {
+    // Signal that a fetch is in-flight so consumers (e.g. RunPipelineButton)
+    // stay disabled during the round-trip. This closes the race window where
+    // a remount or tab-return re-fetch could briefly show the button as
+    // enabled before fresh run data arrives.
+    setLoaded(false);
     try {
       // One request per pipeline type so the backend filter does the work.
       // With at most 2 pipelines per tab this stays trivially cheap.

@@ -128,4 +128,68 @@ describe("usePipelineStatus", () => {
     expect(result.current.running).toEqual([]);
     expect(result.current.lastCompletedAt).toBeNull();
   });
+
+  it("loaded is false while a re-fetch is in-flight", async () => {
+    // First fetch completes immediately so the hook reaches loaded=true.
+    mockListRuns.mockResolvedValueOnce([]);
+
+    const { result } = renderHook(() => usePipelineStatus(["quiz_generation"]));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    // Second fetch is held open so we can observe the in-flight state.
+    let resolveSecond!: (v: unknown[]) => void;
+    mockListRuns.mockReturnValue(
+      new Promise<unknown[]>((r) => {
+        resolveSecond = r;
+      }),
+    );
+
+    act(() => {
+      void result.current.refresh();
+    });
+
+    // While the fetch is pending, loaded must be false so consumers disable
+    // any action buttons that depend on fresh pipeline status.
+    expect(result.current.loaded).toBe(false);
+
+    // Resolving restores loaded=true.
+    await act(async () => {
+      resolveSecond([]);
+    });
+    expect(result.current.loaded).toBe(true);
+  });
+});
+
+it("re-fetches on visibilitychange and keeps loaded=false during the round-trip", async () => {
+  // Initial load.
+  mockListRuns.mockResolvedValueOnce([]);
+  const { result } = renderHook(() => usePipelineStatus(["quiz_generation"]));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+
+  // Hold the next fetch so we can inspect the in-flight state.
+  let resolveVis!: (v: unknown[]) => void;
+  mockListRuns.mockReturnValue(
+    new Promise<unknown[]>((r) => {
+      resolveVis = r;
+    }),
+  );
+
+  act(() => {
+    // Simulate the user returning to the browser tab.
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+
+  // loaded must be false while the re-fetch is in-flight — this is the
+  // critical guard that prevents the Generate button from being enabled
+  // in the race window after a tab switch or SPA navigation remount.
+  expect(result.current.loaded).toBe(false);
+
+  await act(async () => {
+    resolveVis([]);
+  });
+  expect(result.current.loaded).toBe(true);
 });

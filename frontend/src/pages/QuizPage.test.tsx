@@ -73,6 +73,85 @@ describe("QuizPage — empty state", () => {
     await waitFor(() => expect(btn).not.toBeDisabled());
   });
 
+  it("hides Generate button when quiz_generation pipeline is running", async () => {
+    mockListRuns.mockResolvedValue([
+      {
+        id: "r1",
+        pipeline: "quiz_generation",
+        status: "started",
+        started_at: new Date().toISOString(),
+      },
+    ]);
+    mockListSessions.mockResolvedValue([]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+
+    renderWithRouter(<QuizPage />);
+
+    // Wait for status to load.
+    await waitFor(() => {
+      expect(mockListRuns).toHaveBeenCalled();
+    });
+
+    // The generate button should not be present while the pipeline is running.
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /generate quiz now/i }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps Generate button disabled during the re-fetch triggered by returning to the tab", async () => {
+    // First render: pipeline is idle, button loads normally.
+    // Use persistent mock (not Once) so both listRuns calls (quiz_generation
+    // and quiz_evaluation) resolve with the same empty array.
+    mockListRuns.mockResolvedValue([]);
+    mockListSessions.mockResolvedValue([]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+
+    renderWithRouter(<QuizPage />);
+
+    const btn = await screen.findByRole("button", {
+      name: /generate quiz now/i,
+    });
+    await waitFor(() => expect(btn).not.toBeDisabled());
+
+    // Simulate the user switching back to the tab while a pipeline is now
+    // running. Hold the next fetch open so we can assert on the in-flight
+    // state — this is the race window that previously allowed a click.
+    let resolveRecheck!: (v: unknown[]) => void;
+    mockListRuns.mockReturnValue(
+      new Promise<unknown[]>((r) => {
+        resolveRecheck = r;
+      }),
+    );
+
+    // Fire visibilitychange (same as returning to a browser tab).
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    // During the in-flight re-fetch the button must be disabled.
+    await waitFor(() => expect(btn).toBeDisabled());
+
+    // Resolve with a running pipeline — button section disappears entirely.
+    resolveRecheck([
+      {
+        id: "r1",
+        pipeline: "quiz_generation",
+        status: "started",
+        started_at: new Date().toISOString(),
+      },
+    ]);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: /generate quiz now/i }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("renders past sessions", async () => {
     mockListSessions.mockResolvedValue([
       {
