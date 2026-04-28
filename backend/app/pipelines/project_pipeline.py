@@ -6,6 +6,7 @@ Projects are written to workspace/projects/<date>/.
 Run via cron weekly or manually via CLI.
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, date, datetime
@@ -187,6 +188,62 @@ def _format_previous_themes(
     return "\n".join(lines)
 
 
+async def _verify_go_build(project_dir: Path) -> str | None:
+    """Run ``go build ./...`` in *project_dir*.
+
+    Ensures a ``go.mod`` exists first (auto-inits one if absent so the
+    compiler has a valid module root).  Returns the combined stdout+stderr
+    error string if the build fails, or ``None`` if it succeeds.
+    """
+    go = settings.go_executable
+
+    # Auto-init a module if the LLM forgot to include go.mod.
+    mod_file = project_dir / "go.mod"
+    if not mod_file.exists():
+        logger.debug("go.mod missing — running 'go mod init project' in %s", project_dir)
+        init_proc = await asyncio.create_subprocess_exec(
+            go,
+            "mod",
+            "init",
+            "project",
+            cwd=str(project_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, init_stderr = await init_proc.communicate()
+        if init_proc.returncode != 0:
+            return f"go mod init failed:\n{init_stderr.decode(errors='replace')}"
+
+    proc = await asyncio.create_subprocess_exec(
+        go,
+        "build",
+        "./...",
+        cwd=str(project_dir),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
+    except TimeoutError:
+        proc.kill()
+        return "go build timed out after 60 seconds"
+
+    if proc.returncode != 0:
+        combined = (stdout + stderr).decode(errors="replace").strip()
+        return combined or f"go build exited with code {proc.returncode}"
+
+    return None
+
+
+def _write_gen_files(project_dir: Path, gen_result: "ProjectGenerationResult") -> None:
+    """Write all generated source files and README to *project_dir*."""
+    for f in gen_result.files:
+        file_path = project_dir / f.path
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(f.content)
+    (project_dir / "README.md").write_text(gen_result.readme_content)
+
+
 async def generate_project(
     db: AsyncSession,
     *,
@@ -330,14 +387,55 @@ async def generate_project(
         project_dir = Path(settings.workspace_projects_dir) / project_date
         project_dir.mkdir(parents=True, exist_ok=True)
 
-        for f in gen_result.files:
-            file_path = project_dir / f.path
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(f.content)
+        _write_gen_files(project_dir, gen_result)
 
-        # Write README
-        readme_path = project_dir / "README.md"
-        readme_path.write_text(gen_result.readme_content)
+        # ── Compile check — one LLM retry on failure ─────────────────────
+        compile_error = await _verify_go_build(project_dir)
+        compile_retry_attempted = False
+        compile_check_passed = compile_error is None
+
+        if compile_error:
+            logger.warning(
+                "Generated project does not compile — retrying with error context.\n%s",
+                compile_error,
+            )
+            compile_retry_attempted = True
+            messages = [
+                {"role": "system", "content": project_generation.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+                {
+                    "role": "assistant",
+                    "content": raw_result if isinstance(raw_result, str) else str(raw_result),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "The files you generated do not compile. Here are the errors from "
+                        "`go build ./...`:\n\n"
+                        f"```\n{compile_error}\n```\n\n"
+                        "Please fix ALL compilation errors and return the complete corrected "
+                        "JSON object with all files included. Do not omit any files."
+                    ),
+                },
+            ]
+            raw_result = await llm_client.chat_completion_json(
+                pipeline="project_generation",
+                messages=messages,
+                max_tokens=8192,
+            )
+            gen_result = ProjectGenerationResult.model_validate(raw_result)
+            _write_gen_files(project_dir, gen_result)
+
+            retry_error = await _verify_go_build(project_dir)
+            if retry_error:
+                logger.error(
+                    "Project still does not compile after retry — issuing anyway.\n%s",
+                    retry_error,
+                )
+                compile_check_passed = False
+            else:
+                compile_check_passed = True
+                logger.info("Project compiles cleanly after retry.")
 
         # ── Title-collision check on the generated project ──────────────
         # A single project is issued per run, so we can't drop-and-continue
@@ -418,6 +516,8 @@ async def generate_project(
             "skipped_avoid_tasks": skipped_avoid_tasks,
             "skipped_duplicate_tasks": skipped_duplicate_tasks,
             "project_title_collision": project_title_collision,
+            "compile_check_passed": compile_check_passed,
+            "compile_retry_attempted": compile_retry_attempted,
             # Kept for backwards-compat with anything reading the old key.
             "tasks": stored_task_count,
         }

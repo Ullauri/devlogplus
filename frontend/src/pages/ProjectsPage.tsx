@@ -33,6 +33,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<WeeklyProject[]>([]);
   const [current, setCurrent] = useState<WeeklyProjectDetail | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   const pipelines = useMemo(() => PROJECT_PIPELINES, []);
   const status = usePipelineStatus(pipelines);
 
@@ -61,6 +62,16 @@ export default function ProjectsPage() {
       setRefreshing(false);
     }
   }, [loadAll, status]);
+
+  const handleRegenerate = useCallback(async () => {
+    setRegenerating(true);
+    try {
+      await api.pipelines.runProjectGeneration();
+      await status.refresh();
+    } finally {
+      setRegenerating(false);
+    }
+  }, [status]);
 
   const submit = async () => {
     if (!current) return;
@@ -105,7 +116,18 @@ export default function ProjectsPage() {
                 Difficulty: {current.difficulty_level}/5
               </span>
             </div>
-            <FeedbackControls targetType="project" targetId={current.id} />
+            <div className="flex items-center gap-2">
+              <FeedbackControls targetType="project" targetId={current.id} />
+              <button
+                type="button"
+                onClick={handleRegenerate}
+                disabled={regenerating || status.running.length > 0}
+                title="Discard this project and generate a new one"
+                className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {regenerating ? "Queuing…" : "↺ Regenerate"}
+              </button>
+            </div>
           </div>
           <p className="mb-2 text-xs text-gray-500">
             Location:{" "}

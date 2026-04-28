@@ -64,6 +64,10 @@ class Settings(BaseSettings):
         default="workspace/projects",
         description="Directory for generated weekly Go projects",
     )
+    go_executable: str = Field(
+        default="/usr/local/go/bin/go",
+        description="Path to the Go binary used for post-generation compile checks",
+    )
     frontend_dist_dir: str = Field(
         default="frontend/dist",
         description="Directory containing built frontend assets",
