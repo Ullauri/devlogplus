@@ -47,4 +47,5 @@ Each layer has its own `CLAUDE.md`. Start there for layer-specific conventions.
 - `backend/app/config.py` — all env var definitions (mirrors `.env.example`)
 - `docs/PRD.md` — product requirements (15 areas)
 - `docs/openapi.json` — API contract (generated; source of truth for Prism)
+- `docs/adr/` — Architecture Decision Records (see `docs/adr/README.md` for index)
 - `Makefile` — all dev/test/eval/deploy commands
