@@ -18,9 +18,13 @@ frontend/
     vite-env.d.ts         — TypeScript types for VITE_ env vars
     api/client.ts         — Typed fetch wrapper for all /api/v1 endpoints
     api/client.integration.test.ts — Contract tests against Prism mock server
+    hooks/
+      usePipelineStatus.ts — polls /api/v1/pipeline/status; used by PipelineStatusBanner
     components/
       Layout.tsx          — Shell: sidebar nav + <Outlet/>
       FeedbackControls.tsx — Thumbs up/down + feedforward note
+      PipelineStatusBanner.tsx — sticky banner showing running/failed pipeline state
+      RunPipelineButton.tsx    — triggers a pipeline run via POST /api/v1/pipeline/run
       SpeechInput.tsx     — Web Speech API dictation button
     pages/
       JournalPage.tsx     — CRUD journal entries with voice input

@@ -27,6 +27,9 @@ make lint             # auto-fix lint (backend + frontend)
 make eval             # run all LLM node evaluations (slow — hits real API)
 make test-bdd         # BDD/Gherkin feature tests only
 make test-arch        # architecture boundary tests only
+make typecheck-frontend   # type-check frontend (tsc --noEmit)
+make openapi              # export OpenAPI spec + regenerate frontend types
+make openapi-check        # verify spec + types are up to date (CI)
 make help             # full target list
 ```
 
@@ -40,7 +43,7 @@ services  → models + schemas
 Each layer has its own `CLAUDE.md`. Start there for layer-specific conventions.
 
 ## Gotchas
-- `.github/copilot-instructions.md` is a symlink pointing to `CLAUDE.md` — intentional (GitHub Copilot reads from that path); don't replace `CLAUDE.md` with a symlink
+- Every `CLAUDE.md` has a sibling `copilot-instructions.md` symlink pointing to it — Copilot reads from that path. Don't replace any `CLAUDE.md` with a symlink; always edit the `.md` file directly.
 
 ## Key files
 - `backend/app/main.py` — FastAPI app wiring

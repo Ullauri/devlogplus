@@ -10,8 +10,10 @@ Alembic database migrations for PostgreSQL.  Uses **async** engine (asyncpg).
 
 ## Commands
 ```bash
-# Inside Docker or with poetry run:
-alembic upgrade head           # Apply all pending migrations
+# Preferred (from project root) — auto-creates DB backup first:
+make migrate
+
+# Direct (with poetry run) — no automatic backup:
 alembic downgrade -1           # Roll back one migration
 alembic revision --autogenerate -m "description"  # Generate from model changes
 ```
