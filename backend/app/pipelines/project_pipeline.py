@@ -194,7 +194,8 @@ async def _verify_go_build(project_dir: Path) -> str | None:
 
     Ensures a ``go.mod`` exists first (auto-inits one if absent so the
     compiler has a valid module root).  Returns the combined stdout+stderr
-    error string if the build fails, or ``None`` if it succeeds.
+    error string if the build fails, ``None`` if it succeeds, or a diagnostic
+    string if the Go binary is not found (so callers degrade gracefully).
     """
     go = settings.go_executable
 
@@ -202,27 +203,36 @@ async def _verify_go_build(project_dir: Path) -> str | None:
     mod_file = project_dir / "go.mod"
     if not mod_file.exists():
         logger.debug("go.mod missing — running 'go mod init project' in %s", project_dir)
-        init_proc = await asyncio.create_subprocess_exec(
-            go,
-            "mod",
-            "init",
-            "project",
-            cwd=str(project_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            init_proc = await asyncio.create_subprocess_exec(
+                go,
+                "mod",
+                "init",
+                "project",
+                cwd=str(project_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            logger.warning("Go binary not found at %r — skipping compile check", go)
+            return f"go binary not found at {go!r} — compile check skipped"
         _, init_stderr = await init_proc.communicate()
         if init_proc.returncode != 0:
             return f"go mod init failed:\n{init_stderr.decode(errors='replace')}"
 
-    proc = await asyncio.create_subprocess_exec(
-        go,
-        "build",
-        "./...",
-        cwd=str(project_dir),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            go,
+            "build",
+            "./...",
+            cwd=str(project_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        logger.warning("Go binary not found at %r — skipping compile check", go)
+        return f"go binary not found at {go!r} — compile check skipped"
+
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
     except TimeoutError:
