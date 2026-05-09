@@ -116,9 +116,11 @@ describe("api.projects contract", () => {
     expect(Array.isArray(items)).toBe(true);
   });
 
-  it("getCurrent() resolves with project", async () => {
+  it("getCurrent() resolves with project or null", async () => {
     const p = await api.projects.getCurrent();
-    expect(p).toHaveProperty("id");
+    // Endpoint returns WeeklyProjectDetailResponse | null — both are valid per spec.
+    expect(p === null || typeof p === "object").toBe(true);
+    if (p !== null) expect(p).toHaveProperty("id");
   });
 
   it("submit() with empty body resolves", async () => {
