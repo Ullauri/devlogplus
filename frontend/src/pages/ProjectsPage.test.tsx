@@ -17,6 +17,7 @@ vi.mock("../api/client", () => ({
     },
     pipelines: {
       listRuns: vi.fn().mockResolvedValue([]),
+      runProjectGeneration: vi.fn().mockResolvedValue({}),
     },
   },
 }));
@@ -80,6 +81,26 @@ describe("ProjectsPage — empty state", () => {
 });
 
 describe("ProjectsPage — current project", () => {
+  it("disables Regenerate button until pipeline status has loaded", async () => {
+    // Hold the listRuns fetch open to simulate the remount race window.
+    let resolveRuns!: (v: unknown[]) => void;
+    mockListRuns.mockReturnValue(
+      new Promise<unknown[]>((r) => {
+        resolveRuns = r;
+      }),
+    );
+    mockList.mockResolvedValue([]);
+    mockGetCurrent.mockResolvedValue(makeProject());
+
+    renderWithRouter(<ProjectsPage />);
+
+    const btn = await screen.findByRole("button", { name: /regenerate/i });
+    expect(btn).toBeDisabled();
+
+    resolveRuns([]);
+    await waitFor(() => expect(btn).not.toBeDisabled());
+  });
+
   it("renders current project with tasks", async () => {
     mockList.mockResolvedValue([]);
     mockGetCurrent.mockResolvedValue(

@@ -121,7 +121,9 @@ export default function ProjectsPage() {
               <button
                 type="button"
                 onClick={handleRegenerate}
-                disabled={regenerating || status.running.length > 0}
+                disabled={
+                  !status.loaded || regenerating || status.running.length > 0
+                }
                 title="Discard this project and generate a new one"
                 className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
               >

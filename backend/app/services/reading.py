@@ -20,6 +20,11 @@ from backend.app.schemas.reading import (
 logger = logging.getLogger(__name__)
 
 
+def normalize_url(url: str) -> str:
+    """Normalize a URL for deduplication: lowercase and strip trailing slash."""
+    return url.strip().lower().rstrip("/")
+
+
 # ---------------------------------------------------------------------------
 # URL reachability validation
 # ---------------------------------------------------------------------------
@@ -167,15 +172,16 @@ async def get_latest_batch_date(db: AsyncSession) -> date | None:
 
 
 async def get_all_recommendation_urls(db: AsyncSession) -> set[str]:
-    """Return the set of all URLs that have ever been recommended.
+    """Return normalized URLs that have ever been recommended.
 
     Used by the reading-generation pipeline to prevent the same link from
     being surfaced again in a later batch, regardless of whether the user
-    has reacted to it.
+    has reacted to it.  URLs are normalized via ``normalize_url`` so that
+    case differences and trailing slashes don't defeat the check.
     """
     stmt = select(ReadingRecommendation.url)
     result = await db.execute(stmt)
-    return set(result.scalars().all())
+    return {normalize_url(u) for u in result.scalars().all()}
 
 
 async def get_recommendation(
@@ -344,6 +350,169 @@ DEFAULT_ALLOWLIST = [
     ("typescriptlang.org/docs", "TypeScript Docs", "Official TypeScript documentation"),
     # Learning / tutorials
     ("geeksforgeeks.org", "GeeksforGeeks", "Tutorials, practice problems, and CS fundamentals"),
+    # Batch 2 — added in migration 005
+    # AI Research & Labs
+    (
+        "openai.com/news",
+        "OpenAI News & Research",
+        "Official research announcements, model releases, and policy updates from OpenAI.",
+    ),
+    (
+        "anthropic.com/news",
+        "Anthropic News",
+        "AI safety research findings, Claude updates, and product announcements from Anthropic.",
+    ),
+    (
+        "huggingface.co/blog",
+        "Hugging Face Blog",
+        "Open-source ML models, datasets, papers, and community projects from Hugging Face.",
+    ),
+    (
+        "deepmind.google/blog",
+        "Google DeepMind Blog",
+        "Cutting-edge AI research publications and breakthroughs from Google DeepMind.",
+    ),
+    (
+        "pytorch.org/blog",
+        "PyTorch Blog",
+        "Deep learning framework updates, tutorials, and research from the PyTorch team.",
+    ),
+    (
+        "microsoft.com/en-us/research/blog",
+        "Microsoft Research Blog",
+        "Research from Microsoft across AI, systems, programming languages, and more.",
+    ),
+    (
+        "projectzero.google",
+        "Google Project Zero",
+        "Security vulnerability research and zero-day disclosures from Google's elite security team.",  # noqa: E501
+    ),
+    # Infrastructure & Systems
+    (
+        "developer.nvidia.com/blog",
+        "NVIDIA Technical Blog",
+        "GPU computing, CUDA, AI hardware, and deep learning engineering from NVIDIA.",
+    ),
+    (
+        "databricks.com/blog",
+        "Databricks Blog",
+        "Data engineering, Apache Spark, Delta Lake, and ML platform insights.",
+    ),
+    (
+        "cockroachlabs.com/blog",
+        "Cockroach Labs Blog",
+        "Distributed SQL, database internals, and resilient systems engineering.",
+    ),
+    (
+        "p99conf.io/blog",
+        "P99 CONF Blog",
+        "High-performance systems, low-latency engineering, and infrastructure deep dives.",
+    ),
+    (
+        "lwn.net",
+        "LWN.net",
+        "In-depth Linux kernel development news and open source ecosystem coverage.",
+    ),
+    (
+        "chipsandcheese.com",
+        "Chips and Cheese",
+        "Deep technical dives into CPU and GPU microarchitecture and hardware analysis.",
+    ),
+    # Cloud Native & DevOps
+    (
+        "cncf.io/blog",
+        "CNCF Blog",
+        "Cloud native computing foundation updates, case studies, and project news.",
+    ),
+    (
+        "vercel.com/blog",
+        "Vercel Blog",
+        "Frontend deployment, edge computing, and web performance engineering.",
+    ),
+    (
+        "tailscale.com/blog",
+        "Tailscale Blog",
+        "Networking, VPN architecture, WireGuard, and zero-trust security.",
+    ),
+    # Security
+    (
+        "krebsonsecurity.com",
+        "Krebs on Security",
+        "Investigative cybersecurity journalism covering breaches, fraud, and threat actors.",
+    ),
+    (
+        "schneier.com",
+        "Schneier on Security",
+        "Security technology, policy, and cryptography commentary from Bruce Schneier.",
+    ),
+    (
+        "portswigger.net/research",
+        "PortSwigger Research",
+        "Web application security research, vulnerability techniques, and exploit write-ups.",
+    ),
+    (
+        "snyk.io/blog",
+        "Snyk Blog",
+        "Developer-focused security, open source vulnerabilities, and secure coding practices.",
+    ),
+    # Software Engineering & Architecture
+    (
+        "architecturenotes.co",
+        "Architecture Notes",
+        "Accessible software architecture patterns and system design explanations.",
+    ),
+    (
+        "infoq.com",
+        "InfoQ",
+        "Software development news, conference talks, and engineering best practices.",
+    ),
+    (
+        "thenewstack.io",
+        "The New Stack",
+        "Cloud native, Kubernetes, microservices, and developer ecosystem news.",
+    ),
+    (
+        "builder.io/blog",
+        "Builder.io Blog",
+        "Visual development, AI-assisted coding, Figma-to-code, and frontend engineering.",
+    ),
+    # Frontend & Web Development
+    (
+        "smashingmagazine.com",
+        "Smashing Magazine",
+        "Web design, CSS, JavaScript, UX, and frontend development articles.",
+    ),
+    (
+        "joshwcomeau.com",
+        "Josh W. Comeau",
+        "Interactive, in-depth tutorials on CSS, React, and JavaScript fundamentals.",
+    ),
+    (
+        "kentcdodds.com/blog",
+        "Kent C. Dodds Blog",
+        "Testing, React, JavaScript, and career advice from a prolific open source contributor.",
+    ),
+    # Tech Journalism & Analysis
+    (
+        "discord.com/blog",
+        "Discord Blog",
+        "Engineering deep dives, infrastructure scaling, and product updates from Discord.",
+    ),
+    (
+        "spectrum.ieee.org",
+        "IEEE Spectrum",
+        "Engineering, technology, and science news from the IEEE.",
+    ),
+    (
+        "stratechery.com",
+        "Stratechery",
+        "Technology business strategy and analysis by Ben Thompson.",
+    ),
+    (
+        "wired.com/tag/backchannel",
+        "WIRED Backchannel",
+        "Long-form, in-depth tech journalism and investigative reporting from WIRED.",
+    ),
 ]
 
 

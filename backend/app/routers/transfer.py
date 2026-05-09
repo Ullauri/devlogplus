@@ -112,30 +112,12 @@ async def import_data(
     ),
 )
 async def export_metadata(db: AsyncSession = Depends(get_db)) -> ExportMetadata:
-    bundle = await transfer_service.export_all(db)
-    table_counts = {
-        "journal_entries": len(bundle.journal_entries),
-        "journal_entry_versions": len(bundle.journal_entry_versions),
-        "topics": len(bundle.topics),
-        "topic_relationships": len(bundle.topic_relationships),
-        "profile_snapshots": len(bundle.profile_snapshots),
-        "quiz_sessions": len(bundle.quiz_sessions),
-        "quiz_questions": len(bundle.quiz_questions),
-        "quiz_answers": len(bundle.quiz_answers),
-        "quiz_evaluations": len(bundle.quiz_evaluations),
-        "reading_recommendations": len(bundle.reading_recommendations),
-        "reading_allowlist": len(bundle.reading_allowlist),
-        "weekly_projects": len(bundle.weekly_projects),
-        "project_tasks": len(bundle.project_tasks),
-        "project_evaluations": len(bundle.project_evaluations),
-        "feedback": len(bundle.feedback),
-        "triage_items": len(bundle.triage_items),
-        "user_settings": len(bundle.user_settings),
-        "onboarding_state": len(bundle.onboarding_state),
-    }
+    from datetime import UTC, datetime
+
+    table_counts = await transfer_service.count_tables(db)
     return ExportMetadata(
-        format_version=bundle.format_version,
-        exported_at=bundle.exported_at,
-        app_version=bundle.app_version,
+        format_version=1,
+        exported_at=datetime.now(UTC),
+        app_version=transfer_service.APP_VERSION,
         table_counts=table_counts,
     )

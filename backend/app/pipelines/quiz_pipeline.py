@@ -334,11 +334,24 @@ async def generate_quiz(
         log.error = str(e)
         log.completed_at = datetime.now(UTC)
         await db.flush()
-        raise
+        logger.exception("Quiz generation pipeline failed")
 
 
-async def evaluate_quiz(db: AsyncSession, session_id) -> dict:
+async def evaluate_quiz(
+    db: AsyncSession,
+    session_id,
+    *,
+    run_id: uuid.UUID | None = None,
+) -> dict:
     """Evaluate all answers in a completed quiz session.
+
+    Args:
+        db: Async session.
+        session_id: The quiz session to evaluate.
+        run_id: Optional pre-generated id for the ``ProcessingLog`` row.
+            When provided (e.g. from the manual-trigger router), the log
+            row carries the same id that was already returned to the HTTP
+            client, so the UI can correlate the 202 response to a log entry.
 
     Steps:
     1. Load session with all questions and answers
@@ -348,10 +361,13 @@ async def evaluate_quiz(db: AsyncSession, session_id) -> dict:
     """
     from backend.app.services import quiz as quiz_svc
 
-    log = ProcessingLog(
-        pipeline=PipelineType.QUIZ_EVALUATION,
-        status=PipelineStatus.STARTED,
-    )
+    log_kwargs: dict = {
+        "pipeline": PipelineType.QUIZ_EVALUATION,
+        "status": PipelineStatus.STARTED,
+    }
+    if run_id is not None:
+        log_kwargs["id"] = run_id
+    log = ProcessingLog(**log_kwargs)
     db.add(log)
     await db.flush()
 
@@ -444,4 +460,4 @@ async def evaluate_quiz(db: AsyncSession, session_id) -> dict:
         log.error = str(e)
         log.completed_at = datetime.now(UTC)
         await db.flush()
-        raise
+        logger.exception("Quiz evaluation pipeline failed")

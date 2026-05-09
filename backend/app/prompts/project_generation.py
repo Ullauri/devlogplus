@@ -141,6 +141,10 @@ Difficulty level: {difficulty_level}/10
 
 {liked_task_flavours}
 
+## Past project titles to avoid (reacted-to — don't re-issue)
+
+{avoid_project_titles}
+
 ## Past task titles to avoid (reacted-to — don't re-issue)
 
 {avoid_task_titles}

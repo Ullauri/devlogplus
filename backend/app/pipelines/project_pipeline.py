@@ -7,6 +7,7 @@ Run via cron weekly or manually via CLI.
 """
 
 import asyncio
+import json
 import logging
 import uuid
 from datetime import UTC, date, datetime
@@ -226,6 +227,7 @@ async def _verify_go_build(project_dir: Path) -> str | None:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
     except TimeoutError:
         proc.kill()
+        await proc.wait()
         return "go build timed out after 60 seconds"
 
     if proc.returncode != 0:
@@ -248,7 +250,7 @@ async def generate_project(
     db: AsyncSession,
     *,
     run_id: uuid.UUID | None = None,
-) -> WeeklyProject:
+) -> WeeklyProject | None:
     """Generate a new weekly Go project.
 
     Args:
@@ -368,6 +370,7 @@ async def generate_project(
             previous_themes=previous_themes,
             liked_project_directions=liked_project_directions_text,
             liked_task_flavours=liked_task_flavours_text,
+            avoid_project_titles=_format_avoid_titles(avoid_project_titles),
             avoid_task_titles=avoid_task_titles_text,
         )
 
@@ -405,7 +408,7 @@ async def generate_project(
                 {"role": "user", "content": prompt},
                 {
                     "role": "assistant",
-                    "content": raw_result if isinstance(raw_result, str) else str(raw_result),
+                    "content": json.dumps(raw_result),
                 },
                 {
                     "role": "user",
@@ -444,7 +447,7 @@ async def generate_project(
         # so it's visible in the run metadata but proceed — dropping would
         # leave the user with no weekly project.
         gen_title = (gen_result.title or "").strip()
-        project_title_collision = gen_title in avoid_project_titles
+        project_title_collision = gen_title.lower() in {t.lower() for t in avoid_project_titles}
 
         # Store project record
         project = WeeklyProject(
@@ -543,7 +546,7 @@ async def generate_project(
         log.error = str(e)
         log.completed_at = datetime.now(UTC)
         await db.flush()
-        raise
+        logger.exception("Project generation pipeline failed")
 
 
 async def evaluate_project(db: AsyncSession, project_id) -> dict:
@@ -650,7 +653,7 @@ async def evaluate_project(db: AsyncSession, project_id) -> dict:
         log.error = str(e)
         log.completed_at = datetime.now(UTC)
         await db.flush()
-        raise
+        logger.exception("Project evaluation pipeline failed")
 
 
 async def _determine_difficulty(db: AsyncSession) -> int:
@@ -672,8 +675,9 @@ async def _determine_difficulty(db: AsyncSession) -> int:
         if p.status == ProjectStatus.EVALUATED and p.evaluation:
             # Use the evaluation's difficulty adjustment suggestion
             last_difficulty = p.difficulty_level
-            # We'd use the adjustment from the evaluation — for now, increment if quality was good
-            return min(10, max(1, last_difficulty))
+            raw = p.evaluation.raw_llm_output or {}
+            adjustment = raw.get("difficulty_adjustment", 0) or 0
+            return min(10, max(1, last_difficulty + adjustment))
 
     # Default: use last project's difficulty
     return prev_projects[0].difficulty_level if prev_projects else base_difficulty

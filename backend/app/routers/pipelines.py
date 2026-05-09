@@ -146,8 +146,8 @@ async def run_quiz_evaluation(
 ) -> PipelineRunAccepted:
     run_id = pipelines_svc.new_run_id()
 
-    async def _evaluate(db: AsyncSession, *, run_id: uuid.UUID) -> None:  # noqa: ARG001
-        await quiz_pipeline.evaluate_quiz(db, session_id)
+    async def _evaluate(db: AsyncSession, *, run_id: uuid.UUID) -> None:
+        await quiz_pipeline.evaluate_quiz(db, session_id, run_id=run_id)
 
     bg.add_task(
         _run_in_background,

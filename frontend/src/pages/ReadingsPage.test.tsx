@@ -19,6 +19,7 @@ vi.mock("../api/client", () => ({
     },
     pipelines: {
       listRuns: vi.fn().mockResolvedValue([]),
+      runReadingGeneration: vi.fn().mockResolvedValue({}),
     },
   },
 }));
@@ -26,9 +27,34 @@ vi.mock("../api/client", () => ({
 import { api } from "../api/client";
 const mockList = api.readings.list as ReturnType<typeof vi.fn>;
 const mockAllowlist = api.readings.allowlist as ReturnType<typeof vi.fn>;
+const mockListRuns = api.pipelines.listRuns as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("ReadingsPage — empty state button guard", () => {
+  it("disables Generate recommendations button until pipeline status has loaded", async () => {
+    // Hold the listRuns fetch open to simulate the remount race window.
+    let resolveRuns!: (v: unknown[]) => void;
+    mockListRuns.mockReturnValue(
+      new Promise<unknown[]>((r) => {
+        resolveRuns = r;
+      }),
+    );
+    mockList.mockResolvedValue([]);
+    mockAllowlist.mockResolvedValue([]);
+
+    renderWithRouter(<ReadingsPage />);
+
+    const btn = await screen.findByRole("button", {
+      name: /generate recommendations now/i,
+    });
+    expect(btn).toBeDisabled();
+
+    resolveRuns([]);
+    await waitFor(() => expect(btn).not.toBeDisabled());
+  });
 });
 
 describe("ReadingsPage", () => {

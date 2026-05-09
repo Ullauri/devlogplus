@@ -3410,6 +3410,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Answer already submitted for this question */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Validation error — answer_text is required */
             422: {
                 headers: {

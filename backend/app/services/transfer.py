@@ -59,6 +59,38 @@ APP_VERSION = "0.1.0"
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
+
+_EXPORT_TABLES: list[type] = [
+    JournalEntry,
+    JournalEntryVersion,
+    Topic,
+    TopicRelationship,
+    ProfileSnapshot,
+    QuizSession,
+    QuizQuestion,
+    QuizAnswer,
+    QuizEvaluation,
+    ReadingRecommendation,
+    ReadingAllowlist,
+    WeeklyProject,
+    ProjectTask,
+    ProjectEvaluation,
+    Feedback,
+    TriageItem,
+    UserSettings,
+    OnboardingState,
+]
+
+
+async def count_tables(db: AsyncSession) -> dict[str, int]:
+    """Return per-table row counts using COUNT(*) — no rows are fetched."""
+    counts: dict[str, int] = {}
+    for model in _EXPORT_TABLES:
+        result = await db.execute(select(func.count()).select_from(model))
+        counts[model.__tablename__] = result.scalar_one()
+    return counts
+
+
 async def export_all(db: AsyncSession) -> DataExportBundle:
     """Read every user-data table and return a serialisable bundle."""
 
@@ -160,6 +192,13 @@ def _to_model(model_cls, data: dict):
     # Handle the metadata_ / metadata alias on WeeklyProject
     if model_cls is WeeklyProject and "metadata_" in data:
         data["metadata_"] = data.pop("metadata_", None)
+    dropped = {k for k in data if k not in cols}
+    if dropped:
+        logger.debug(
+            "Dropping unknown keys during import into %s: %s",
+            model_cls.__tablename__,
+            sorted(dropped),
+        )
     filtered = {k: v for k, v in data.items() if k in cols}
     return model_cls(**filtered)
 

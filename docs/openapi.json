@@ -523,6 +523,9 @@
           "404": {
             "description": "Quiz question not found"
           },
+          "409": {
+            "description": "Answer already submitted for this question"
+          },
           "422": {
             "description": "Validation error — answer_text is required"
           }

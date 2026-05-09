@@ -113,3 +113,23 @@ async def test_complete_session_not_found(client: AsyncClient):
         "/api/v1/quizzes/sessions/00000000-0000-0000-0000-000000000000/complete"
     )
     assert resp.status_code == 404
+
+
+async def test_submit_duplicate_answer_returns_409(client: AsyncClient, db_session: AsyncSession):
+    """Submitting an answer to an already-answered question returns 409, not 500."""
+    session = await _create_quiz_session(db_session, num_questions=1)
+
+    detail_resp = await client.get(f"/api/v1/quizzes/sessions/{session.id}")
+    question_id = detail_resp.json()["questions"][0]["id"]
+
+    first = await client.post(
+        f"/api/v1/quizzes/questions/{question_id}/answer",
+        json={"answer_text": "First answer."},
+    )
+    assert first.status_code == 201
+
+    second = await client.post(
+        f"/api/v1/quizzes/questions/{question_id}/answer",
+        json={"answer_text": "Attempted second answer."},
+    )
+    assert second.status_code == 409

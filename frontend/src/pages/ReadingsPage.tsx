@@ -164,6 +164,7 @@ export default function ReadingsPage() {
               onQueued={async () => {
                 await status.refresh();
               }}
+              disabled={!status.loaded}
             />
           </div>
         ) : null

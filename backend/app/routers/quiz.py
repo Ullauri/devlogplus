@@ -13,6 +13,7 @@ from backend.app.schemas.quiz import (
     QuizSessionResponse,
 )
 from backend.app.services import quiz as quiz_svc
+from backend.app.services.quiz import AnswerAlreadyExistsError
 
 router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 
@@ -88,6 +89,7 @@ async def get_session(
     response_description="The recorded answer",
     responses={
         404: {"description": "Quiz question not found"},
+        409: {"description": "Answer already submitted for this question"},
         422: {"description": "Validation error — answer_text is required"},
     },
 )
@@ -102,7 +104,12 @@ async def submit_answer(
     can only be answered once.  The answer will be evaluated by an LLM judge
     when the session is completed.
     """
-    answer = await quiz_svc.submit_answer(db, question_id, data)
+    try:
+        answer = await quiz_svc.submit_answer(db, question_id, data)
+    except AnswerAlreadyExistsError as err:
+        raise HTTPException(
+            status_code=409, detail="Answer already submitted for this question"
+        ) from err
     if answer is None:
         raise HTTPException(status_code=404, detail="Quiz question not found")
     return QuizAnswerResponse.model_validate(answer)

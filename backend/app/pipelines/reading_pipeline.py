@@ -135,7 +135,7 @@ async def generate_readings(
             db, FeedbackTargetType.READING
         )
         disliked_lookup = await _load_reading_lookup(db, disliked_reading_ids)
-        disliked_urls = {r.url for r in disliked_lookup.values()}
+        disliked_urls = {reading_svc.normalize_url(r.url) for r in disliked_lookup.values()}
         domain_dislike_counts = Counter(r.source_domain for r in disliked_lookup.values())
         downranked_domains = {d for d, n in domain_dislike_counts.items() if n >= 2}
 
@@ -146,7 +146,7 @@ async def generate_readings(
         liked_reading_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.READING)
         liked_lookup = await _load_reading_lookup(db, liked_reading_ids)
         liked_readings = list(liked_lookup.values())
-        liked_urls = {r.url for r in liked_readings}
+        liked_urls = {reading_svc.normalize_url(r.url) for r in liked_readings}
 
         # All URLs ever stored — regardless of feedback status.  A URL the
         # user hasn't rated is still a duplicate if it already appeared in a
@@ -231,14 +231,16 @@ async def generate_readings(
         seen_topics: set[str] = set()
 
         for rec in gen_result.recommendations:
+            norm_url = reading_svc.normalize_url(rec.url)
+
             # Hard filter: never re-recommend a URL the user has already
             # reacted to. Thumbs-down → they rejected it; thumbs-up → they
             # already read it, so the value of re-surfacing is zero.
-            if rec.url in disliked_urls:
+            if norm_url in disliked_urls:
                 logger.info("Skipping previously-disliked recommendation: %s", rec.url)
                 skipped_disliked += 1
                 continue
-            if rec.url in liked_urls:
+            if norm_url in liked_urls:
                 logger.info("Skipping already-liked recommendation: %s", rec.url)
                 skipped_already_liked += 1
                 continue
@@ -246,7 +248,7 @@ async def generate_readings(
             # Hard filter: skip any URL that already exists in the database,
             # even if the user hasn't reacted to it yet. The link is the same
             # resource regardless of how the LLM labels it.
-            if rec.url in all_stored_urls:
+            if norm_url in all_stored_urls:
                 logger.info("Skipping already-recommended URL: %s", rec.url)
                 skipped_duplicate_url += 1
                 continue
@@ -339,4 +341,4 @@ async def generate_readings(
         log.error = str(e)
         log.completed_at = datetime.now(UTC)
         await db.flush()
-        raise
+        logger.exception("Reading generation pipeline failed")

@@ -344,3 +344,42 @@ async def test_validate_urls_deduplicates(monkeypatch):
     )
 
     assert len(hits) == 1
+
+
+# ---------------------------------------------------------------------------
+# Bug 3 (Issue #7): seed_default_allowlist() must include batch-2 domains
+# ---------------------------------------------------------------------------
+
+
+async def test_seed_default_allowlist_includes_batch2_domains(db_session: AsyncSession):
+    """seed_default_allowlist() must seed at least 68 entries (batch 1 + batch 2).
+
+    Bug: DEFAULT_ALLOWLIST in reading.py only contained the 37 batch-1 entries.
+    Migration 005 added 31 more (batch 2), but seed_default_allowlist() was
+    never updated to include them, so calling it independently produced an
+    incomplete set.
+    """
+    from sqlalchemy import func
+    from sqlalchemy import select as sa_select
+
+    from backend.app.models.reading import ReadingAllowlist
+
+    # Call the seeder on the empty test DB.
+    await reading_svc.seed_default_allowlist(db_session)
+    await db_session.commit()
+
+    # Count only the default entries to be precise.
+    stmt = (
+        sa_select(func.count())
+        .select_from(ReadingAllowlist)
+        .where(
+            ReadingAllowlist.is_default == True  # noqa: E712
+        )
+    )
+    result = await db_session.execute(stmt)
+    total = result.scalar_one()
+
+    assert total >= 68, (
+        f"Expected at least 68 default allowlist entries (batch 1 + batch 2), "
+        f"got {total}. seed_default_allowlist() is missing batch-2 domains."
+    )

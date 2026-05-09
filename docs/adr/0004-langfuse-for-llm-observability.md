@@ -26,5 +26,7 @@ documented in backend `CLAUDE.md`. No LLM call may bypass tracing.
   client is a no-op, so the app works in offline/dev mode.
 - **−** Another third-party SaaS dependency; traces contain prompt data sent to
   Langfuse servers.
-- **−** Developers must remember to route all LLM calls through the wrapper —
-  there is no static enforcement (only convention + review).
+- **−** Developers must remember to route all LLM calls through the wrapper.
+  Architecture tests enforce that only `services/llm/client.py` is imported for
+  LLM calls (import-level check), but call-path correctness still relies on
+  convention and review.

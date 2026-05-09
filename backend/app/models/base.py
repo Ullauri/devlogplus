@@ -138,7 +138,7 @@ def _string_enum(cls: type[enum.Enum]) -> SAEnum:
         native_enum=False,
         create_constraint=False,
         length=50,
-        validate_strings=False,
+        validate_strings=True,
     )
 
 

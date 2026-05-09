@@ -221,4 +221,3 @@ async def run_profile_update(
         log.completed_at = datetime.now(UTC)
         await db.flush()
         logger.exception("Profile update pipeline failed")
-        raise

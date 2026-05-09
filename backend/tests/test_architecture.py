@@ -16,10 +16,14 @@ Dependency layers (allowed direction →):
     database   → config only
 """
 
+import uuid
 from pathlib import Path
 
 import pytest
 from pytestarch import Rule, get_evaluable_architecture
+from sqlalchemy import text
+from sqlalchemy.exc import StatementError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # ─── Path resolution ─────────────────────────────────────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]  # …/devlogplus
@@ -122,7 +126,7 @@ class TestServicesBoundaries:
 # 5. ROUTERS — depend on services + schemas + database, never pipelines/prompts
 #
 # Exception: ``routers.pipelines`` legitimately launches pipelines from a
-# user-initiated HTTP endpoint (the manual “Run now” buttons in the
+# user-initiated HTTP endpoint (the manual "Run now" buttons in the
 # Settings page). All other router modules must not import pipelines.
 # ══════════════════════════════════════════════════════════════════════════
 class TestRoutersBoundaries:
@@ -130,7 +134,7 @@ class TestRoutersBoundaries:
 
     Routers generally don't reach into pipelines either — the one
     permitted exception is ``routers.pipelines``, which exposes manual
-    “Run now” triggers for the user to bypass cron.
+    "Run now" triggers for the user to bypass cron.
     """
 
     def test_routers_do_not_import_prompts(self, evaluable) -> None:
@@ -269,7 +273,53 @@ class TestNoCyclicDependencies:
         """Routers and pipelines exist in parallel — pipelines never imports routers.
 
         Routers generally don't import pipelines either; the one exception
-        is ``routers.pipelines`` (manual “Run now” triggers), which is
+        is ``routers.pipelines`` (manual "Run now" triggers), which is
         covered by ``TestRoutersBoundaries.test_only_routers_pipelines_imports_pipelines``.
         """
         _assert_no_import(evaluable, source=PIPELINES, target=ROUTERS)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 10. ENUM VALIDATION — invalid DB values must be caught at read time
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio(loop_scope="session")
+class TestEnumValidation:
+    """validate_strings=True on all SAEnum columns raises on bad DB values.
+
+    Bug (Issue #6): validate_strings=False silently created an invalid enum
+    member for any unrecognised string coming from the DB. Changing to
+    validate_strings=True causes SQLAlchemy to raise a LookupError at the ORM
+    read boundary (may be wrapped in StatementError depending on SA version),
+    making the failure visible.
+    """
+
+    async def test_invalid_enum_string_raises_on_orm_load(self, db_session: AsyncSession) -> None:
+        """Insert a row with an unknown quiz_session status, then try to load it via ORM.
+
+        This must raise LookupError (or StatementError wrapping it) rather than
+        silently returning a broken enum member.
+        """
+        bad_id = uuid.uuid4()
+        # Write directly via raw SQL to bypass Python-level validation.
+        await db_session.execute(
+            text(
+                "INSERT INTO quiz_sessions "
+                "(id, status, question_count, created_at, updated_at) "
+                "VALUES (:id, 'totally_invalid_status', 1, now(), now())"
+            ),
+            {"id": bad_id},
+        )
+        await db_session.flush()
+
+        # Now try to read the row through SQLAlchemy ORM — this is where
+        # validate_strings=True (the fix) should raise.
+        from sqlalchemy import select as sa_select
+
+        from backend.app.models.quiz import QuizSession
+
+        stmt = sa_select(QuizSession).where(QuizSession.id == bad_id)
+        with pytest.raises((LookupError, StatementError)):
+            result = await db_session.execute(stmt)
+            result.scalars().all()  # materialise the rows to trigger enum coercion

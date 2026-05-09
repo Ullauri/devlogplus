@@ -158,38 +158,38 @@ describe("usePipelineStatus", () => {
     });
     expect(result.current.loaded).toBe(true);
   });
-});
 
-it("re-fetches on visibilitychange and keeps loaded=false during the round-trip", async () => {
-  // Initial load.
-  mockListRuns.mockResolvedValueOnce([]);
-  const { result } = renderHook(() => usePipelineStatus(["quiz_generation"]));
-  await waitFor(() => expect(result.current.loaded).toBe(true));
+  it("re-fetches on visibilitychange and keeps loaded=false during the round-trip", async () => {
+    // Initial load.
+    mockListRuns.mockResolvedValueOnce([]);
+    const { result } = renderHook(() => usePipelineStatus(["quiz_generation"]));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
 
-  // Hold the next fetch so we can inspect the in-flight state.
-  let resolveVis!: (v: unknown[]) => void;
-  mockListRuns.mockReturnValue(
-    new Promise<unknown[]>((r) => {
-      resolveVis = r;
-    }),
-  );
+    // Hold the next fetch so we can inspect the in-flight state.
+    let resolveVis!: (v: unknown[]) => void;
+    mockListRuns.mockReturnValue(
+      new Promise<unknown[]>((r) => {
+        resolveVis = r;
+      }),
+    );
 
-  act(() => {
-    // Simulate the user returning to the browser tab.
-    Object.defineProperty(document, "visibilityState", {
-      value: "visible",
-      configurable: true,
+    act(() => {
+      // Simulate the user returning to the browser tab.
+      Object.defineProperty(document, "visibilityState", {
+        value: "visible",
+        configurable: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
     });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
 
-  // loaded must be false while the re-fetch is in-flight — this is the
-  // critical guard that prevents the Generate button from being enabled
-  // in the race window after a tab switch or SPA navigation remount.
-  expect(result.current.loaded).toBe(false);
+    // loaded must be false while the re-fetch is in-flight — this is the
+    // critical guard that prevents the Generate button from being enabled
+    // in the race window after a tab switch or SPA navigation remount.
+    expect(result.current.loaded).toBe(false);
 
-  await act(async () => {
-    resolveVis([]);
+    await act(async () => {
+      resolveVis([]);
+    });
+    expect(result.current.loaded).toBe(true);
   });
-  expect(result.current.loaded).toBe(true);
 });

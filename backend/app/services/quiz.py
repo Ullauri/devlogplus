@@ -1,7 +1,7 @@
 """Quiz service — session management, answer submission, evaluation retrieval."""
 
 import uuid
-from datetime import UTC
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,18 +51,32 @@ async def get_current_session(db: AsyncSession) -> QuizSession | None:
     return result.scalar_one_or_none()
 
 
+class AnswerAlreadyExistsError(Exception):
+    """Raised when an answer already exists for a question."""
+
+
 async def submit_answer(
     db: AsyncSession,
     question_id: uuid.UUID,
     data: QuizAnswerCreate,
 ) -> QuizAnswer | None:
-    """Submit an answer to a quiz question."""
+    """Submit an answer to a quiz question.
+
+    Returns None if the question does not exist.
+    Raises AnswerAlreadyExistsError if the question already has an answer.
+    """
     # Verify the question exists
     stmt = select(QuizQuestion).where(QuizQuestion.id == question_id)
     result = await db.execute(stmt)
     question = result.scalar_one_or_none()
     if question is None:
         return None
+
+    # Guard against duplicate submissions (question_id has a UNIQUE constraint)
+    existing_stmt = select(QuizAnswer).where(QuizAnswer.question_id == question_id)
+    existing_result = await db.execute(existing_stmt)
+    if existing_result.scalar_one_or_none() is not None:
+        raise AnswerAlreadyExistsError(question_id)
 
     answer = QuizAnswer(
         question_id=question_id,
@@ -83,8 +97,6 @@ async def submit_answer(
 
 async def complete_session(db: AsyncSession, session_id: uuid.UUID) -> QuizSession | None:
     """Mark a quiz session as completed (all answers submitted)."""
-    from datetime import datetime
-
     session = await get_session(db, session_id)
     if session is None:
         return None

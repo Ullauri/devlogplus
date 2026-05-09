@@ -510,3 +510,60 @@ async def test_import_topic_with_parent(client: AsyncClient):
     profile_resp = await client.get("/api/v1/profile")
     assert profile_resp.status_code == 200
     assert profile_resp.json()["total_topics"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Suggestion fixes
+# ---------------------------------------------------------------------------
+
+
+async def test_export_metadata_uses_count_queries_not_full_export(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    """GET /export/metadata must return correct counts without loading all rows.
+
+    The fix replaces the full export_all() call with per-table COUNT(*) queries.
+    We verify correctness here; the absence of a full row-load is enforced by
+    checking that export_all is not invoked.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    await _seed_journal(db_session)
+    await _seed_topic(db_session)
+
+    # export_all must NOT be called — metadata uses COUNT queries only
+    with patch(
+        "backend.app.routers.transfer.transfer_service.export_all",
+        new=AsyncMock(side_effect=AssertionError("export_all must not be called for metadata")),
+    ):
+        resp = await client.get("/api/v1/transfer/export/metadata")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["table_counts"]["journal_entries"] >= 1
+    assert data["table_counts"]["topics"] >= 1
+
+
+async def test_to_model_logs_dropped_unknown_keys():
+    """_to_model must log at DEBUG level when import data contains unknown keys."""
+    from unittest.mock import patch
+
+    from backend.app.models.journal import JournalEntry
+    from backend.app.services.transfer import _to_model
+
+    entry_id = uuid.uuid4()
+    data = {
+        "id": str(entry_id),
+        "title": "Test entry",
+        "is_processed": False,
+        "unknown_future_column": "some_value",
+        "another_unknown": 42,
+    }
+
+    with patch("backend.app.services.transfer.logger") as mock_logger:
+        _to_model(JournalEntry, data)
+
+    mock_logger.debug.assert_called_once()
+    call_args = str(mock_logger.debug.call_args)
+    assert "unknown_future_column" in call_args or "another_unknown" in call_args
