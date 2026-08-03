@@ -24,6 +24,7 @@ ManualPipelineName = Literal[
     "quiz_evaluation",
     "reading_generation",
     "project_generation",
+    "project_evaluation",
 ]
 
 

@@ -34,6 +34,7 @@ export default function ProjectsPage() {
   const [current, setCurrent] = useState<WeeklyProjectDetail | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
   const pipelines = useMemo(() => PROJECT_PIPELINES, []);
   const status = usePipelineStatus(pipelines);
 
@@ -73,6 +74,23 @@ export default function ProjectsPage() {
     }
   }, [status]);
 
+  // Submitting is a status change; the evaluation is a separate pipeline run.
+  // They are composed here rather than in the submit endpoint because routers
+  // other than `routers/pipelines` may not import pipelines — an architecture
+  // rule the test suite enforces.
+  const evaluate = useCallback(
+    async (projectId: string) => {
+      setEvaluating(true);
+      try {
+        await api.pipelines.runProjectEvaluation(projectId);
+        await status.refresh();
+      } finally {
+        setEvaluating(false);
+      }
+    },
+    [status],
+  );
+
   const submit = async () => {
     if (!current) return;
     await api.projects.submit(current.id);
@@ -81,6 +99,7 @@ export default function ProjectsPage() {
       .then(setCurrent)
       .catch(() => setCurrent(null));
     api.projects.list().then(setProjects);
+    await evaluate(current.id);
   };
 
   return (
@@ -176,6 +195,19 @@ export default function ProjectsPage() {
               className="rounded bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700"
             >
               Submit for Evaluation
+            </button>
+          )}
+
+          {/* Submitting queues evaluation automatically. This is the way back
+              in when that run failed — without it a project stays `submitted`
+              with no path forward. */}
+          {current.status === "submitted" && (
+            <button
+              onClick={() => void evaluate(current.id)}
+              disabled={evaluating || status.running.length > 0}
+              className="rounded bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {evaluating ? "Queueing…" : "Re-run evaluation"}
             </button>
           )}
         </div>

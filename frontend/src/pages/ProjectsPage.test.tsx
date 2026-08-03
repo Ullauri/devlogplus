@@ -18,6 +18,7 @@ vi.mock("../api/client", () => ({
     pipelines: {
       listRuns: vi.fn().mockResolvedValue([]),
       runProjectGeneration: vi.fn().mockResolvedValue({}),
+      runProjectEvaluation: vi.fn().mockResolvedValue({}),
     },
   },
 }));
@@ -27,6 +28,9 @@ const mockList = api.projects.list as ReturnType<typeof vi.fn>;
 const mockGetCurrent = api.projects.getCurrent as ReturnType<typeof vi.fn>;
 const mockSubmit = api.projects.submit as ReturnType<typeof vi.fn>;
 const mockListRuns = api.pipelines.listRuns as ReturnType<typeof vi.fn>;
+const mockRunEvaluation = api.pipelines.runProjectEvaluation as ReturnType<
+  typeof vi.fn
+>;
 
 function makeProject(overrides: Record<string, unknown> = {}) {
   return {
@@ -239,6 +243,76 @@ describe("ProjectsPage — current project", () => {
 
     await waitFor(() => {
       expect(mockSubmit).toHaveBeenCalledWith("p1");
+    });
+  });
+
+  it("clicking Submit also queues the evaluation pipeline", async () => {
+    // The button says "Submit for Evaluation". Before this, submitting only
+    // set a status and nothing ever evaluated it — the project stayed in
+    // `submitted` forever.
+    mockList.mockResolvedValue([]);
+    mockGetCurrent.mockResolvedValueOnce(makeProject({ status: "issued" }));
+    mockGetCurrent.mockRejectedValueOnce(new Error("none"));
+    mockSubmit.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderWithRouter(<ProjectsPage />);
+    await waitFor(() => screen.getByText("HTTP Server"));
+
+    await user.click(
+      screen.getByRole("button", { name: "Submit for Evaluation" }),
+    );
+
+    await waitFor(() => {
+      expect(mockRunEvaluation).toHaveBeenCalledWith("p1");
+    });
+  });
+});
+
+describe("ProjectsPage — re-run evaluation", () => {
+  it("offers Re-run evaluation once submitted", async () => {
+    mockList.mockResolvedValue([]);
+    mockGetCurrent.mockResolvedValue(makeProject({ status: "submitted" }));
+    renderWithRouter(<ProjectsPage />);
+    await waitFor(() => screen.getByText("HTTP Server"));
+
+    expect(
+      screen.getByRole("button", { name: "Re-run evaluation" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not offer Re-run evaluation before submission", async () => {
+    mockList.mockResolvedValue([]);
+    mockGetCurrent.mockResolvedValue(makeProject({ status: "issued" }));
+    renderWithRouter(<ProjectsPage />);
+    await waitFor(() => screen.getByText("HTTP Server"));
+
+    expect(
+      screen.queryByRole("button", { name: "Re-run evaluation" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not offer Re-run evaluation once evaluated", async () => {
+    mockList.mockResolvedValue([]);
+    mockGetCurrent.mockResolvedValue(makeProject({ status: "evaluated" }));
+    renderWithRouter(<ProjectsPage />);
+    await waitFor(() => screen.getByText("HTTP Server"));
+
+    expect(
+      screen.queryByRole("button", { name: "Re-run evaluation" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clicking Re-run evaluation queues the pipeline for that project", async () => {
+    mockList.mockResolvedValue([]);
+    mockGetCurrent.mockResolvedValue(makeProject({ status: "submitted" }));
+    const user = userEvent.setup();
+    renderWithRouter(<ProjectsPage />);
+    await waitFor(() => screen.getByText("HTTP Server"));
+
+    await user.click(screen.getByRole("button", { name: "Re-run evaluation" }));
+
+    await waitFor(() => {
+      expect(mockRunEvaluation).toHaveBeenCalledWith("p1");
     });
   });
 });
