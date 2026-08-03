@@ -868,6 +868,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pipelines/project-evaluation/run/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manually trigger evaluation for a submitted project
+         * @description Evaluates a submitted project: reads the files back off disk, scores them against the project's task list, and files triage items for any problems found. Submitting a project queues this automatically — use this endpoint to re-run when that evaluation failed. Runs in the background; poll `GET /pipelines/runs` for progress.
+         */
+        post: operations["run_project_evaluation_api_v1_pipelines_project_evaluation_run__project_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/pipelines/runs": {
         parameters: {
             query?: never;
@@ -1758,7 +1778,7 @@ export interface components {
              * @description Name of the pipeline that was queued.
              * @enum {string}
              */
-            pipeline: "profile_update" | "quiz_generation" | "quiz_evaluation" | "reading_generation" | "project_generation";
+            pipeline: "profile_update" | "quiz_generation" | "quiz_evaluation" | "reading_generation" | "project_generation" | "project_evaluation";
             /**
              * Run Id
              * Format: uuid
@@ -4372,6 +4392,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PipelineRunAccepted"];
+                };
+            };
+        };
+    };
+    run_project_evaluation_api_v1_pipelines_project_evaluation_run__project_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineRunAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

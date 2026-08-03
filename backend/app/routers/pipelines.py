@@ -203,6 +203,37 @@ async def run_project_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
     return _accepted("project_generation", "Project generation", run_id)
 
 
+@router.post(
+    "/project-evaluation/run/{project_id}",
+    response_model=PipelineRunAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Manually trigger evaluation for a submitted project",
+    description=(
+        "Evaluates a submitted project: reads the files back off disk, scores "
+        "them against the project's task list, and files triage items for any "
+        "problems found. Submitting a project queues this automatically — use "
+        "this endpoint to re-run when that evaluation failed. Runs in the "
+        "background; poll `GET /pipelines/runs` for progress."
+    ),
+)
+async def run_project_evaluation(
+    project_id: uuid.UUID,
+    bg: BackgroundTasks,
+) -> PipelineRunAccepted:
+    run_id = pipelines_svc.new_run_id()
+
+    async def _evaluate(db: AsyncSession, *, run_id: uuid.UUID) -> None:
+        await project_pipeline.evaluate_project(db, project_id, run_id=run_id)
+
+    bg.add_task(
+        _run_in_background,
+        _evaluate,
+        "project_evaluation",
+        run_id,
+    )
+    return _accepted("project_evaluation", "Project evaluation", run_id)
+
+
 # ---------------------------------------------------------------------------
 # Run history — used by the Settings page to display progress.
 # ---------------------------------------------------------------------------

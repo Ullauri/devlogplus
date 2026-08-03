@@ -199,6 +199,10 @@ export const api = {
       post<PipelineRunAccepted>("/pipelines/readings/run"),
     runProjectGeneration: () =>
       post<PipelineRunAccepted>("/pipelines/project/run"),
+    runProjectEvaluation: (projectId: string) =>
+      post<PipelineRunAccepted>(
+        `/pipelines/project-evaluation/run/${projectId}`,
+      ),
     listRuns: (limit = 20, pipeline?: Schemas["PipelineType"]) => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (pipeline) params.set("pipeline", pipeline);

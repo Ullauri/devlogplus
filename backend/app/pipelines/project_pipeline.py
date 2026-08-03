@@ -601,8 +601,21 @@ async def generate_project(
         logger.exception("Project generation pipeline failed")
 
 
-async def evaluate_project(db: AsyncSession, project_id) -> dict:
+async def evaluate_project(
+    db: AsyncSession,
+    project_id,
+    *,
+    run_id: uuid.UUID | None = None,
+) -> dict:
     """Evaluate a submitted project.
+
+    Args:
+        db: Async session.
+        project_id: The project to evaluate.
+        run_id: Optional pre-generated id for the ``ProcessingLog`` row.
+            When provided (e.g. from the manual-trigger router), the log row
+            carries the same id that was already returned to the HTTP client,
+            so the UI can correlate the 202 response to a log entry.
 
     Steps:
     1. Load project with tasks
@@ -611,10 +624,13 @@ async def evaluate_project(db: AsyncSession, project_id) -> dict:
     4. Store evaluation results
     5. Create triage items if needed
     """
-    log = ProcessingLog(
-        pipeline=PipelineType.PROJECT_EVALUATION,
-        status=PipelineStatus.STARTED,
-    )
+    log_kwargs: dict = {
+        "pipeline": PipelineType.PROJECT_EVALUATION,
+        "status": PipelineStatus.STARTED,
+    }
+    if run_id is not None:
+        log_kwargs["id"] = run_id
+    log = ProcessingLog(**log_kwargs)
     db.add(log)
     await db.flush()
 

@@ -1868,6 +1868,50 @@
         }
       }
     },
+    "/api/v1/pipelines/project-evaluation/run/{project_id}": {
+      "post": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "Manually trigger evaluation for a submitted project",
+        "description": "Evaluates a submitted project: reads the files back off disk, scores them against the project's task list, and files triage items for any problems found. Submitting a project queues this automatically — use this endpoint to re-run when that evaluation failed. Runs in the background; poll `GET /pipelines/runs` for progress.",
+        "operationId": "run_project_evaluation_api_v1_pipelines_project_evaluation_run__project_id__post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRunAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/pipelines/runs": {
       "get": {
         "tags": [
@@ -3442,7 +3486,8 @@
               "quiz_generation",
               "quiz_evaluation",
               "reading_generation",
-              "project_generation"
+              "project_generation",
+              "project_evaluation"
             ],
             "title": "Pipeline",
             "description": "Name of the pipeline that was queued."
