@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     llm_model_project_generation: str = Field(default="anthropic/claude-sonnet-5")
     llm_model_project_evaluation: str = Field(default="anthropic/claude-sonnet-5")
 
+    # Reasoning budget passed to OpenRouter. Newer models (Claude Sonnet 5
+    # among them) reason by default, and OpenRouter bills reasoning as output
+    # tokens — so reasoning draws down the same `max_tokens` the answer needs.
+    # Left unbounded, a pipeline can spend its whole budget thinking and return
+    # `content: null`.
+    #
+    # "none" disables reasoning, matching the behaviour this app's prompts and
+    # per-pipeline max_tokens were sized for. Raise it deliberately, and raise
+    # the affected pipeline's max_tokens at the same time.
+    # Valid: none | minimal | low | medium | high | xhigh | max
+    llm_reasoning_effort: str = Field(default="none")
+
     # --- Application ---
     quiz_question_count: int = Field(default=10, ge=1, le=50)
     reading_recommendation_count: int = Field(default=5, ge=1, le=20)

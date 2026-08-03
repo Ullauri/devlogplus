@@ -20,6 +20,42 @@ logger = logging.getLogger(__name__)
 _ERROR_BODY_LIMIT = 2000
 
 
+class EmptyLLMResponseError(RuntimeError):
+    """The API returned 200 but the assistant message carried no text.
+
+    Most often the response was truncated at ``max_tokens``: OpenRouter counts
+    reasoning as output tokens, so a reasoning model can spend the entire
+    budget thinking and emit no answer at all. ``content`` is then ``null``
+    rather than a partial string.
+    """
+
+
+def _extract_message_content(result: dict[str, Any], *, model: str, pipeline: str) -> str:
+    """Pull the assistant text out of a completion, or explain why it's absent."""
+    choice = (result.get("choices") or [{}])[0]
+    content = (choice.get("message") or {}).get("content")
+    if content:
+        return content
+
+    finish_reason = choice.get("finish_reason") or choice.get("native_finish_reason") or "unknown"
+    usage = result.get("usage") or {}
+    completion_tokens = usage.get("completion_tokens")
+    reasoning_tokens = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens")
+
+    hint = ""
+    if finish_reason == "length":
+        hint = (
+            " The response hit max_tokens. Reasoning tokens count toward the same budget, "
+            "so either lower settings.llm_reasoning_effort or raise this pipeline's max_tokens."
+        )
+
+    raise EmptyLLMResponseError(
+        f"No content returned for pipeline={pipeline} model={model} "
+        f"(finish_reason={finish_reason}, completion_tokens={completion_tokens}, "
+        f"reasoning_tokens={reasoning_tokens}).{hint}"
+    )
+
+
 def _raise_for_status_with_body(response: httpx.Response, *, model: str, pipeline: str) -> None:
     """raise_for_status(), but carrying OpenRouter's explanation.
 
@@ -103,6 +139,8 @@ class OpenRouterClient:
         }
         if response_format is not None:
             payload["response_format"] = response_format
+        if settings.llm_reasoning_effort:
+            payload["reasoning"] = {"effort": settings.llm_reasoning_effort}
 
         # Trace through Langfuse
         with trace_llm_call(
@@ -134,7 +172,9 @@ class OpenRouterClient:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        return result["choices"][0]["message"]["content"]
+        return _extract_message_content(
+            result, model=settings.model_for_pipeline(pipeline), pipeline=pipeline
+        )
 
     async def chat_completion_json(
         self,
@@ -152,7 +192,9 @@ class OpenRouterClient:
             max_tokens=max_tokens,
             response_format={"type": "json_object"},
         )
-        content = result["choices"][0]["message"]["content"]
+        content = _extract_message_content(
+            result, model=settings.model_for_pipeline(pipeline), pipeline=pipeline
+        )
         # Strip markdown code-fence wrappers the model may add
         content = re.sub(r"^```(?:json)?\s*\n?", "", content.strip())
         content = re.sub(r"\n?```\s*$", "", content.strip())
