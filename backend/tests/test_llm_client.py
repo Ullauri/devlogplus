@@ -13,7 +13,9 @@ import pytest
 
 from backend.app.services.llm.client import (
     EmptyLLMResponseError,
+    LLMJSONError,
     _extract_message_content,
+    _parse_json_content,
     _raise_for_status_with_body,
 )
 
@@ -132,3 +134,104 @@ def test_malformed_response_does_not_keyerror() -> None:
         _extract_message_content({}, model="m", pipeline="reading_generation")
 
     assert "finish_reason=unknown" in str(excinfo.value)
+
+
+# --- JSON extraction ---------------------------------------------------------
+#
+# Anthropic models have no native json_object mode, so `response_format` is
+# advisory over OpenRouter and the model may wrap its JSON in prose, a fence,
+# or both. When no JSON can be read at all, the content itself has to reach the
+# exception — a bare `JSONDecodeError: Expecting value: line 1 column 1` says
+# only that the response didn't *begin* with JSON, which is true of a prose
+# preamble and a refusal alike.
+
+
+def _completion(finish_reason: str = "stop", **usage: object) -> dict[str, object]:
+    return {"choices": [{"finish_reason": finish_reason}], "usage": usage}
+
+
+def test_bare_json_object_parses() -> None:
+    parsed = _parse_json_content('{"title": "x"}', _completion(), model="m", pipeline="p")
+
+    assert parsed == {"title": "x"}
+
+
+def test_fenced_json_parses() -> None:
+    content = '```json\n{"title": "x"}\n```'
+
+    assert _parse_json_content(content, _completion(), model="m", pipeline="p") == {"title": "x"}
+
+
+def test_prose_preamble_before_a_fence_is_salvaged() -> None:
+    """The observed project_generation failure: text before the opening fence."""
+    content = 'Here is the project:\n\n```json\n{"title": "x", "files": []}\n```\n\nEnjoy!'
+
+    parsed = _parse_json_content(
+        content, _completion(), model="anthropic/claude-sonnet-5", pipeline="project_generation"
+    )
+
+    assert parsed == {"title": "x", "files": []}
+
+
+def test_unfenced_object_behind_a_preamble_is_salvaged() -> None:
+    content = 'Sure thing.\n{"title": "x"}'
+
+    assert _parse_json_content(content, _completion(), model="m", pipeline="p") == {"title": "x"}
+
+
+def test_braces_inside_string_values_survive_the_widest_span() -> None:
+    """The brace-span salvage must not truncate at a nested or quoted brace."""
+    content = 'Preamble.\n{"content": "func main() { fmt.Println(1) }", "n": {"a": 1}}'
+
+    parsed = _parse_json_content(content, _completion(), model="m", pipeline="p")
+
+    assert parsed["content"] == "func main() { fmt.Println(1) }"
+    assert parsed["n"] == {"a": 1}
+
+
+def test_unparseable_content_reaches_the_exception() -> None:
+    content = "I can't generate that project."
+
+    with pytest.raises(LLMJSONError) as excinfo:
+        _parse_json_content(
+            content, _completion(), model="anthropic/claude-sonnet-5", pipeline="project_generation"
+        )
+
+    message = str(excinfo.value)
+    assert "I can't generate that project." in message
+    assert "pipeline=project_generation" in message
+
+
+def test_truncated_response_names_max_tokens_not_the_parser() -> None:
+    content = '{"title": "x", "files": [{"path": "main.go", "content": "package ma'
+
+    with pytest.raises(LLMJSONError) as excinfo:
+        _parse_json_content(
+            content,
+            _completion("length", completion_tokens=8192),
+            model="m",
+            pipeline="project_generation",
+        )
+
+    message = str(excinfo.value)
+    assert "truncated at max_tokens" in message
+    assert "raise max_tokens for the project_generation pipeline" in message
+
+
+def test_long_content_keeps_both_ends() -> None:
+    """The tail is what distinguishes a truncated response from a prose one."""
+    content = "PREAMBLE" + ("x" * 5000) + "ENDING"
+
+    with pytest.raises(LLMJSONError) as excinfo:
+        _parse_json_content(content, _completion(), model="m", pipeline="p")
+
+    message = str(excinfo.value)
+    assert "PREAMBLE" in message
+    assert "ENDING" in message
+    assert "5014 chars total" in message
+
+
+def test_non_object_json_is_rejected() -> None:
+    """The callers all expect a dict; a bare scalar is not an answer."""
+    with pytest.raises(LLMJSONError):
+        _parse_json_content("42", _completion(), model="m", pipeline="p")
