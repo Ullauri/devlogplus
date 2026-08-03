@@ -8,13 +8,20 @@ regeneration retry — throwing away a good project and spending a second LLM
 call to fix nothing.
 """
 
+import shutil
 from pathlib import Path
 
 import pytest
 
+from backend.app.config import settings
 from backend.app.pipelines.project_pipeline import CompileCheck, _verify_go_build
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
+
+requires_go = pytest.mark.skipif(
+    shutil.which(settings.go_executable) is None,
+    reason=f"no Go toolchain at {settings.go_executable!r}",
+)
 
 
 async def test_missing_go_binary_is_skipped_not_failed(
@@ -65,3 +72,33 @@ async def test_passed_status_carries_no_error() -> None:
 
     assert check.failed is False
     assert check.error is None
+
+
+# --- Against a real toolchain ------------------------------------------------
+#
+# Skipped where Go is absent, which is the honest thing for a check that needs
+# a compiler — and the same distinction the code under test now makes.
+
+
+@requires_go
+async def test_valid_go_compiles(tmp_path: Path) -> None:
+    """Also exercises the go.mod auto-init, since none is written here."""
+    (tmp_path / "main.go").write_text(
+        'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("ok")\n}\n'
+    )
+
+    check = await _verify_go_build(tmp_path)
+
+    assert check.status == "passed"
+    assert check.error is None
+
+
+@requires_go
+async def test_broken_go_fails_with_the_compiler_message(tmp_path: Path) -> None:
+    """The retry prompt pastes `error` in verbatim, so it must be the real thing."""
+    (tmp_path / "main.go").write_text("package main\n\nfunc main() {\n\tundefinedFunc()\n}\n")
+
+    check = await _verify_go_build(tmp_path)
+
+    assert check.status == "failed"
+    assert "undefined: undefinedFunc" in (check.error or "")
