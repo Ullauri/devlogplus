@@ -6,6 +6,7 @@ Run as a standalone process (stdio transport) for Claude Code integration:
 
 import json
 import logging
+import sys
 import uuid
 
 from mcp.server.fastmcp import FastMCP
@@ -22,6 +23,32 @@ from backend.app.services import triage as triage_svc
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("DevLog+")
+
+
+def reroute_stdout_logging() -> None:
+    """Move any stdout log handler to stderr.
+
+    Under the stdio transport, stdout *is* the JSON-RPC channel — it carries
+    one message per line and shares it with nothing. Anything else printed
+    there lands mid-stream and the client fails to parse the response.
+
+    SQLAlchemy is the live offender: ``database.py`` passes
+    ``echo=(app_env == "development")``, and echo installs a
+    ``StreamHandler(sys.stdout)`` (``sqlalchemy.log._add_default_handler``).
+    With APP_ENV=development every statement the server runs is interleaved
+    into its own replies.
+
+    Handlers are redirected rather than removed, so the logging is still there
+    on stderr when you run the server by hand to debug it. Written as a sweep
+    over every handler rather than a SQLAlchemy special case, because the next
+    library to log to stdout would break the protocol the same way.
+    """
+    loggers = [logging.getLogger()]
+    loggers += [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+    for log in loggers:
+        for handler in list(getattr(log, "handlers", ())):
+            if getattr(handler, "stream", None) is sys.stdout:
+                handler.setStream(sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -167,4 +194,7 @@ async def resolve_triage(item_id: str, action: str, resolution_text: str | None 
 
 
 if __name__ == "__main__":
+    # Must run before the first response is written, and after the imports
+    # above have created the engine that installs the offending handler.
+    reroute_stdout_logging()
     mcp.run()
