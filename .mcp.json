@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "devlogplus": {
+      "type": "stdio",
+      "command": "poetry",
+      "args": [
+        "-C",
+        "${CLAUDE_PROJECT_DIR:-.}",
+        "run",
+        "python",
+        "-m",
+        "backend.app.mcp_server"
+      ]
+    }
+  }
+}
