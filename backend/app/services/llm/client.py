@@ -12,6 +12,38 @@ from backend.app.services.llm.tracing import trace_llm_call
 
 logger = logging.getLogger(__name__)
 
+# OpenRouter puts the actionable reason in the response body, not the status
+# line: an invalid model ID, an unsupported response_format, and an exhausted
+# quota are all plain 400s. httpx's raise_for_status() reports only the status,
+# so the reason was being discarded at the point of failure and every 4xx
+# looked identical in the logs.
+_ERROR_BODY_LIMIT = 2000
+
+
+def _raise_for_status_with_body(response: httpx.Response, *, model: str, pipeline: str) -> None:
+    """raise_for_status(), but carrying OpenRouter's explanation.
+
+    Re-raises the same ``httpx.HTTPStatusError`` type so existing handlers keep
+    working; only the message is enriched.
+    """
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        body = response.text[:_ERROR_BODY_LIMIT] or "<empty response body>"
+        if len(response.text) > _ERROR_BODY_LIMIT:
+            body += f"… [truncated, {len(response.text)} bytes total]"
+        message = (
+            f"{exc}\n" f"pipeline={pipeline} model={model}\n" f"OpenRouter response body: {body}"
+        )
+        logger.error(
+            "OpenRouter %s for pipeline=%s model=%s: %s",
+            response.status_code,
+            pipeline,
+            model,
+            body,
+        )
+        raise httpx.HTTPStatusError(message, request=exc.request, response=exc.response) from exc
+
 
 class OpenRouterClient:
     """Async HTTP client for the OpenRouter API.
@@ -79,7 +111,7 @@ class OpenRouterClient:
             input_data={"messages": messages},
         ) as trace:
             response = await client.post("/chat/completions", json=payload)
-            response.raise_for_status()
+            _raise_for_status_with_body(response, model=model, pipeline=pipeline)
             result = response.json()
 
             # Record output and usage in the trace
