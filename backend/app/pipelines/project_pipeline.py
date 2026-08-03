@@ -12,6 +12,7 @@ import logging
 import uuid
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Literal, NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -189,15 +190,41 @@ def _format_previous_themes(
     return "\n".join(lines)
 
 
-async def _verify_go_build(project_dir: Path) -> str | None:
+# A generated project is a README plus complete Go source and test files,
+# all JSON-escaped in one object. An observed run spent 8071 of 8192 tokens on
+# the first attempt — 98.5% of budget, with truncation losing the entire
+# response rather than degrading it. The retry is strictly larger, since it
+# re-emits every file alongside the fixes.
+_PROJECT_GENERATION_MAX_TOKENS = 32000
+
+
+class CompileCheck(NamedTuple):
+    """Outcome of the post-generation ``go build``.
+
+    ``skipped`` is deliberately not ``failed``. Without the distinction, a
+    missing Go toolchain reads as "the model wrote broken code" and triggers
+    the regeneration retry — discarding a perfectly good project and spending
+    a second LLM call to fix nothing.
+    """
+
+    status: Literal["passed", "failed", "skipped"]
+    error: str | None = None
+
+    @property
+    def failed(self) -> bool:
+        return self.status == "failed"
+
+
+async def _verify_go_build(project_dir: Path) -> CompileCheck:
     """Run ``go build ./...`` in *project_dir*.
 
     Ensures a ``go.mod`` exists first (auto-inits one if absent so the
-    compiler has a valid module root).  Returns the combined stdout+stderr
-    error string if the build fails, ``None`` if it succeeds, or a diagnostic
-    string if the Go binary is not found (so callers degrade gracefully).
+    compiler has a valid module root). Returns ``passed`` on a clean build,
+    ``failed`` with the combined stdout+stderr when the compiler rejects it,
+    and ``skipped`` when there is no Go toolchain to run.
     """
     go = settings.go_executable
+    skipped = CompileCheck("skipped", f"go binary not found at {go!r} — compile check skipped")
 
     # Auto-init a module if the LLM forgot to include go.mod.
     mod_file = project_dir / "go.mod"
@@ -215,10 +242,12 @@ async def _verify_go_build(project_dir: Path) -> str | None:
             )
         except FileNotFoundError:
             logger.warning("Go binary not found at %r — skipping compile check", go)
-            return f"go binary not found at {go!r} — compile check skipped"
+            return skipped
         _, init_stderr = await init_proc.communicate()
         if init_proc.returncode != 0:
-            return f"go mod init failed:\n{init_stderr.decode(errors='replace')}"
+            return CompileCheck(
+                "failed", f"go mod init failed:\n{init_stderr.decode(errors='replace')}"
+            )
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -231,20 +260,20 @@ async def _verify_go_build(project_dir: Path) -> str | None:
         )
     except FileNotFoundError:
         logger.warning("Go binary not found at %r — skipping compile check", go)
-        return f"go binary not found at {go!r} — compile check skipped"
+        return skipped
 
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
     except TimeoutError:
         proc.kill()
         await proc.wait()
-        return "go build timed out after 60 seconds"
+        return CompileCheck("failed", "go build timed out after 60 seconds")
 
     if proc.returncode != 0:
         combined = (stdout + stderr).decode(errors="replace").strip()
-        return combined or f"go build exited with code {proc.returncode}"
+        return CompileCheck("failed", combined or f"go build exited with code {proc.returncode}")
 
-    return None
+    return CompileCheck("passed")
 
 
 def _write_gen_files(project_dir: Path, gen_result: "ProjectGenerationResult") -> None:
@@ -390,7 +419,7 @@ async def generate_project(
                 {"role": "system", "content": project_generation.SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=8192,
+            max_tokens=_PROJECT_GENERATION_MAX_TOKENS,
         )
 
         gen_result = ProjectGenerationResult.model_validate(raw_result)
@@ -403,14 +432,21 @@ async def generate_project(
         _write_gen_files(project_dir, gen_result)
 
         # ── Compile check — one LLM retry on failure ─────────────────────
-        compile_error = await _verify_go_build(project_dir)
+        compile_check = await _verify_go_build(project_dir)
         compile_retry_attempted = False
-        compile_check_passed = compile_error is None
+        compile_check_passed = compile_check.status == "passed"
+        compile_check_skipped = compile_check.status == "skipped"
 
-        if compile_error:
+        if compile_check_skipped:
+            logger.warning(
+                "Compile check skipped — issuing an unverified project. %s",
+                compile_check.error,
+            )
+
+        if compile_check.failed:
             logger.warning(
                 "Generated project does not compile — retrying with error context.\n%s",
-                compile_error,
+                compile_check.error,
             )
             compile_retry_attempted = True
             messages = [
@@ -425,7 +461,7 @@ async def generate_project(
                     "content": (
                         "The files you generated do not compile. Here are the errors from "
                         "`go build ./...`:\n\n"
-                        f"```\n{compile_error}\n```\n\n"
+                        f"```\n{compile_check.error}\n```\n\n"
                         "Please fix ALL compilation errors and return the complete corrected "
                         "JSON object with all files included. Do not omit any files."
                     ),
@@ -434,21 +470,23 @@ async def generate_project(
             raw_result = await llm_client.chat_completion_json(
                 pipeline="project_generation",
                 messages=messages,
-                max_tokens=8192,
+                max_tokens=_PROJECT_GENERATION_MAX_TOKENS,
             )
             gen_result = ProjectGenerationResult.model_validate(raw_result)
             _write_gen_files(project_dir, gen_result)
 
-            retry_error = await _verify_go_build(project_dir)
-            if retry_error:
+            retry_check = await _verify_go_build(project_dir)
+            compile_check_skipped = retry_check.status == "skipped"
+            if retry_check.failed:
                 logger.error(
                     "Project still does not compile after retry — issuing anyway.\n%s",
-                    retry_error,
+                    retry_check.error,
                 )
                 compile_check_passed = False
             else:
-                compile_check_passed = True
-                logger.info("Project compiles cleanly after retry.")
+                compile_check_passed = retry_check.status == "passed"
+                if compile_check_passed:
+                    logger.info("Project compiles cleanly after retry.")
 
         # ── Title-collision check on the generated project ──────────────
         # A single project is issued per run, so we can't drop-and-continue
@@ -530,6 +568,10 @@ async def generate_project(
             "skipped_duplicate_tasks": skipped_duplicate_tasks,
             "project_title_collision": project_title_collision,
             "compile_check_passed": compile_check_passed,
+            # Distinguishes "verified good" from "never checked" — without it a
+            # missing toolchain looks identical to a passing build in the run
+            # history, and every project silently ships unverified.
+            "compile_check_skipped": compile_check_skipped,
             "compile_retry_attempted": compile_retry_attempted,
             # Kept for backwards-compat with anything reading the old key.
             "tasks": stored_task_count,
