@@ -43,11 +43,13 @@ lint-backend: ## Lint backend (auto-fix)
 
 lint-frontend: ## Lint frontend (auto-fix)
 	cd frontend && npm run lint:fix
+	cd frontend && npm run format
 
 lint-check: ## Check lint without fixing (CI mode)
 	poetry run ruff check backend/
 	poetry run ruff format --check backend/
 	cd frontend && npm run lint
+	cd frontend && npm run format:check
 	$(MAKE) typecheck-frontend
 	$(MAKE) openapi-check
 

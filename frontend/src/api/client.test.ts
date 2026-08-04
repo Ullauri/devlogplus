@@ -213,7 +213,9 @@ describe("request error handling", () => {
   });
 
   it("falls back to the raw body when detail is not a string", async () => {
-    const body = JSON.stringify({ detail: [{ loc: ["body"], msg: "required" }] });
+    const body = JSON.stringify({
+      detail: [{ loc: ["body"], msg: "required" }],
+    });
     globalThis.fetch = mockFetch(422, body);
 
     await expect(api.journal.list()).rejects.toThrow(body);
