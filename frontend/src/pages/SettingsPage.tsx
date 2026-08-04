@@ -402,6 +402,14 @@ export default function SettingsPage() {
     void refreshRuns();
   }, [refreshRuns]);
 
+  // Pipelines with a `started` row in the log. These runs are minutes-long LLM
+  // calls, so triggering a second one is always a mistake — the backend rejects
+  // it with a 409, and this disables the button so the user doesn't have to
+  // discover that by clicking.
+  const runningPipelines = new Set(
+    runs.filter((r) => r.status === "started").map((r) => r.pipeline),
+  );
+
   const triggerPipeline = useCallback(
     async (key: PipelineKey, runner: () => Promise<{ message: string }>) => {
       setPipelineStatus((prev) => ({ ...prev, [key]: { kind: "queueing" } }));
@@ -992,7 +1000,9 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {pipelineButtons.map((cfg) => {
               const st = pipelineStatus[cfg.key];
-              const isBusy = st.kind === "queueing";
+              const isQueueing = st.kind === "queueing";
+              const isRunning = runningPipelines.has(cfg.key);
+              const isBusy = isQueueing || isRunning;
               return (
                 <div
                   key={cfg.key}
@@ -1010,7 +1020,7 @@ export default function SettingsPage() {
                       {isBusy ? (
                         <>
                           <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-500 border-t-transparent" />
-                          Queuing…
+                          {isQueueing ? "Queuing…" : "Running…"}
                         </>
                       ) : (
                         "Run now"

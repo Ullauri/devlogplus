@@ -17,7 +17,7 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import async_session_factory, get_db
@@ -81,6 +81,34 @@ def _accepted(pipeline: ManualPipelineName, human: str, run_id: uuid.UUID) -> Pi
     )
 
 
+# Documented on every guarded trigger so the generated OpenAPI spec (and the
+# TS types built from it) carry the conflict case.
+_CONFLICT_RESPONSE = {
+    status.HTTP_409_CONFLICT: {"description": "This pipeline is already running"},
+}
+
+
+async def _reject_if_running(db: AsyncSession, pipeline: PipelineType, human: str) -> None:
+    """Refuse a manual trigger while the same pipeline is already in flight.
+
+    These runs are minutes-long LLM calls. Firing a second one concurrently
+    doubles the token spend and races two pipelines to write competing
+    sessions, so a duplicate trigger is always a mistake rather than a
+    legitimate request.
+    """
+    active = await pipelines_svc.get_active_run(db, pipeline)
+    if active is None:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"{human} is already running (started "
+            f"{active.started_at.isoformat()}). Wait for it to finish, or check "
+            f"run history if it looks stuck."
+        ),
+    )
+
+
 @router.post(
     "/profile-update/run",
     response_model=PipelineRunAccepted,
@@ -92,10 +120,16 @@ def _accepted(pipeline: ManualPipelineName, human: str, run_id: uuid.UUID) -> Pi
         "don't want to wait.\n\n"
         "The pipeline runs in the background — the response returns "
         "immediately with status=queued. Poll `GET /pipelines/runs` to "
-        "observe progress."
+        "observe progress.\n\n"
+        "Returns 409 if a profile-update run is already in flight."
     ),
+    responses=_CONFLICT_RESPONSE,
 )
-async def run_profile_update(bg: BackgroundTasks) -> PipelineRunAccepted:
+async def run_profile_update(
+    bg: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> PipelineRunAccepted:
+    await _reject_if_running(db, PipelineType.PROFILE_UPDATE, "Profile update")
     run_id = pipelines_svc.new_run_id()
     bg.add_task(
         _run_in_background,
@@ -114,10 +148,16 @@ async def run_profile_update(bg: BackgroundTasks) -> PipelineRunAccepted:
     description=(
         "Generates a new weekly quiz session immediately rather than waiting "
         "for the Monday 3:00 AM cron. Runs in the background; poll "
-        "`GET /pipelines/runs` for progress."
+        "`GET /pipelines/runs` for progress.\n\n"
+        "Returns 409 if a quiz-generation run is already in flight."
     ),
+    responses=_CONFLICT_RESPONSE,
 )
-async def run_quiz_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
+async def run_quiz_generation(
+    bg: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> PipelineRunAccepted:
+    await _reject_if_running(db, PipelineType.QUIZ_GENERATION, "Quiz generation")
     run_id = pipelines_svc.new_run_id()
     bg.add_task(
         _run_in_background,
@@ -166,10 +206,16 @@ async def run_quiz_evaluation(
     description=(
         "Generates a new weekly batch of reading recommendations immediately "
         "rather than waiting for the Monday 3:30 AM cron. Runs in the "
-        "background; poll `GET /pipelines/runs` for progress."
+        "background; poll `GET /pipelines/runs` for progress.\n\n"
+        "Returns 409 if a reading-generation run is already in flight."
     ),
+    responses=_CONFLICT_RESPONSE,
 )
-async def run_reading_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
+async def run_reading_generation(
+    bg: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> PipelineRunAccepted:
+    await _reject_if_running(db, PipelineType.READING_GENERATION, "Reading generation")
     run_id = pipelines_svc.new_run_id()
     bg.add_task(
         _run_in_background,
@@ -189,10 +235,16 @@ async def run_reading_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
         "Generates a new weekly Go micro-project immediately rather than "
         "waiting for the Monday 4:00 AM cron. Runs in the background; poll "
         "`GET /pipelines/runs` for progress. Note: generates files under "
-        "`workspace/projects/<date>/`."
+        "`workspace/projects/<date>/`.\n\n"
+        "Returns 409 if a project-generation run is already in flight."
     ),
+    responses=_CONFLICT_RESPONSE,
 )
-async def run_project_generation(bg: BackgroundTasks) -> PipelineRunAccepted:
+async def run_project_generation(
+    bg: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> PipelineRunAccepted:
+    await _reject_if_running(db, PipelineType.PROJECT_GENERATION, "Project generation")
     run_id = pipelines_svc.new_run_id()
     bg.add_task(
         _run_in_background,

@@ -59,6 +59,31 @@ export interface PaginatedResponse<T> {
 // ---- HTTP plumbing ----
 const BASE = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
+/**
+ * Unwrap FastAPI's `{"detail": "..."}` error envelope.
+ *
+ * Several of these messages are written for the user to read (e.g. the 409 a
+ * pipeline trigger returns while that pipeline is already running) and get
+ * rendered straight into the UI, so showing the raw JSON would bury them.
+ * Falls back to the raw body for validation errors, where `detail` is a list.
+ */
+function errorDetail(body: string): string {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "detail" in parsed &&
+      typeof (parsed as { detail: unknown }).detail === "string"
+    ) {
+      return (parsed as { detail: string }).detail;
+    }
+  } catch {
+    // Not JSON — fall through to the raw body.
+  }
+  return body;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...init?.headers },
@@ -66,7 +91,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API ${res.status}: ${body}`);
+    throw new Error(`API ${res.status}: ${errorDetail(body)}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

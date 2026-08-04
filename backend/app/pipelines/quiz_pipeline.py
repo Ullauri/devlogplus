@@ -38,6 +38,36 @@ from backend.app.services.llm.models import QuizEvaluationResult, QuizGeneration
 logger = logging.getLogger(__name__)
 
 
+# Both quiz calls return one JSON object whose size scales with the number of
+# questions in play, so the client's 4096 default is a fixed budget for a
+# variable-length response. Observed failures: a 10-question generation run
+# stopped at finish_reason=length with ~13k characters emitted and the array
+# still open, and an evaluation run stopped mid-`triage_items` at ~11.7k. A
+# truncated object loses the *whole* response rather than degrading — there is
+# no closing brace for the parser to work with — so budget per item instead.
+_QUIZ_MAX_TOKENS_CEILING = 32000
+
+# Each generated question carries question_text, difficulty_rationale and a
+# reference_answer; the reference answers dominate and run well past 1k tokens
+# apiece.
+_QUIZ_GENERATION_BASE_TOKENS = 2048
+_QUIZ_GENERATION_TOKENS_PER_QUESTION = 1600
+
+# Each evaluation carries depth_assessment, explanation and topic_signals, with
+# a shared triage_items array appended at the end.
+_QUIZ_EVALUATION_BASE_TOKENS = 2048
+_QUIZ_EVALUATION_TOKENS_PER_ANSWER = 1200
+
+
+def _budgeted_max_tokens(base: int, per_item: int, item_count: int) -> int:
+    """Scale a token budget with the item count, clamped to a sane ceiling.
+
+    The ceiling keeps a large ``quiz_question_count`` from requesting more than
+    the model will actually honour.
+    """
+    return min(base + per_item * max(item_count, 1), _QUIZ_MAX_TOKENS_CEILING)
+
+
 async def _load_question_lookup(
     db: AsyncSession, ids: set[uuid.UUID]
 ) -> dict[uuid.UUID, QuizQuestion]:
@@ -220,6 +250,11 @@ async def generate_quiz(
                 {"role": "system", "content": quiz_generation.SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
+            max_tokens=_budgeted_max_tokens(
+                _QUIZ_GENERATION_BASE_TOKENS,
+                _QUIZ_GENERATION_TOKENS_PER_QUESTION,
+                question_count,
+            ),
         )
 
         gen_result = QuizGenerationResult.model_validate(raw_result)
@@ -404,6 +439,11 @@ async def evaluate_quiz(
                 {"role": "system", "content": quiz_evaluation.SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
+            max_tokens=_budgeted_max_tokens(
+                _QUIZ_EVALUATION_BASE_TOKENS,
+                _QUIZ_EVALUATION_TOKENS_PER_ANSWER,
+                len(qa_pairs),
+            ),
         )
 
         eval_result = QuizEvaluationResult.model_validate(raw_result)

@@ -780,6 +780,8 @@ export interface paths {
          * @description Runs the nightly profile-update pipeline on demand. Normally this runs automatically at 2:00 AM via cron; use this endpoint when you don't want to wait.
          *
          *     The pipeline runs in the background — the response returns immediately with status=queued. Poll `GET /pipelines/runs` to observe progress.
+         *
+         *     Returns 409 if a profile-update run is already in flight.
          */
         post: operations["run_profile_update_api_v1_pipelines_profile_update_run_post"];
         delete?: never;
@@ -800,6 +802,8 @@ export interface paths {
         /**
          * Manually trigger the quiz-generation pipeline
          * @description Generates a new weekly quiz session immediately rather than waiting for the Monday 3:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.
+         *
+         *     Returns 409 if a quiz-generation run is already in flight.
          */
         post: operations["run_quiz_generation_api_v1_pipelines_quiz_run_post"];
         delete?: never;
@@ -840,6 +844,8 @@ export interface paths {
         /**
          * Manually trigger the reading-generation pipeline
          * @description Generates a new weekly batch of reading recommendations immediately rather than waiting for the Monday 3:30 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.
+         *
+         *     Returns 409 if a reading-generation run is already in flight.
          */
         post: operations["run_reading_generation_api_v1_pipelines_readings_run_post"];
         delete?: never;
@@ -860,6 +866,8 @@ export interface paths {
         /**
          * Manually trigger the project-generation pipeline
          * @description Generates a new weekly Go micro-project immediately rather than waiting for the Monday 4:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress. Note: generates files under `workspace/projects/<date>/`.
+         *
+         *     Returns 409 if a project-generation run is already in flight.
          */
         post: operations["run_project_generation_api_v1_pipelines_project_run_post"];
         delete?: never;
@@ -4303,6 +4311,13 @@ export interface operations {
                     "application/json": components["schemas"]["PipelineRunAccepted"];
                 };
             };
+            /** @description This pipeline is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     run_quiz_generation_api_v1_pipelines_quiz_run_post: {
@@ -4322,6 +4337,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PipelineRunAccepted"];
                 };
+            };
+            /** @description This pipeline is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -4374,6 +4396,13 @@ export interface operations {
                     "application/json": components["schemas"]["PipelineRunAccepted"];
                 };
             };
+            /** @description This pipeline is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     run_project_generation_api_v1_pipelines_project_run_post: {
@@ -4393,6 +4422,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PipelineRunAccepted"];
                 };
+            };
+            /** @description This pipeline is already running */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

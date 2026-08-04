@@ -6,9 +6,11 @@ discard the status=failed write, leaving the log stuck at status=started.
 """
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +29,7 @@ from backend.app.pipelines import profile_update as profile_update_pipeline
 from backend.app.pipelines import quiz_pipeline
 from backend.app.pipelines.project_pipeline import _determine_difficulty, _format_avoid_titles
 from backend.app.prompts import project_generation
+from backend.app.services import pipelines as pipelines_svc
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -322,6 +325,188 @@ async def test_evaluate_quiz_uses_provided_run_id(db_session: AsyncSession):
 # ---------------------------------------------------------------------------
 # Suggestion: LLM client singleton must be closed during lifespan teardown
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Token budgets: the quiz calls emit one JSON object per question, so a fixed
+# max_tokens truncates mid-array and loses the whole response.
+# ---------------------------------------------------------------------------
+
+
+class TestQuizTokenBudget:
+    async def test_budget_scales_with_item_count(self):
+        ten = quiz_pipeline._budgeted_max_tokens(2048, 1600, 10)
+        twenty = quiz_pipeline._budgeted_max_tokens(2048, 1600, 20)
+        assert twenty > ten
+
+    async def test_budget_clears_the_observed_truncation_point(self):
+        """A 10-question quiz must get well past the 4096 default that failed."""
+        budget = quiz_pipeline._budgeted_max_tokens(
+            quiz_pipeline._QUIZ_GENERATION_BASE_TOKENS,
+            quiz_pipeline._QUIZ_GENERATION_TOKENS_PER_QUESTION,
+            10,
+        )
+        assert budget > 4096 * 3
+
+    async def test_budget_is_capped(self):
+        """A large quiz_question_count must not ask for an absurd budget."""
+        budget = quiz_pipeline._budgeted_max_tokens(2048, 1600, 500)
+        assert budget == quiz_pipeline._QUIZ_MAX_TOKENS_CEILING
+
+    async def test_zero_items_still_gets_a_budget(self):
+        assert quiz_pipeline._budgeted_max_tokens(2048, 1600, 0) == 2048 + 1600
+
+
+async def test_generate_quiz_requests_a_scaled_token_budget(db_session: AsyncSession):
+    """generate_quiz must pass an explicit max_tokens, not fall back to 4096.
+
+    Regression: the pipeline relied on ``chat_completion_json``'s 4096 default,
+    which truncated 10-question responses at finish_reason=length.
+    """
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.generate_quiz(db_session)
+
+    assert mock_llm.await_count == 1
+    assert mock_llm.await_args.kwargs["max_tokens"] > 4096
+
+
+async def test_evaluate_quiz_requests_a_scaled_token_budget(db_session: AsyncSession):
+    """evaluate_quiz must budget per answer rather than using the 4096 default."""
+    session = await _create_completed_quiz_session(db_session, num_questions=10)
+    await db_session.commit()
+
+    mock_llm = AsyncMock(return_value={"evaluations": [], "triage_items": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.evaluate_quiz(db_session, session.id)
+
+    assert mock_llm.await_count == 1
+    assert mock_llm.await_args.kwargs["max_tokens"] > 4096
+
+
+# ---------------------------------------------------------------------------
+# Concurrency guard: a manual trigger must be refused while the same pipeline
+# is already in flight — these are minutes-long LLM calls and a second run
+# races the first to write a competing session.
+# ---------------------------------------------------------------------------
+
+
+async def _add_run(
+    db: AsyncSession,
+    pipeline: PipelineType,
+    status: PipelineStatus,
+    *,
+    age: timedelta = timedelta(0),
+) -> ProcessingLog:
+    log = ProcessingLog(
+        pipeline=pipeline,
+        status=status,
+        started_at=datetime.now(UTC) - age,
+    )
+    db.add(log)
+    await db.flush()
+    return log
+
+
+class TestGetActiveRun:
+    async def test_none_when_idle(self, db_session: AsyncSession):
+        assert await pipelines_svc.get_active_run(db_session, PipelineType.QUIZ_GENERATION) is None
+
+    async def test_finds_a_started_run(self, db_session: AsyncSession):
+        await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.STARTED)
+        active = await pipelines_svc.get_active_run(db_session, PipelineType.QUIZ_GENERATION)
+        assert active is not None
+
+    async def test_ignores_finished_runs(self, db_session: AsyncSession):
+        await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.COMPLETED)
+        await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+        assert await pipelines_svc.get_active_run(db_session, PipelineType.QUIZ_GENERATION) is None
+
+    async def test_ignores_other_pipelines(self, db_session: AsyncSession):
+        await _add_run(db_session, PipelineType.READING_GENERATION, PipelineStatus.STARTED)
+        assert await pipelines_svc.get_active_run(db_session, PipelineType.QUIZ_GENERATION) is None
+
+    async def test_stale_started_run_does_not_block(self, db_session: AsyncSession):
+        """A crashed process leaves status=started forever — it must not wedge
+        the pipeline permanently."""
+        await _add_run(
+            db_session,
+            PipelineType.QUIZ_GENERATION,
+            PipelineStatus.STARTED,
+            age=pipelines_svc.STALE_RUN_AFTER + timedelta(minutes=5),
+        )
+        assert await pipelines_svc.get_active_run(db_session, PipelineType.QUIZ_GENERATION) is None
+
+
+async def test_quiz_trigger_returns_409_while_running(
+    client: AsyncClient, db_session: AsyncSession
+):
+    await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.STARTED)
+    await db_session.commit()
+
+    response = await client.post("/api/v1/pipelines/quiz/run")
+
+    assert response.status_code == 409
+    assert "already running" in response.json()["detail"]
+
+
+async def test_quiz_trigger_accepted_when_idle(client: AsyncClient, db_session: AsyncSession):
+    """The guard must not block a legitimate trigger — a finished run is not
+    in flight."""
+    await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.COMPLETED)
+    await db_session.commit()
+
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=AsyncMock(return_value={"questions": []}),
+    ):
+        response = await client.post("/api/v1/pipelines/quiz/run")
+
+    assert response.status_code == 202
+
+
+async def test_quiz_trigger_not_blocked_by_a_different_pipeline(
+    client: AsyncClient, db_session: AsyncSession
+):
+    await _add_run(db_session, PipelineType.PROFILE_UPDATE, PipelineStatus.STARTED)
+    await db_session.commit()
+
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=AsyncMock(return_value={"questions": []}),
+    ):
+        response = await client.post("/api/v1/pipelines/quiz/run")
+
+    assert response.status_code == 202
+
+
+@pytest.mark.parametrize(
+    ("path", "pipeline"),
+    [
+        ("/api/v1/pipelines/profile-update/run", PipelineType.PROFILE_UPDATE),
+        ("/api/v1/pipelines/quiz/run", PipelineType.QUIZ_GENERATION),
+        ("/api/v1/pipelines/readings/run", PipelineType.READING_GENERATION),
+        ("/api/v1/pipelines/project/run", PipelineType.PROJECT_GENERATION),
+    ],
+)
+async def test_every_generation_trigger_is_guarded(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    path: str,
+    pipeline: PipelineType,
+):
+    await _add_run(db_session, pipeline, PipelineStatus.STARTED)
+    await db_session.commit()
+
+    response = await client.post(path)
+
+    assert response.status_code == 409
 
 
 async def test_lifespan_closes_llm_client():

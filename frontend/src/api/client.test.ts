@@ -198,4 +198,24 @@ describe("request error handling", () => {
 
     await expect(api.journal.list()).rejects.toThrow("API 422");
   });
+
+  it("surfaces FastAPI's detail message instead of the raw JSON envelope", async () => {
+    // The pipeline triggers return a 409 whose detail is written for the user
+    // to read; it gets rendered straight into the UI.
+    globalThis.fetch = mockFetch(
+      409,
+      JSON.stringify({ detail: "Quiz generation is already running" }),
+    );
+
+    await expect(api.pipelines.runQuizGeneration()).rejects.toThrow(
+      "API 409: Quiz generation is already running",
+    );
+  });
+
+  it("falls back to the raw body when detail is not a string", async () => {
+    const body = JSON.stringify({ detail: [{ loc: ["body"], msg: "required" }] });
+    globalThis.fetch = mockFetch(422, body);
+
+    await expect(api.journal.list()).rejects.toThrow(body);
+  });
 });
