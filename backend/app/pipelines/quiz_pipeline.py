@@ -37,6 +37,30 @@ from backend.app.services.llm.models import QuizEvaluationResult, QuizGeneration
 
 logger = logging.getLogger(__name__)
 
+# Each generated question carries five fields, two of them substantial:
+# a 2–6 sentence `reference_answer` and a `difficulty_rationale`. An observed
+# run spent all 4096 default tokens getting roughly three questions in
+# (13.5k chars, finish_reason=length), losing the whole batch — an unclosed
+# JSON object salvages nothing. Measured cost is ~1200 tokens per question;
+# 1600 leaves room for a verbose answer without inviting one.
+#
+# The budget scales because `quiz_question_count` is configurable up to 50 —
+# a flat constant sized for the default of 10 would reintroduce this bug the
+# moment someone raised it. The cap keeps a large batch inside the model's
+# output limit; the floor covers single-question runs, where the JSON
+# envelope dominates.
+_QUIZ_TOKENS_PER_QUESTION = 1600
+_QUIZ_GENERATION_MIN_TOKENS = 4096
+_QUIZ_GENERATION_MAX_TOKENS = 32000
+
+
+def _quiz_generation_max_tokens(question_count: int) -> int:
+    """Token budget for generating ``question_count`` questions in one call."""
+    return min(
+        _QUIZ_GENERATION_MAX_TOKENS,
+        max(_QUIZ_GENERATION_MIN_TOKENS, question_count * _QUIZ_TOKENS_PER_QUESTION),
+    )
+
 
 async def _load_question_lookup(
     db: AsyncSession, ids: set[uuid.UUID]
@@ -220,6 +244,7 @@ async def generate_quiz(
                 {"role": "system", "content": quiz_generation.SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
+            max_tokens=_quiz_generation_max_tokens(question_count),
         )
 
         gen_result = QuizGenerationResult.model_validate(raw_result)
