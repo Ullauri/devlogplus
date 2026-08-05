@@ -235,3 +235,66 @@ def test_non_object_json_is_rejected() -> None:
     """The callers all expect a dict; a bare scalar is not an answer."""
     with pytest.raises(LLMJSONError):
         _parse_json_content("42", _completion(), model="m", pipeline="p")
+
+
+# ── Complete-but-malformed responses ────────────────────────────────────────
+# Raising max_tokens moved quiz_generation from finish_reason=length to
+# finish_reason=stop, and it still failed: a complete, fenced, closed JSON
+# object the decoder rejected. Head and tail both looked well-formed, so the
+# error message said nothing useful about the defect in the elided middle.
+
+
+def test_raw_newlines_in_strings_are_salvaged() -> None:
+    """The quiz prompt invites a bulleted reference answer; models emit real
+    newlines instead of \\n escapes, which strict json.loads rejects."""
+    content = (
+        '```json\n{"questions": [{"reference_answer": "Two points:\n'
+        "- Contract tests check API shape.\n"
+        '- E2E tests check journeys."}]}\n```'
+    )
+
+    parsed = _parse_json_content(content, _completion(), model="m", pipeline="quiz_generation")
+
+    assert parsed["questions"][0]["reference_answer"].startswith("Two points:")
+
+
+def test_malformed_json_reports_the_offset_not_just_the_content() -> None:
+    """Without the decoder's position the failure is indistinguishable from a
+    parser bug, which is exactly what made this take two rounds to find."""
+    # A trailing comma — complete and fenced, but invalid, and not something
+    # the control-character salvage pass can rescue.
+    content = '{"questions": [{"a": 1},]}'
+
+    with pytest.raises(LLMJSONError) as excinfo:
+        _parse_json_content(content, _completion(), model="m", pipeline="quiz_generation")
+
+    message = str(excinfo.value)
+    assert "malformed-JSON failure" in message
+    assert "char 23" in message
+    assert "Content around that offset" in message
+
+
+def test_offset_comes_from_the_furthest_candidate_not_the_first() -> None:
+    """Candidate 0 is the raw fenced text and always dies at char 0. Reporting
+    that instead of the real break is what buried the defect."""
+    content = '```json\n{"questions": [{"a": 1},]}\n```'
+
+    with pytest.raises(LLMJSONError) as excinfo:
+        _parse_json_content(content, _completion(), model="m", pipeline="quiz_generation")
+
+    message = str(excinfo.value)
+    assert "char 0" not in message
+    assert "malformed-JSON failure" in message
+
+
+def test_truncated_response_still_blames_max_tokens_not_the_json() -> None:
+    """finish_reason=length keeps its own hint — a truncated object is also
+    malformed, and the offset would be a red herring there."""
+    content = '{"questions": [{"reference_answer": "unfinished'
+
+    with pytest.raises(LLMJSONError) as excinfo:
+        _parse_json_content(content, _completion("length"), model="m", pipeline="quiz_generation")
+
+    message = str(excinfo.value)
+    assert "truncated at max_tokens" in message
+    assert "malformed-JSON failure" not in message
