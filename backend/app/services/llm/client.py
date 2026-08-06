@@ -26,6 +26,13 @@ _ERROR_BODY_LIMIT = 2000
 _CONTENT_HEAD_LIMIT = 1200
 _CONTENT_TAIL_LIMIT = 400
 
+# Head and tail are useless when the break is in the middle: a response whose
+# first and last 1600 chars are well-formed reads as "complete JSON the parser
+# refused", which says nothing about the actual defect. This window is quoted
+# around the decoder's reported offset instead.
+_DECODE_WINDOW_BEFORE = 120
+_DECODE_WINDOW_AFTER = 80
+
 # Models routinely wrap the JSON they were asked for in prose ("Here's the
 # project:") and a code fence. Anthropic models have no native json_object
 # mode, so `response_format` is advisory at best over OpenRouter.
@@ -106,21 +113,56 @@ def _json_candidates(content: str) -> list[str]:
     return candidates
 
 
+def _describe_decode_failure(candidate: str, exc: json.JSONDecodeError) -> str:
+    """Quote the span around a decoder's reported offset."""
+    start = max(0, exc.pos - _DECODE_WINDOW_BEFORE)
+    window = candidate[start : exc.pos + _DECODE_WINDOW_AFTER]
+    return (
+        f"{exc.msg} at line {exc.lineno} column {exc.colno} (char {exc.pos}). "
+        f"Content around that offset: {window!r}"
+    )
+
+
 def _parse_json_content(
     content: str, result: dict[str, Any], *, model: str, pipeline: str
 ) -> dict[str, Any]:
-    """Read a JSON object out of an assistant response, or say what was there."""
+    """Read a JSON object out of an assistant response, or say why we couldn't."""
+    candidates: list[str] = []
     seen: set[str] = set()
     for candidate in _json_candidates(content):
-        if not candidate or candidate in seen:
-            continue
-        seen.add(candidate)
-        try:
-            parsed = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    # The furthest-reaching strict failure, kept for the error message. Position
+    # is the right ranking: the earliest candidates are deliberately loose
+    # readings that die at char 0 on the opening fence, and reporting that
+    # instead of the real defect is what makes these failures opaque.
+    deepest: tuple[str, json.JSONDecodeError] | None = None
+
+    # Strict first, so a well-formed response is parsed exactly as sent. The
+    # salvage pass only relaxes control characters inside strings — the shape
+    # a model produces when a prompt invites a multi-line answer (this one asks
+    # for "a short bulleted list when that's genuinely clearer") and it emits
+    # real newlines instead of \n escapes. Nothing else about JSON is loosened.
+    for strict in (True, False):
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate, strict=strict)
+            except json.JSONDecodeError as exc:
+                if strict and (deepest is None or exc.pos > deepest[1].pos):
+                    deepest = (candidate, exc)
+                continue
+            if isinstance(parsed, dict):
+                if not strict:
+                    logger.warning(
+                        "Recovered JSON for pipeline=%s model=%s only by allowing raw control "
+                        "characters in strings — the model emitted literal newlines instead of "
+                        "escapes.",
+                        pipeline,
+                        model,
+                    )
+                return parsed
 
     finish_reason = _finish_reason(result)
     head = content[:_CONTENT_HEAD_LIMIT]
@@ -134,6 +176,13 @@ def _parse_json_content(
             " The response was truncated at max_tokens, so the JSON was never closed — "
             f"raise max_tokens for the {pipeline} pipeline rather than looking at the parser."
         )
+    elif deepest is not None:
+        # A complete response the decoder still rejects. Without the offset this
+        # reads as "the parser is broken", and the actual defect is invisible
+        # because it sits in the elided middle of the content.
+        hint = f" The response was complete, so this is a malformed-JSON failure: {
+            _describe_decode_failure(*deepest)
+        }"
 
     message = (
         f"No JSON object found in the response for pipeline={pipeline} model={model} "
