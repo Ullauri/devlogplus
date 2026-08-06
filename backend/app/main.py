@@ -27,6 +27,7 @@ from backend.app.routers import (
     settings as settings_router,
 )
 from backend.app.services.llm.client import llm_client
+from backend.app.services.llm.tracing import verify_tracing
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,10 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
     await asyncio.to_thread(
         Path(settings.workspace_projects_dir).mkdir, parents=True, exist_ok=True
     )
+
+    # Say once, at startup, whether LLM calls are actually being traced.
+    # ``auth_check`` is a blocking HTTP call, hence the thread.
+    await asyncio.to_thread(verify_tracing)
 
     yield
 
