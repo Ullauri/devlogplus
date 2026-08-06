@@ -1,4 +1,4 @@
-.PHONY: lint lint-backend lint-frontend lint-fix lint-check typecheck-frontend format format-backend format-frontend test test-backend test-frontend test-integration test-mutation-frontend test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp
+.PHONY: lint lint-backend lint-frontend lint-fix lint-check typecheck-frontend format format-backend format-frontend test test-backend test-frontend test-integration test-mutation-frontend test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp langfuse-up langfuse-down langfuse-reset langfuse-check
 
 VENV_DIR := .venv-devlogplus
 PYTHON := python3
@@ -117,6 +117,22 @@ down: ## [Dev] Stop all Docker services
 
 migrate-docker: ## [Dev] Run migrations inside Docker container
 	docker compose exec app alembic upgrade head
+
+# ── Langfuse (local LLM tracing) ──────────────────────────────────────
+langfuse-up: ## [Dev] Start local Langfuse at http://localhost:3000
+	docker compose -f docker-compose.langfuse.yml up -d
+	@echo "Langfuse starting — first boot takes ~1-2 min to migrate its schema."
+	@echo "UI:    http://localhost:3000  (dev@devlogplus.local / devlogplus-local)"
+	@echo "Keys:  pk-lf-devlogplus-local / sk-lf-devlogplus-local"
+
+langfuse-down: ## [Dev] Stop local Langfuse (keeps trace history)
+	docker compose -f docker-compose.langfuse.yml down
+
+langfuse-reset: ## [Dev] Stop local Langfuse and DELETE all traces + re-seed keys
+	docker compose -f docker-compose.langfuse.yml down -v
+
+langfuse-check: ## [Dev] Verify the app can authenticate against Langfuse
+	poetry run python -c "from backend.app.services.llm.tracing import _get_langfuse; c=_get_langfuse(); print('auth_check:', c.auth_check() if c else 'tracing disabled — no keys configured')"
 
 # ── MCP server ───────────────────────────────────────────────────────
 mcp: ## Start the MCP server (stdio transport, for Claude Code)

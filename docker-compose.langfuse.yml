@@ -1,0 +1,81 @@
+# Local Langfuse for LLM tracing.
+#
+# Separate from docker-compose.yml so it can be started and stopped
+# independently of the app — tracing is optional, and the app runs fine
+# without it.
+#
+#   docker compose -f docker-compose.langfuse.yml up -d
+#
+# Pinned to v2 to match the `langfuse` 2.x SDK in pyproject.toml. v3 splits
+# storage across Clickhouse, Redis and MinIO; v2 needs only Postgres, which is
+# the whole stack for a local trace viewer.
+#
+# The credentials below are local-only by design: this instance binds to
+# localhost, holds nothing but your own dev traces, and its API keys are
+# meaningless against any other host. They are committed deliberately so
+# `up -d` yields a working instance with no manual setup step.
+
+services:
+  langfuse-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # No host port: only langfuse-server needs to reach it, and 5432 is
+    # already taken by the app's own Postgres.
+
+  langfuse-server:
+    image: langfuse/langfuse:2
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: local-dev-nextauth-secret-not-a-real-secret
+      SALT: local-dev-salt-not-a-real-secret
+      # Quoted: an all-digit value would be parsed by YAML as an integer,
+      # reaching the server as "0" and failing its 64-hex-char validation.
+      ENCRYPTION_KEY: "87a932a48ff937484917e1e9a2ce1d609a1c1802c1f35c46a6c2f746c9a56024"
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+
+      # Headless initialization — seeds the org, project, an owner login and a
+      # fixed API key pair on first boot against an empty database. This is
+      # what makes the keys predictable instead of something you have to click
+      # through the UI to obtain. Ignored once the database has been seeded;
+      # to re-seed, remove the volume.
+      LANGFUSE_INIT_ORG_ID: devlogplus
+      LANGFUSE_INIT_ORG_NAME: DevLog+
+      LANGFUSE_INIT_PROJECT_ID: devlogplus
+      LANGFUSE_INIT_PROJECT_NAME: DevLog+
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-devlogplus-local
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-devlogplus-local
+      LANGFUSE_INIT_USER_EMAIL: dev@devlogplus.local
+      LANGFUSE_INIT_USER_NAME: DevLog+ Dev
+      LANGFUSE_INIT_USER_PASSWORD: devlogplus-local
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/public/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
+volumes:
+  langfuse_pgdata:
