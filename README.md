@@ -74,10 +74,10 @@ sudo -u postgres psql -c "ALTER USER devlogplus WITH PASSWORD 'devlogplus';"
 
 ```bash
 make venv
-source .venv-devlogplus/bin/activate
+source .venv/bin/activate
 ```
 
-This creates `.venv-devlogplus/` and installs both backend (Python) and frontend (npm) dependencies.
+This creates `.venv/` and installs both backend (Python) and frontend (npm) dependencies.
 
 ### 3. Configure environment variables
 

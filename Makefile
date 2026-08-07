@@ -1,6 +1,6 @@
 .PHONY: lint lint-backend lint-frontend lint-fix lint-check typecheck-frontend format format-backend format-frontend test test-backend test-frontend test-integration test-mutation-frontend test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp langfuse-up langfuse-down langfuse-reset langfuse-check
 
-VENV_DIR := .venv-devlogplus
+VENV_DIR := .venv
 PYTHON := python3
 
 # ── Environment ──────────────────────────────────────────────────────

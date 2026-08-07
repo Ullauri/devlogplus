@@ -1,0 +1,28 @@
+# Keep the virtualenv inside the project, at ./.venv
+#
+# Poetry recognises an in-project venv only at the hardcoded path ./.venv -- the
+# name is not configurable. It will adopt an existing ./.venv even with this
+# setting unset, so what keeps `make venv` honest day to day is VENV_DIR
+# matching that path, not this file.
+#
+# This file covers the two cases where that is not enough:
+#
+#   1. A fresh clone that runs `poetry install` before `make venv` creates
+#      anything. With the setting unset, Poetry builds a venv under its own
+#      cache dir instead ({cache-dir}/virtualenvs -- ~/Library/Caches/pypoetry
+#      on macOS, ~/.cache/pypoetry on Linux and CI), and we are back to two.
+#   2. A machine whose user config sets virtualenvs.in-project = false, which
+#      makes Poetry ignore ./.venv outright.
+#
+# Committed deliberately: this file IS the local config (`poetry config --local`
+# writes it), and it overrides user config. The unflagged `poetry config` writes
+# ~/.config/pypoetry instead, which a fresh clone would not inherit.
+#
+# What all this prevents: `make venv` used to build .venv-devlogplus containing
+# only pip and poetry, while `poetry install` populated the cache venv with the
+# project's actual dependencies. Every make target that runs Python goes through
+# `poetry run` -- every one except the venv target below -- so the split stayed
+# invisible until someone followed the README and activated the in-project venv,
+# at which point `poetry run` fell through PATH to pyenv global.
+[virtualenvs]
+in-project = true

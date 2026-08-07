@@ -17,8 +17,16 @@ Postgres instance that may be local or running via `docker-compose`. The Docker
 image is for production-style runs (`make run`) and CI. Frontend dev always runs
 natively via Vite (`npm run dev` or `npm run dev:mock`).
 
-The virtualenv is managed under `.venv-devlogplus/` and pinned via
-`pyproject.toml`. `make venv` creates and fully populates it.
+The virtualenv is managed under `.venv/` and pinned via `pyproject.toml`.
+`make venv` creates and fully populates it.
+
+> **Amended 2026-08-07.** As originally written this said `.venv-devlogplus/`,
+> and "fully populates it" was not true: `poetry install` ignored that venv and
+> populated Poetry's cache venv instead, so activating the in-project one broke
+> `poetry run`. The venv is now `./.venv` — the only path Poetry treats as
+> in-project — with a committed `poetry.toml` covering the cases the rename
+> alone does not. The decision this ADR records — native backend, no Docker for
+> local dev — is unchanged.
 
 ## Consequences
 
