@@ -37,7 +37,6 @@ from backend.app.services.llm.models import QuizEvaluationResult, QuizGeneration
 
 logger = logging.getLogger(__name__)
 
-
 # Both quiz calls return one JSON object whose size scales with the number of
 # questions in play, so the client's 4096 default is a fixed budget for a
 # variable-length response. Observed failures: a 10-question generation run
@@ -45,11 +44,16 @@ logger = logging.getLogger(__name__)
 # still open, and an evaluation run stopped mid-`triage_items` at ~11.7k. A
 # truncated object loses the *whole* response rather than degrading — there is
 # no closing brace for the parser to work with — so budget per item instead.
+#
+# The budget scales rather than sitting at a flat constant because
+# `quiz_question_count` is configurable up to 50: a constant sized for the
+# default of 10 reintroduces this the moment someone raises it.
 _QUIZ_MAX_TOKENS_CEILING = 32000
 
 # Each generated question carries question_text, difficulty_rationale and a
 # reference_answer; the reference answers dominate and run well past 1k tokens
-# apiece.
+# apiece. Measured at roughly 1200 tokens per question, so 1600 leaves room for
+# a verbose answer without inviting one.
 _QUIZ_GENERATION_BASE_TOKENS = 2048
 _QUIZ_GENERATION_TOKENS_PER_QUESTION = 1600
 
