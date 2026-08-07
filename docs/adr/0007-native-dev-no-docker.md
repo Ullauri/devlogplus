@@ -23,9 +23,10 @@ The virtualenv is managed under `.venv/` and pinned via `pyproject.toml`.
 > **Amended 2026-08-07.** As originally written this said `.venv-devlogplus/`,
 > and "fully populates it" was not true: `poetry install` ignored that venv and
 > populated Poetry's cache venv instead, so activating the in-project one broke
-> `poetry run`. The venv is now `./.venv`, held there by a committed
-> `poetry.toml` (`virtualenvs.in-project`). The decision this ADR records —
-> native backend, no Docker for local dev — is unchanged.
+> `poetry run`. The venv is now `./.venv` — the only path Poetry treats as
+> in-project — with a committed `poetry.toml` covering the cases the rename
+> alone does not. The decision this ADR records — native backend, no Docker for
+> local dev — is unchanged.
 
 ## Consequences
 
