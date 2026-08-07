@@ -37,29 +37,39 @@ from backend.app.services.llm.models import QuizEvaluationResult, QuizGeneration
 
 logger = logging.getLogger(__name__)
 
-# Each generated question carries five fields, two of them substantial:
-# a 2–6 sentence `reference_answer` and a `difficulty_rationale`. An observed
-# run spent all 4096 default tokens getting roughly three questions in
-# (13.5k chars, finish_reason=length), losing the whole batch — an unclosed
-# JSON object salvages nothing. Measured cost is ~1200 tokens per question;
-# 1600 leaves room for a verbose answer without inviting one.
+# Both quiz calls return one JSON object whose size scales with the number of
+# questions in play, so the client's 4096 default is a fixed budget for a
+# variable-length response. Observed failures: a 10-question generation run
+# stopped at finish_reason=length with ~13k characters emitted and the array
+# still open, and an evaluation run stopped mid-`triage_items` at ~11.7k. A
+# truncated object loses the *whole* response rather than degrading — there is
+# no closing brace for the parser to work with — so budget per item instead.
 #
-# The budget scales because `quiz_question_count` is configurable up to 50 —
-# a flat constant sized for the default of 10 would reintroduce this bug the
-# moment someone raised it. The cap keeps a large batch inside the model's
-# output limit; the floor covers single-question runs, where the JSON
-# envelope dominates.
-_QUIZ_TOKENS_PER_QUESTION = 1600
-_QUIZ_GENERATION_MIN_TOKENS = 4096
-_QUIZ_GENERATION_MAX_TOKENS = 32000
+# The budget scales rather than sitting at a flat constant because
+# `quiz_question_count` is configurable up to 50: a constant sized for the
+# default of 10 reintroduces this the moment someone raises it.
+_QUIZ_MAX_TOKENS_CEILING = 32000
+
+# Each generated question carries question_text, difficulty_rationale and a
+# reference_answer; the reference answers dominate and run well past 1k tokens
+# apiece. Measured at roughly 1200 tokens per question, so 1600 leaves room for
+# a verbose answer without inviting one.
+_QUIZ_GENERATION_BASE_TOKENS = 2048
+_QUIZ_GENERATION_TOKENS_PER_QUESTION = 1600
+
+# Each evaluation carries depth_assessment, explanation and topic_signals, with
+# a shared triage_items array appended at the end.
+_QUIZ_EVALUATION_BASE_TOKENS = 2048
+_QUIZ_EVALUATION_TOKENS_PER_ANSWER = 1200
 
 
-def _quiz_generation_max_tokens(question_count: int) -> int:
-    """Token budget for generating ``question_count`` questions in one call."""
-    return min(
-        _QUIZ_GENERATION_MAX_TOKENS,
-        max(_QUIZ_GENERATION_MIN_TOKENS, question_count * _QUIZ_TOKENS_PER_QUESTION),
-    )
+def _budgeted_max_tokens(base: int, per_item: int, item_count: int) -> int:
+    """Scale a token budget with the item count, clamped to a sane ceiling.
+
+    The ceiling keeps a large ``quiz_question_count`` from requesting more than
+    the model will actually honour.
+    """
+    return min(base + per_item * max(item_count, 1), _QUIZ_MAX_TOKENS_CEILING)
 
 
 async def _load_question_lookup(
@@ -244,7 +254,11 @@ async def generate_quiz(
                 {"role": "system", "content": quiz_generation.SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=_quiz_generation_max_tokens(question_count),
+            max_tokens=_budgeted_max_tokens(
+                _QUIZ_GENERATION_BASE_TOKENS,
+                _QUIZ_GENERATION_TOKENS_PER_QUESTION,
+                question_count,
+            ),
         )
 
         gen_result = QuizGenerationResult.model_validate(raw_result)
@@ -429,6 +443,11 @@ async def evaluate_quiz(
                 {"role": "system", "content": quiz_evaluation.SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
+            max_tokens=_budgeted_max_tokens(
+                _QUIZ_EVALUATION_BASE_TOKENS,
+                _QUIZ_EVALUATION_TOKENS_PER_ANSWER,
+                len(qa_pairs),
+            ),
         )
 
         eval_result = QuizEvaluationResult.model_validate(raw_result)

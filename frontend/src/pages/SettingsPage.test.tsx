@@ -399,6 +399,62 @@ describe("SettingsPage — Manual pipeline runs", () => {
     });
   });
 
+  it("disables a pipeline's Run now button while that pipeline is running", async () => {
+    mockListRuns.mockResolvedValue([
+      {
+        id: "r1",
+        pipeline: "quiz_generation",
+        status: "started",
+        started_at: "2026-01-02T00:00:00Z",
+        completed_at: null,
+        error: null,
+        metadata: null,
+      },
+    ]);
+    renderWithRouter(<SettingsPage />);
+
+    const quizCard = screen
+      .getByText("Generate quiz")
+      .closest("div.rounded-md") as HTMLElement;
+    await waitFor(() => {
+      expect(within(quizCard).getByRole("button")).toBeDisabled();
+    });
+    expect(within(quizCard).getByText(/Running…/)).toBeInTheDocument();
+
+    // Only the running pipeline is held down — the others stay available.
+    const readingsCard = screen
+      .getByText("Generate readings")
+      .closest("div.rounded-md") as HTMLElement;
+    expect(
+      within(readingsCard).getByRole("button", { name: /Run now/i }),
+    ).toBeEnabled();
+  });
+
+  it("keeps Run now enabled once the pipeline's run has finished", async () => {
+    mockListRuns.mockResolvedValue([
+      {
+        id: "r1",
+        pipeline: "quiz_generation",
+        status: "completed",
+        started_at: "2026-01-02T00:00:00Z",
+        completed_at: "2026-01-02T00:00:30Z",
+        error: null,
+        metadata: null,
+      },
+    ]);
+    renderWithRouter(<SettingsPage />);
+
+    const quizCard = screen
+      .getByText("Generate quiz")
+      .closest("div.rounded-md") as HTMLElement;
+    await waitFor(() => {
+      expect(screen.getByText("quiz_generation")).toBeInTheDocument();
+    });
+    expect(
+      within(quizCard).getByRole("button", { name: /Run now/i }),
+    ).toBeEnabled();
+  });
+
   it("renders empty runs message when no runs have occurred", async () => {
     renderWithRouter(<SettingsPage />);
     await waitFor(() => {
