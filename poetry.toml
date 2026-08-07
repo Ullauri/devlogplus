@@ -1,0 +1,12 @@
+# Keep the virtualenv inside the project, at ./.venv
+#
+# Without this, `poetry install` ignores whatever venv the Makefile just created
+# and populates Poetry's own cache venv under ~/Library/Caches/pypoetry instead.
+# Every `make` target still works, because they all shell out through
+# `poetry run` -- so the split stays invisible until someone follows the README
+# and activates the in-project venv, which contains none of the dependencies.
+#
+# This file is committed deliberately: `poetry config virtualenvs.in-project`
+# is machine-local and a fresh clone would not inherit it.
+[virtualenvs]
+in-project = true
