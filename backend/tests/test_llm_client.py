@@ -8,6 +8,8 @@ discards it, which makes every 4xx look identical in a traceback and sends you
 looking at the wrong layer.
 """
 
+import re
+
 import httpx
 import pytest
 
@@ -258,6 +260,19 @@ def test_raw_newlines_in_strings_are_salvaged() -> None:
     assert parsed["questions"][0]["reference_answer"].startswith("Two points:")
 
 
+def _reported_offset(message: str) -> int:
+    """Pull the char offset out of a decode-failure message.
+
+    Asserting on a literal offset would pin the test to a CPython version:
+    the same trailing comma is reported at char 23 on 3.13 and char 24 on
+    3.12, which is the Python CI runs. What the message has to carry is *an*
+    offset pointing into the content, not one exact number.
+    """
+    match = re.search(r"char (\d+)", message)
+    assert match is not None, f"no char offset in message: {message}"
+    return int(match.group(1))
+
+
 def test_malformed_json_reports_the_offset_not_just_the_content() -> None:
     """Without the decoder's position the failure is indistinguishable from a
     parser bug, which is exactly what made this take two rounds to find."""
@@ -270,8 +285,9 @@ def test_malformed_json_reports_the_offset_not_just_the_content() -> None:
 
     message = str(excinfo.value)
     assert "malformed-JSON failure" in message
-    assert "char 23" in message
     assert "Content around that offset" in message
+    # The break is the trailing comma near the end, not the opening brace.
+    assert _reported_offset(message) > len(content) // 2
 
 
 def test_offset_comes_from_the_furthest_candidate_not_the_first() -> None:
@@ -283,8 +299,8 @@ def test_offset_comes_from_the_furthest_candidate_not_the_first() -> None:
         _parse_json_content(content, _completion(), model="m", pipeline="quiz_generation")
 
     message = str(excinfo.value)
-    assert "char 0" not in message
     assert "malformed-JSON failure" in message
+    assert _reported_offset(message) > 0
 
 
 def test_truncated_response_still_blames_max_tokens_not_the_json() -> None:
