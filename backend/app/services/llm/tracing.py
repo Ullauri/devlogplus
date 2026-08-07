@@ -21,13 +21,43 @@ logger = logging.getLogger(__name__)
 # Lazy-initialized Langfuse client
 _langfuse = None
 
+# ``.env`` is seeded from ``.env.example``, whose Langfuse values are
+# ``your-langfuse-public-key-here``. An emptiness check passes those, so the
+# app builds a client from them and every trace 401s in a background thread —
+# invisibly, because the one warning that would say otherwise never fires.
+# Matching the placeholder shape is what makes "never configured" detectable.
+_PLACEHOLDER_PREFIX = "your-"
+_PLACEHOLDER_SUFFIX = "-here"
+
+
+def _is_placeholder(value: str) -> bool:
+    """True for an ``.env.example`` stand-in that was never filled in.
+
+    Deliberately narrow. Self-hosted Langfuse lets headless init mint keys in
+    any shape, so this must not reject an unusual-but-real key — the startup
+    check below is what catches those.
+    """
+    candidate = value.strip().lower()
+    return candidate.startswith(_PLACEHOLDER_PREFIX) and candidate.endswith(_PLACEHOLDER_SUFFIX)
+
+
+def tracing_configured() -> bool:
+    """Whether usable-looking Langfuse credentials are present."""
+    public, secret = settings.langfuse_public_key, settings.langfuse_secret_key
+    if not public or not secret:
+        return False
+    return not (_is_placeholder(public) or _is_placeholder(secret))
+
 
 def _get_langfuse():
     """Get or initialize the Langfuse client."""
     global _langfuse
     if _langfuse is None:
-        if not settings.langfuse_public_key or not settings.langfuse_secret_key:
-            logger.warning("Langfuse keys not configured — tracing disabled")
+        if not tracing_configured():
+            logger.warning(
+                "Langfuse keys not configured — tracing disabled. Run 'make langfuse-up' for a "
+                "local instance, or set LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY."
+            )
             return None
         try:
             from langfuse import Langfuse
@@ -41,6 +71,46 @@ def _get_langfuse():
             logger.exception("Failed to initialize Langfuse client")
             return None
     return _langfuse
+
+
+def verify_tracing() -> str:
+    """Check credentials once, and say plainly which of the three states we're in.
+
+    Traces are written from a background thread that swallows its own HTTP
+    failures, so a bad key or a region mismatch is silent for the life of the
+    process — the symptom is an empty dashboard noticed days later. Calling
+    ``auth_check`` once at startup converts that into a single log line.
+
+    Never raises: tracing is optional, and losing observability must not stop
+    the app from serving.
+    """
+    if not tracing_configured():
+        logger.warning(
+            "Langfuse tracing disabled — no credentials configured. LLM calls will run "
+            "untraced, so failed responses leave no recoverable request body."
+        )
+        return "disabled"
+
+    client = _get_langfuse()
+    if client is None:
+        return "disabled"
+
+    try:
+        client.auth_check()
+    except Exception as exc:
+        # Overwhelmingly a wrong host for the key's region: Langfuse Cloud
+        # issues per-region keys, and one region's key is a 401 at the other's
+        # hostname — which reads identically to a revoked key.
+        logger.warning(
+            "Langfuse credentials rejected by %s — tracing is effectively off (%s). Check the "
+            "key pair, and that the host matches the region the project lives in.",
+            settings.langfuse_host,
+            exc,
+        )
+        return "unauthorized"
+
+    logger.info("Langfuse tracing active (host=%s)", settings.langfuse_host)
+    return "ok"
 
 
 @dataclass
