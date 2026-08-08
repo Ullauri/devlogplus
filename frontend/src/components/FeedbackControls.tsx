@@ -72,8 +72,8 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
         onClick={() => toggleReaction("thumbs_up")}
         className={`rounded p-1 transition-colors ${
           reaction === "thumbs_up"
-            ? "bg-green-50 text-green-600"
-            : "text-gray-400 hover:text-green-600"
+            ? "bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400"
+            : "text-gray-400 hover:text-green-600 dark:text-gray-500 dark:hover:text-green-400"
         }`}
         title="Mark this as helpful — tells DevLog+ this content was useful so future suggestions lean this way. Click again to clear."
         aria-label="Mark this as helpful"
@@ -84,8 +84,8 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
         onClick={() => toggleReaction("thumbs_down")}
         className={`rounded p-1 transition-colors ${
           reaction === "thumbs_down"
-            ? "bg-red-50 text-red-600"
-            : "text-gray-400 hover:text-red-600"
+            ? "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400"
+            : "text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400"
         }`}
         title="Mark this as not helpful — tells DevLog+ to avoid similar suggestions in the future. Click again to clear."
         aria-label="Mark this as not helpful"
@@ -94,7 +94,7 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
       </button>
       <button
         onClick={() => setShowNote(!showNote)}
-        className="text-xs text-gray-400 hover:text-gray-600"
+        className="text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
         title={
           note
             ? "Edit your feedforward note — change the written context that shapes future AI suggestions for this item."
@@ -115,7 +115,7 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Feedforward note…"
-            className="rounded border border-gray-300 px-2 py-1 text-xs"
+            className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
           />
           <button
             type="submit"
@@ -126,7 +126,11 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
           </button>
         </form>
       )}
-      {saved && <span className="text-xs text-green-600">Saved</span>}
+      {saved && (
+        <span className="text-xs text-green-600 dark:text-green-400">
+          Saved
+        </span>
+      )}
       {!hydrated && (
         <span className="sr-only" aria-live="polite">
           Loading feedback…

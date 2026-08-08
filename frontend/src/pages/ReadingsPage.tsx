@@ -78,13 +78,13 @@ export default function ReadingsPage() {
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-bold">Readings</h1>
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-gray-400 dark:text-gray-500">
             Curated articles matched to your profile
           </span>
         </div>
         <button
           onClick={() => setShowAllowlist(!showAllowlist)}
-          className="text-sm text-brand-600 hover:underline"
+          className="text-sm text-brand-600 hover:underline dark:text-brand-400"
         >
           {showAllowlist ? "Hide" : "Manage"} Allowlist
         </button>
@@ -101,19 +101,21 @@ export default function ReadingsPage() {
       />
 
       {showAllowlist && (
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 font-semibold">Allowed Domains</h2>
           <div className="mb-3 space-y-1">
             {allowlist.map((entry) => (
               <div
                 key={entry.id}
-                className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-sm"
+                className="flex items-center justify-between rounded bg-gray-50 px-3 py-1.5 text-sm dark:bg-gray-800/50"
               >
                 <span>
                   <span className="font-medium">{entry.domain}</span>
-                  <span className="ml-2 text-gray-500">{entry.name}</span>
+                  <span className="ml-2 text-gray-500 dark:text-gray-400">
+                    {entry.name}
+                  </span>
                   {entry.is_default && (
-                    <span className="ml-1 text-xs text-gray-400">
+                    <span className="ml-1 text-xs text-gray-400 dark:text-gray-500">
                       (default)
                     </span>
                   )}
@@ -121,7 +123,7 @@ export default function ReadingsPage() {
                 {!entry.is_default && (
                   <button
                     onClick={() => removeDomain(entry.id)}
-                    className="text-red-400 hover:text-red-600"
+                    className="text-red-400 hover:text-red-600 dark:text-red-500 dark:hover:text-red-400"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -134,13 +136,13 @@ export default function ReadingsPage() {
               value={newDomain}
               onChange={(e) => setNewDomain(e.target.value)}
               placeholder="domain.com"
-              className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+              className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
             />
             <input
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Name"
-              className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+              className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
             />
             <button
               type="submit"
@@ -155,7 +157,7 @@ export default function ReadingsPage() {
       {readings.length === 0 ? (
         status.running.length === 0 ? (
           <div>
-            <p className="mb-3 text-gray-500">
+            <p className="mb-3 text-gray-500 dark:text-gray-400">
               No reading recommendations yet.
             </p>
             <RunPipelineButton
@@ -171,9 +173,13 @@ export default function ReadingsPage() {
       ) : (
         <div className="space-y-3">
           {allRead && (
-            <div className="mb-2 flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3">
-              <CheckCircle2 size={16} className="text-green-600" aria-hidden />
-              <span className="flex-1 text-sm text-green-800">
+            <div className="mb-2 flex items-center gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 dark:border-green-800 dark:bg-green-900/20">
+              <CheckCircle2
+                size={16}
+                className="text-green-600 dark:text-green-400"
+                aria-hidden
+              />
+              <span className="flex-1 text-sm text-green-800 dark:text-green-200">
                 All caught up! Generate a new batch of recommendations.
               </span>
               <RunPipelineButton
@@ -191,10 +197,10 @@ export default function ReadingsPage() {
           {readings.map((r) => (
             <div
               key={r.id}
-              className={`rounded-lg border bg-white p-4 shadow-sm ${
+              className={`rounded-lg border bg-white p-4 shadow-sm dark:bg-gray-900 ${
                 r.status === "read" || r.status === "dismissed"
-                  ? "border-gray-100 opacity-60"
-                  : "border-gray-200"
+                  ? "border-gray-100 opacity-60 dark:border-gray-800"
+                  : "border-gray-200 dark:border-gray-800"
               }`}
             >
               <div className="mb-1 flex items-start justify-between">
@@ -203,11 +209,11 @@ export default function ReadingsPage() {
                     href={r.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-medium text-brand-600 hover:underline"
+                    className="font-medium text-brand-600 hover:underline dark:text-brand-400"
                   >
                     {r.title} <ExternalLink size={14} className="inline" />
                   </a>
-                  <span className="ml-2 text-xs text-gray-400">
+                  <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
                     {r.source_domain}
                   </span>
                 </div>
@@ -219,8 +225,8 @@ export default function ReadingsPage() {
                     }
                     className={`rounded p-1 transition-colors ${
                       r.status === "read"
-                        ? "text-green-500 hover:text-gray-400"
-                        : "text-gray-300 hover:text-green-500"
+                        ? "text-green-500 hover:text-gray-400 dark:text-green-400"
+                        : "text-gray-300 hover:text-green-500 dark:text-gray-600"
                     }`}
                   >
                     <CheckCircle2 size={16} />
@@ -229,9 +235,11 @@ export default function ReadingsPage() {
                 </div>
               </div>
               {r.description && (
-                <p className="text-sm text-gray-600">{r.description}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {r.description}
+                </p>
               )}
-              <span className="mt-1 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+              <span className="mt-1 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
                 {r.recommendation_type}
               </span>
             </div>

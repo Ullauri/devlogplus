@@ -20,8 +20,10 @@ frontend/
     api/client.integration.test.ts — Contract tests against Prism mock server
     hooks/
       usePipelineStatus.ts — polls /api/v1/pipeline/status; used by PipelineStatusBanner
+      useTheme.ts         — light/dark theme state (localStorage + `dark` class on <html>)
     components/
-      Layout.tsx          — Shell: sidebar nav + <Outlet/>
+      Layout.tsx          — Shell: sidebar nav + top bar + <Outlet/>
+      ThemeToggle.tsx     — light/dark switch, top-right of the shell
       FeedbackControls.tsx — Thumbs up/down + feedforward note
       PipelineStatusBanner.tsx — sticky banner showing running/failed pipeline state
       RunPipelineButton.tsx    — triggers a pipeline run via POST /api/v1/pipeline/run
@@ -45,6 +47,12 @@ frontend/
 - **API client** (`api/client.ts`): typed wrapper using `fetch()`, all endpoints return typed interfaces. Base URL configurable via `VITE_API_BASE_URL` env var (defaults to `/api/v1` for Vite proxy mode).
 - **Generated types are the contract**: `api/schema.gen.ts` is produced from `docs/openapi.json` by `npm run openapi:types` (also run by `make openapi`). Every request/response type in `client.ts` MUST come from `components["schemas"]` in that file. Hand-rolled inline types are how client↔spec drift happens. An architecture test enforces this.
 - **Tailwind**: custom `brand-*` color palette. No CSS-in-JS.
+- **Theming**: `darkMode: "class"` — every color utility needs a `dark:` sibling
+  (`bg-white dark:bg-gray-900`, `text-gray-500 dark:text-gray-400`, …). Bare
+  `border`/`divide-y` inherit Tailwind's light-gray default, so they need an
+  explicit pair too. The class is set pre-paint by an inline script in
+  `index.html` (mirrors `THEME_STORAGE_KEY`) and thereafter by `useTheme`.
+  Saturated buttons (`bg-blue-600` + `text-white`) work as-is in both themes.
 - **No state library**: simple `useState`/`useEffect` — app is single-user, low complexity.
 - **Feedback on everything**: `FeedbackControls` component is attached to quiz questions, readings, projects.
 - **Speech input**: Browser-native Web Speech API, text only — no audio files ever.

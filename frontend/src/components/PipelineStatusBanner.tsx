@@ -82,8 +82,8 @@ export default function PipelineStatusBanner({
       aria-live="polite"
       className={`mb-4 flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm ${
         isRunning
-          ? "border-brand-200 bg-brand-50 text-brand-800"
-          : "border-gray-200 bg-gray-50 text-gray-600"
+          ? "border-brand-200 bg-brand-50 text-brand-800 dark:border-brand-800 dark:bg-brand-900/30 dark:text-brand-200"
+          : "border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-400"
       }`}
     >
       <div className="flex items-center gap-2">
@@ -120,7 +120,7 @@ function RefreshButton({
       onClick={onRefresh}
       disabled={refreshing}
       aria-label="Refresh"
-      className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+      className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
     >
       <RefreshCw
         size={12}

@@ -5,9 +5,11 @@ import RunPipelineButton from "../components/RunPipelineButton";
 import { usePipelineStatus } from "../hooks/usePipelineStatus";
 
 const STRENGTH_COLOR: Record<string, string> = {
-  strong: "bg-green-100 text-green-800",
-  developing: "bg-yellow-100 text-yellow-800",
-  limited: "bg-gray-100 text-gray-600",
+  strong:
+    "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200",
+  developing:
+    "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200",
+  limited: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400",
 };
 
 // Profile snapshots are refreshed by the profile_update pipeline (run
@@ -60,14 +62,14 @@ export default function ProfilePage() {
       <div>
         <div className="mb-6 flex items-baseline gap-3">
           <h1 className="text-2xl font-bold">Knowledge Profile</h1>
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-gray-400 dark:text-gray-500">
             Your strengths, frontiers, and gaps
           </span>
         </div>
         {banner}
         {status.running.length === 0 && (
           <div>
-            <p className="mb-3 text-gray-500">
+            <p className="mb-3 text-gray-500 dark:text-gray-400">
               No profile data yet. Write some journal entries, then run the
               profile update.
             </p>
@@ -107,11 +109,11 @@ export default function ProfilePage() {
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-bold">Knowledge Profile</h1>
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-gray-400 dark:text-gray-500">
             Your strengths, frontiers, and gaps
           </span>
         </div>
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-gray-500 dark:text-gray-400">
           {profile.total_topics} topics
         </span>
       </div>
@@ -119,7 +121,9 @@ export default function ProfilePage() {
       {banner}
 
       {categories.length === 0 ? (
-        <p className="text-gray-500">No topics derived yet.</p>
+        <p className="text-gray-500 dark:text-gray-400">
+          No topics derived yet.
+        </p>
       ) : (
         <div className="space-y-6">
           {categories.map(([category, topics]) => (
@@ -131,38 +135,40 @@ export default function ProfilePage() {
                 {topics.map((t) => (
                   <div
                     key={t.id}
-                    className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm"
+                    className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900"
                   >
                     <div className="mb-1 flex items-center justify-between">
                       <span className="text-sm font-medium">{t.name}</span>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${STRENGTH_COLOR[t.evidence_strength] ?? "bg-gray-100"}`}
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${STRENGTH_COLOR[t.evidence_strength] ?? "bg-gray-100 dark:bg-gray-800"}`}
                       >
                         {t.evidence_strength}
                       </span>
                     </div>
                     {t.description && (
-                      <p className="text-xs text-gray-500">{t.description}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {t.description}
+                      </p>
                     )}
-                    <div className="mt-2 h-1.5 rounded-full bg-gray-200">
+                    <div className="mt-2 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700">
                       <div
                         className="h-1.5 rounded-full bg-brand-500"
                         style={{ width: `${Math.round(t.confidence * 100)}%` }}
                       />
                     </div>
-                    <div className="mt-2 flex items-center gap-1 text-xs text-gray-400">
+                    <div className="mt-2 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
                       <span>{Math.round(t.confidence * 100)}% confidence</span>
                       <span className="group relative inline-flex">
                         <span
                           aria-label="What does confidence mean?"
                           tabIndex={0}
-                          className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-gray-300 text-[10px] font-semibold text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                          className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-gray-300 text-[10px] font-semibold text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:text-gray-400"
                         >
                           ?
                         </span>
                         <span
                           role="tooltip"
-                          className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 w-64 -translate-x-1/2 rounded-md bg-gray-900 px-2 py-1.5 text-[11px] font-normal leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100"
+                          className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 w-64 -translate-x-1/2 rounded-md bg-gray-900 px-2 py-1.5 text-[11px] font-normal leading-snug text-white opacity-0 shadow-lg transition-opacity duration-150 group-focus-within:opacity-100 group-hover:opacity-100 dark:bg-gray-700"
                         >
                           How confident the system is in your mastery of this
                           topic, based on cumulative evidence from your journal

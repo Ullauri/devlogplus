@@ -62,7 +62,7 @@ export default function JournalPage() {
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-bold">Journal</h1>
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-gray-400 dark:text-gray-500">
             Log what you learned today
           </span>
         </div>
@@ -95,13 +95,13 @@ export default function JournalPage() {
       {showForm && (
         <form
           onSubmit={handleSubmit}
-          className="mb-8 rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+          className="mb-8 rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900"
         >
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Title (optional)"
-            className="mb-3 w-full rounded border border-gray-300 px-3 py-2 text-sm"
+            className="mb-3 w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
           />
           <div className="mb-3 flex items-start gap-2">
             <textarea
@@ -109,7 +109,7 @@ export default function JournalPage() {
               onChange={(e) => setContent(e.target.value)}
               placeholder="What did you learn today? Something that confused you, or a topic you want to explore?"
               rows={6}
-              className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+              className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
               required
             />
             <SpeechInput
@@ -129,7 +129,7 @@ export default function JournalPage() {
                 setShowForm(false);
                 setEditingId(null);
               }}
-              className="rounded border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+              className="rounded border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
             >
               Cancel
             </button>
@@ -138,20 +138,22 @@ export default function JournalPage() {
       )}
 
       {entries.length === 0 ? (
-        <p className="text-gray-500">No journal entries yet. Start writing!</p>
+        <p className="text-gray-500 dark:text-gray-400">
+          No journal entries yet. Start writing!
+        </p>
       ) : (
         <div className="space-y-3">
           {entries.map((entry) => (
             <div
               key={entry.id}
-              className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+              className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900"
             >
               <div className="mb-2 flex items-start justify-between">
                 <div>
                   {entry.title && (
                     <h3 className="font-semibold">{entry.title}</h3>
                   )}
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
                     {new Date(entry.created_at).toLocaleDateString()}
                     {entry.is_processed && " · ✅ Processed"}
                   </span>
@@ -159,19 +161,19 @@ export default function JournalPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => startEdit(entry)}
-                    className="text-xs text-brand-600 hover:underline"
+                    className="text-xs text-brand-600 hover:underline dark:text-brand-400"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => handleDelete(entry.id)}
-                    className="text-xs text-red-500 hover:underline"
+                    className="text-xs text-red-500 hover:underline dark:text-red-400"
                   >
                     Delete
                   </button>
                 </div>
               </div>
-              <p className="whitespace-pre-wrap text-sm text-gray-700">
+              <p className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
                 {entry.current_content}
               </p>
             </div>

@@ -546,31 +546,36 @@ export default function SettingsPage() {
     <div>
       <div className="mb-6 flex items-baseline gap-3">
         <h1 className="text-2xl font-bold">Settings</h1>
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-400 dark:text-gray-500">
           Configure your learning companion
         </span>
       </div>
 
       <div className="space-y-6">
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-lg font-semibold">About</h2>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             <strong>DevLog+</strong> — A single-user, locally-run developer
             journal for technical learning and skill maintenance. Powered by
             LLMs via OpenRouter with Langfuse observability.
           </p>
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-lg font-semibold">General</h2>
-          <p className="mb-4 text-sm text-gray-500">
+          <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
             These settings are stored in the database. Other configuration (API
             keys, model selection, etc.) is managed via environment variables in{" "}
-            <code className="rounded bg-gray-100 px-1 text-xs">.env</code>.
+            <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">
+              .env
+            </code>
+            .
           </p>
 
           {settingsStatus.kind === "loading" ? (
-            <p className="text-xs text-gray-500">Loading settings…</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Loading settings…
+            </p>
           ) : (
             <div className="space-y-4">
               {GENERAL_SETTINGS.map((cfg) => {
@@ -586,18 +591,18 @@ export default function SettingsPage() {
                 return (
                   <div
                     key={cfg.key}
-                    className="flex flex-wrap items-end gap-3 border-b border-gray-100 pb-3 last:border-b-0 last:pb-0"
+                    className="flex flex-wrap items-end gap-3 border-b border-gray-100 pb-3 last:border-b-0 last:pb-0 dark:border-gray-800"
                   >
                     <div className="min-w-[12rem] flex-1">
                       <label
                         htmlFor={`setting-${cfg.key}`}
-                        className="block text-sm font-medium text-gray-800"
+                        className="block text-sm font-medium text-gray-800 dark:text-gray-100"
                       >
                         {cfg.label}
                       </label>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         {cfg.description}{" "}
-                        <span className="text-gray-400">
+                        <span className="text-gray-400 dark:text-gray-500">
                           (range {cfg.min}–{cfg.max}, default {cfg.defaultValue}
                           )
                         </span>
@@ -612,12 +617,12 @@ export default function SettingsPage() {
                       onChange={(e) =>
                         handleSettingChange(cfg.key, e.target.value)
                       }
-                      className="w-24 rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="w-24 rounded-md border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
                     />
                     <button
                       onClick={() => void handleSettingSave(cfg)}
                       disabled={!dirty || isSaving || outOfRange}
-                      className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+                      className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300 dark:focus:ring-offset-gray-900 dark:disabled:bg-gray-700"
                     >
                       {isSaving ? (
                         <>
@@ -629,13 +634,15 @@ export default function SettingsPage() {
                       )}
                     </button>
                     {justSaved && !dirty && (
-                      <span className="text-xs text-green-700">✓ Saved</span>
+                      <span className="text-xs text-green-700 dark:text-green-300">
+                        ✓ Saved
+                      </span>
                     )}
                   </div>
                 );
               })}
               {settingsStatus.kind === "error" && (
-                <div className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+                <div className="rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200">
                   ✗ {settingsStatus.message}
                 </div>
               )}
@@ -644,38 +651,40 @@ export default function SettingsPage() {
         </div>
 
         {/* ---- Advanced JSON editor ---- */}
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <div className="mb-3 flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold">
                 Advanced settings (JSON){" "}
-                <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-800">
+                <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
                   Advanced
                 </span>
               </h2>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Raw JSON editor for every{" "}
-                <code className="rounded bg-gray-100 px-1 text-xs">
+                <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">
                   user_settings
                 </code>{" "}
                 row. Each value must be a JSON object (the backend schema
                 rejects bare scalars and arrays). Use the{" "}
-                <code className="rounded bg-gray-100 px-1 text-xs">
+                <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">
                   {'{"value": ...}'}
                 </code>{" "}
                 convention for single-value keys.
               </p>
-              <p className="mt-2 text-xs text-amber-700">
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
                 🔒 For security, LLM model selection and credentials (API keys,
                 database URL, Langfuse config) can only be changed via{" "}
-                <code className="rounded bg-amber-50 px-1">.env</code>{" "}
+                <code className="rounded bg-amber-50 px-1 dark:bg-amber-900/20">
+                  .env
+                </code>{" "}
                 environment variables — not here.
               </p>
             </div>
           </div>
 
           {settingsStatus.kind === "loading" ? (
-            <p className="text-xs text-gray-500">Loading…</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Loading…</p>
           ) : (
             <>
               {/* Existing rows (excluding ones shown in General) */}
@@ -700,10 +709,10 @@ export default function SettingsPage() {
                     return (
                       <div
                         key={s.id}
-                        className="rounded-md border border-gray-200 p-3"
+                        className="rounded-md border border-gray-200 p-3 dark:border-gray-800"
                       >
                         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                          <code className="text-sm font-medium text-gray-800">
+                          <code className="text-sm font-medium text-gray-800 dark:text-gray-100">
                             {s.key}
                           </code>
                           <div className="flex items-center gap-2">
@@ -711,7 +720,7 @@ export default function SettingsPage() {
                               <button
                                 onClick={() => handleRawReset(s.key)}
                                 disabled={isSaving}
-                                className="text-xs font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50"
+                                className="text-xs font-medium text-gray-600 hover:text-gray-800 disabled:opacity-50 dark:text-gray-400 dark:hover:text-gray-100"
                               >
                                 Reset
                               </button>
@@ -719,7 +728,7 @@ export default function SettingsPage() {
                             <button
                               onClick={() => void handleRawSave(s.key)}
                               disabled={!dirty || isSaving}
-                              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+                              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300 dark:focus:ring-offset-gray-900 dark:disabled:bg-gray-700"
                             >
                               {isSaving ? (
                                 <>
@@ -731,7 +740,7 @@ export default function SettingsPage() {
                               )}
                             </button>
                             {justSaved && (
-                              <span className="text-xs text-green-700">
+                              <span className="text-xs text-green-700 dark:text-green-300">
                                 ✓ Saved
                               </span>
                             )}
@@ -747,13 +756,13 @@ export default function SettingsPage() {
                             10,
                             Math.max(2, displayText.split("\n").length),
                           )}
-                          className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800/50"
                         />
-                        <p className="mt-1 text-[11px] text-gray-400">
+                        <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">
                           Last updated {new Date(s.updated_at).toLocaleString()}
                         </p>
                         {errorMsg && (
-                          <p className="mt-2 text-xs text-red-700">
+                          <p className="mt-2 text-xs text-red-700 dark:text-red-300">
                             ✗ {errorMsg}
                           </p>
                         )}
@@ -762,22 +771,22 @@ export default function SettingsPage() {
                   })}
                 {rawSettings.filter((s) => !GENERAL_KEYS.has(s.key)).length ===
                   0 && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     No custom settings stored. Use the form below to create one.
                   </p>
                 )}
               </div>
 
               {/* New-key form */}
-              <div className="mt-5 border-t border-gray-200 pt-4">
-                <h3 className="mb-2 text-sm font-semibold text-gray-800">
+              <div className="mt-5 border-t border-gray-200 pt-4 dark:border-gray-800">
+                <h3 className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-100">
                   Add new setting
                 </h3>
                 <div className="space-y-2">
                   <div>
                     <label
                       htmlFor="new-setting-key"
-                      className="block text-xs font-medium text-gray-700"
+                      className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                     >
                       Key
                     </label>
@@ -787,13 +796,13 @@ export default function SettingsPage() {
                       value={newKey}
                       onChange={(e) => setNewKey(e.target.value)}
                       placeholder="my_custom_setting"
-                      className="mt-1 w-full max-w-md rounded-md border border-gray-300 px-3 py-1.5 font-mono text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="mt-1 w-full max-w-md rounded-md border border-gray-300 px-3 py-1.5 font-mono text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
                     />
                   </div>
                   <div>
                     <label
                       htmlFor="new-setting-value"
-                      className="block text-xs font-medium text-gray-700"
+                      className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                     >
                       Value (JSON object)
                     </label>
@@ -803,7 +812,7 @@ export default function SettingsPage() {
                       onChange={(e) => setNewValueText(e.target.value)}
                       spellCheck={false}
                       rows={4}
-                      className="mt-1 w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="mt-1 w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800/50"
                     />
                   </div>
                   <div className="flex items-center gap-3">
@@ -812,12 +821,12 @@ export default function SettingsPage() {
                       disabled={
                         rawStatus.kind === "saving" || newKey.trim() === ""
                       }
-                      className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300"
+                      className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-300 dark:focus:ring-offset-gray-900 dark:disabled:bg-gray-700"
                     >
                       Create
                     </button>
                     {newKeyError && (
-                      <span className="text-xs text-red-700">
+                      <span className="text-xs text-red-700 dark:text-red-300">
                         ✗ {newKeyError}
                       </span>
                     )}
@@ -828,9 +837,9 @@ export default function SettingsPage() {
           )}
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-lg font-semibold">Scheduling</h2>
-          <div className="space-y-2 text-sm text-gray-700">
+          <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
             <p>
               📅 <strong>Nightly</strong>: Profile update — processes new
               journal entries (2:00 AM)
@@ -846,9 +855,9 @@ export default function SettingsPage() {
               📅 <strong>Weekly</strong>: Project generation (Monday 4:00 AM)
             </p>
           </div>
-          <p className="mt-3 text-xs text-gray-500">
+          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
             Run{" "}
-            <code className="rounded bg-gray-100 px-1">
+            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
               scripts/setup_cron.sh
             </code>{" "}
             to install crontab entries.
@@ -856,9 +865,9 @@ export default function SettingsPage() {
         </div>
 
         {/* ---- Data Transfer ---- */}
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-lg font-semibold">Data Transfer</h2>
-          <p className="mb-4 text-sm text-gray-500">
+          <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
             Export all your DevLog+ data to a JSON file and import it on another
             machine. This lets you move your journal, knowledge profile,
             quizzes, projects, and settings between devices.
@@ -869,7 +878,7 @@ export default function SettingsPage() {
             <button
               onClick={handleExport}
               disabled={status.kind === "loading"}
-              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 dark:focus:ring-offset-gray-900"
             >
               {status.kind === "loading" && status.action === "export" ? (
                 <>
@@ -883,7 +892,7 @@ export default function SettingsPage() {
             <button
               onClick={handlePreview}
               disabled={status.kind === "loading"}
-              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:focus:ring-offset-gray-900"
             >
               {status.kind === "loading" && status.action === "metadata"
                 ? "Loading…"
@@ -892,13 +901,18 @@ export default function SettingsPage() {
           </div>
 
           {metadata && (
-            <div className="mb-4 rounded-md bg-gray-50 p-3 text-xs">
-              <p className="mb-1 font-medium text-gray-700">Export preview</p>
+            <div className="mb-4 rounded-md bg-gray-50 p-3 text-xs dark:bg-gray-800/50">
+              <p className="mb-1 font-medium text-gray-700 dark:text-gray-300">
+                Export preview
+              </p>
               <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
                 {Object.entries(metadata.table_counts)
                   .filter(([, v]) => v > 0)
                   .map(([table, count]) => (
-                    <span key={table} className="text-gray-600">
+                    <span
+                      key={table}
+                      className="text-gray-600 dark:text-gray-400"
+                    >
                       {table.replace(/_/g, " ")}: <strong>{count}</strong>
                     </span>
                   ))}
@@ -908,7 +922,7 @@ export default function SettingsPage() {
 
           {/* Import */}
           <div className="mb-2">
-            <label className="mb-1 block text-sm font-medium text-gray-700">
+            <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Import from file
             </label>
             <input
@@ -916,14 +930,14 @@ export default function SettingsPage() {
               type="file"
               accept=".json,application/json"
               onChange={onFileSelected}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-md file:border-0 file:bg-gray-100 file:px-4 file:py-2 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200"
+              className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-md file:border-0 file:bg-gray-100 file:px-4 file:py-2 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:text-gray-400 dark:placeholder-gray-500"
             />
           </div>
 
           {/* Confirmation dialog */}
           {showConfirm && (
-            <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-4">
-              <p className="mb-3 text-sm font-medium text-amber-800">
+            <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20">
+              <p className="mb-3 text-sm font-medium text-amber-800 dark:text-amber-200">
                 ⚠️ This will <strong>replace all existing data</strong> with the
                 contents of the uploaded file. This cannot be undone.
               </p>
@@ -931,7 +945,7 @@ export default function SettingsPage() {
                 <button
                   onClick={confirmImport}
                   disabled={status.kind === "loading"}
-                  className="inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50 dark:focus:ring-offset-gray-900"
                 >
                   {status.kind === "loading" && status.action === "import" ? (
                     <>
@@ -945,7 +959,7 @@ export default function SettingsPage() {
                 <button
                   onClick={cancelImport}
                   disabled={status.kind === "loading"}
-                  className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
                 >
                   Cancel
                 </button>
@@ -955,7 +969,7 @@ export default function SettingsPage() {
 
           {/* Status banner */}
           {status.kind === "success" && (
-            <div className="mt-3 rounded-md bg-green-50 p-3 text-sm text-green-800">
+            <div className="mt-3 rounded-md bg-green-50 p-3 text-sm text-green-800 dark:bg-green-900/20 dark:text-green-200">
               ✓ {status.message}
               {status.counts && (
                 <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
@@ -971,23 +985,23 @@ export default function SettingsPage() {
             </div>
           )}
           {status.kind === "error" && (
-            <div className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800">
+            <div className="mt-3 rounded-md bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200">
               ✗ {status.message}
             </div>
           )}
         </div>
 
         {/* ---- Manual Pipeline Runs (Advanced) ---- */}
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <div className="mb-3 flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold">
                 Manual pipeline runs{" "}
-                <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-800">
+                <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
                   Advanced
                 </span>
               </h2>
-              <p className="mt-1 text-sm text-gray-500">
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 These pipelines run automatically on a cron schedule (see the
                 section above). Trigger them here only if you don’t want to wait
                 — for example, after importing data or finishing a burst of
@@ -1006,20 +1020,20 @@ export default function SettingsPage() {
               return (
                 <div
                   key={cfg.key}
-                  className="rounded-md border border-gray-200 p-3"
+                  className="rounded-md border border-gray-200 p-3 dark:border-gray-800"
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-gray-800">
+                    <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
                       {cfg.label}
                     </span>
                     <button
                       onClick={() => triggerPipeline(cfg.key, cfg.run)}
                       disabled={isBusy}
-                      className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:focus:ring-offset-gray-900"
                     >
                       {isBusy ? (
                         <>
-                          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-500 border-t-transparent" />
+                          <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-500 border-t-transparent dark:border-gray-500" />
                           {isQueueing ? "Queuing…" : "Running…"}
                         </>
                       ) : (
@@ -1027,14 +1041,18 @@ export default function SettingsPage() {
                       )}
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500">{cfg.description}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {cfg.description}
+                  </p>
                   {st.kind === "queued" && (
-                    <p className="mt-2 text-xs text-green-700">
+                    <p className="mt-2 text-xs text-green-700 dark:text-green-300">
                       ✓ {st.message}
                     </p>
                   )}
                   {st.kind === "error" && (
-                    <p className="mt-2 text-xs text-red-700">✗ {st.message}</p>
+                    <p className="mt-2 text-xs text-red-700 dark:text-red-300">
+                      ✗ {st.message}
+                    </p>
                   )}
                 </div>
               );
@@ -1043,26 +1061,28 @@ export default function SettingsPage() {
 
           <div className="mt-5">
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-800">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                 Recent runs
               </h3>
               <button
                 onClick={() => void refreshRuns()}
-                className="text-xs font-medium text-blue-600 hover:text-blue-700"
+                className="text-xs font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 Refresh
               </button>
             </div>
             {!runsLoaded ? (
-              <p className="text-xs text-gray-500">Loading…</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Loading…
+              </p>
             ) : runs.length === 0 ? (
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 No pipeline runs recorded yet.
               </p>
             ) : (
-              <div className="overflow-x-auto rounded-md border border-gray-200">
-                <table className="min-w-full divide-y divide-gray-200 text-xs">
-                  <thead className="bg-gray-50 text-left text-gray-600">
+              <div className="overflow-x-auto rounded-md border border-gray-200 dark:border-gray-800">
+                <table className="min-w-full divide-y divide-gray-200 text-xs dark:divide-gray-800">
+                  <thead className="bg-gray-50 text-left text-gray-600 dark:bg-gray-800/50 dark:text-gray-400">
                     <tr>
                       <th className="px-3 py-2 font-medium">Pipeline</th>
                       <th className="px-3 py-2 font-medium">Status</th>
@@ -1071,7 +1091,7 @@ export default function SettingsPage() {
                       <th className="px-3 py-2 font-medium">Details</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100 bg-white">
+                  <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900">
                     {runs.map((r) => {
                       const started = new Date(r.started_at);
                       const durationMs = r.completed_at
@@ -1087,10 +1107,10 @@ export default function SettingsPage() {
                             : `${(durationMs / 1000).toFixed(1)}s`;
                       const statusClass =
                         r.status === "completed"
-                          ? "text-green-700 bg-green-50"
+                          ? "text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20"
                           : r.status === "failed"
-                            ? "text-red-700 bg-red-50"
-                            : "text-blue-700 bg-blue-50";
+                            ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20"
+                            : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20";
                       const detail =
                         r.error ??
                         (r.metadata
@@ -1102,7 +1122,7 @@ export default function SettingsPage() {
                           : "");
                       return (
                         <tr key={r.id}>
-                          <td className="px-3 py-2 font-mono text-[11px] text-gray-800">
+                          <td className="px-3 py-2 font-mono text-[11px] text-gray-800 dark:text-gray-100">
                             {r.pipeline}
                           </td>
                           <td className="px-3 py-2">
@@ -1112,13 +1132,13 @@ export default function SettingsPage() {
                               {r.status}
                             </span>
                           </td>
-                          <td className="px-3 py-2 text-gray-600">
+                          <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
                             {started.toLocaleString()}
                           </td>
-                          <td className="px-3 py-2 text-gray-600">
+                          <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
                             {durationLabel}
                           </td>
-                          <td className="px-3 py-2 text-gray-600">
+                          <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
                             {detail || "—"}
                           </td>
                         </tr>

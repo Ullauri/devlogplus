@@ -9,6 +9,13 @@ describe("Layout — static content", () => {
     expect(screen.getByText("DevLog+")).toBeInTheDocument();
   });
 
+  it("renders the theme toggle in the top bar", () => {
+    renderWithRouter(<Layout />);
+    expect(
+      screen.getByRole("button", { name: /switch to (light|dark) theme/i }),
+    ).toBeInTheDocument();
+  });
+
   it("renders all navigation links with expected labels and hrefs", () => {
     renderWithRouter(<Layout />);
     const pairs: ReadonlyArray<readonly [string, string]> = [
