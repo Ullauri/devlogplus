@@ -10,6 +10,18 @@ python = "^3.12"
 fastapi = "^0.115.0"
 uvicorn = { extras = ["standard"], version = "^0.34.0" }
 sqlalchemy = { extras = ["asyncio"], version = "^2.0.36" }
+# sqlalchemy[asyncio] declares greenlet twice: once behind a platform_machine
+# list, and once as plain `extra == "asyncio"` with no platform marker. The second
+# should be enough on its own, but Poetry drops that disjunct when it computes
+# the locked marker (reproduced on 2.3.4 and 2.4.1), leaving a platform list
+# whose only ARM spelling is "aarch64". Apple Silicon reports "arm64", so
+# `poetry install` omits greenlet and still exits 0 -- no warning, absent from
+# the install plan entirely. The failure lands much later at first DB contact,
+# naming greenlet but never the platform. Declaring it here is unconditional,
+# so no marker can drop it.
+# Retire when: deleting this line and re-running `poetry lock` leaves the
+# greenlet entry in poetry.lock with no `markers =` line.
+greenlet = "^3.1"
 asyncpg = "^0.30.0"
 alembic = "^1.14.0"
 pydantic = "^2.10.0"
