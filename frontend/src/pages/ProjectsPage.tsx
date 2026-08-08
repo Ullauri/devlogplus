@@ -11,17 +11,22 @@ import RunPipelineButton from "../components/RunPipelineButton";
 import { usePipelineStatus } from "../hooks/usePipelineStatus";
 
 const STATUS_COLOR: Record<string, string> = {
-  issued: "bg-blue-100 text-blue-800",
-  in_progress: "bg-yellow-100 text-yellow-800",
+  issued: "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200",
+  in_progress:
+    "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200",
   submitted: "bg-purple-100 text-purple-800",
-  evaluated: "bg-green-100 text-green-800",
+  evaluated:
+    "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200",
 };
 
 const TASK_TYPE_COLOR: Record<string, string> = {
-  bug_fix: "bg-red-100 text-red-700",
-  feature: "bg-green-100 text-green-700",
-  refactor: "bg-yellow-100 text-yellow-700",
-  optimization: "bg-blue-100 text-blue-700",
+  bug_fix: "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300",
+  feature:
+    "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300",
+  refactor:
+    "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300",
+  optimization:
+    "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300",
 };
 
 const PROJECT_PIPELINES: readonly PipelineType[] = [
@@ -106,7 +111,7 @@ export default function ProjectsPage() {
     <div>
       <div className="mb-6 flex items-baseline gap-3">
         <h1 className="text-2xl font-bold">Projects</h1>
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-400 dark:text-gray-500">
           Hands-on Go practice tailored to your level
         </span>
       </div>
@@ -122,16 +127,16 @@ export default function ProjectsPage() {
       />
 
       {current ? (
-        <div className="mb-8 rounded-lg border-2 border-brand-200 bg-white p-5 shadow-sm">
+        <div className="mb-8 rounded-lg border-2 border-brand-200 bg-white p-5 shadow-sm dark:border-brand-800 dark:bg-gray-900">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold">{current.title}</h2>
               <span
-                className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[current.status] ?? "bg-gray-100"}`}
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[current.status] ?? "bg-gray-100 dark:bg-gray-800"}`}
               >
                 {current.status}
               </span>
-              <span className="ml-2 text-xs text-gray-500">
+              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
                 Difficulty: {current.difficulty_level}/5
               </span>
             </div>
@@ -144,19 +149,21 @@ export default function ProjectsPage() {
                   !status.loaded || regenerating || status.running.length > 0
                 }
                 title="Discard this project and generate a new one"
-                className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800"
               >
                 {regenerating ? "Queuing…" : "↺ Regenerate"}
               </button>
             </div>
           </div>
-          <p className="mb-2 text-xs text-gray-500">
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
             Location:{" "}
-            <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs text-gray-700">
+            <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
               {current.project_path}
             </code>
           </p>
-          <p className="mb-4 text-sm text-gray-700">{current.description}</p>
+          <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
+            {current.description}
+          </p>
 
           {current.tasks.length > 0 && (
             <div className="mb-4">
@@ -165,16 +172,16 @@ export default function ProjectsPage() {
                 {current.tasks.map((task) => (
                   <div
                     key={task.id}
-                    className="flex items-start gap-2 rounded bg-gray-50 p-2 text-sm"
+                    className="flex items-start gap-2 rounded bg-gray-50 p-2 text-sm dark:bg-gray-800/50"
                   >
                     <span
-                      className={`mt-0.5 rounded-full px-2 py-0.5 text-xs font-medium ${TASK_TYPE_COLOR[task.task_type] ?? "bg-gray-100"}`}
+                      className={`mt-0.5 rounded-full px-2 py-0.5 text-xs font-medium ${TASK_TYPE_COLOR[task.task_type] ?? "bg-gray-100 dark:bg-gray-800"}`}
                     >
                       {task.task_type}
                     </span>
                     <div className="flex-1">
                       <span className="font-medium">{task.title}</span>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         {task.description}
                       </p>
                     </div>
@@ -214,7 +221,9 @@ export default function ProjectsPage() {
       ) : (
         status.running.length === 0 && (
           <div className="mb-6">
-            <p className="mb-3 text-gray-500">No active project right now.</p>
+            <p className="mb-3 text-gray-500 dark:text-gray-400">
+              No active project right now.
+            </p>
             <RunPipelineButton
               label="Generate project now"
               onRun={() => api.pipelines.runProjectGeneration()}
@@ -234,20 +243,22 @@ export default function ProjectsPage() {
               .map((p) => (
                 <div
                   key={p.id}
-                  className="rounded border border-gray-200 bg-white p-3 text-sm"
+                  className="rounded border border-gray-200 bg-white p-3 text-sm dark:border-gray-800 dark:bg-gray-900"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{p.title}</span>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[p.status] ?? "bg-gray-100"}`}
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[p.status] ?? "bg-gray-100 dark:bg-gray-800"}`}
                     >
                       {p.status}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">{p.description}</p>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {p.description}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Location:{" "}
-                    <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs text-gray-700">
+                    <code className="rounded bg-gray-100 px-1 py-0.5 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
                       {p.project_path}
                     </code>
                   </p>

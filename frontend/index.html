@@ -5,8 +5,30 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DevLog+</title>
+    <script>
+      // Apply the saved theme before first paint so a dark-mode reload
+      // never flashes white. Key mirrors THEME_STORAGE_KEY in
+      // src/hooks/useTheme.ts — keep the two in sync.
+      (function () {
+        try {
+          var stored = localStorage.getItem("devlogplus-theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.classList.toggle("dark", theme === "dark");
+          document.documentElement.style.colorScheme = theme;
+        } catch (e) {
+          /* localStorage blocked — fall back to the light default. */
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-gray-50 text-gray-900 antialiased">
+  <body
+    class="bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100"
+  >
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -29,7 +29,7 @@ export default function App() {
   if (onboardingDone === null) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="text-lg text-gray-500">Loading…</div>
+        <div className="text-lg text-gray-500 dark:text-gray-400">Loading…</div>
       </div>
     );
   }

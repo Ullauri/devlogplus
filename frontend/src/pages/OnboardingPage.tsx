@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api/client";
+import ThemeToggle from "../components/ThemeToggle";
 
 interface Props {
   onComplete: () => void;
@@ -78,12 +79,16 @@ export default function OnboardingPage({ onComplete }: Props) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 to-white p-6">
-      <div className="w-full max-w-lg rounded-xl bg-white p-8 shadow-lg">
-        <h1 className="mb-1 text-2xl font-bold text-brand-700">
+    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 to-white p-6 dark:from-gray-900 dark:to-gray-950">
+      {/* Onboarding renders outside Layout, so it carries its own toggle. */}
+      <div className="absolute right-6 top-6">
+        <ThemeToggle />
+      </div>
+      <div className="w-full max-w-lg rounded-xl bg-white p-8 shadow-lg dark:bg-gray-900">
+        <h1 className="mb-1 text-2xl font-bold text-brand-700 dark:text-brand-300">
           Welcome to DevLog+
         </h1>
-        <p className="mb-6 text-sm text-gray-500">
+        <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
           Let's set up your profile. This takes about 10 minutes.
         </p>
 
@@ -92,7 +97,7 @@ export default function OnboardingPage({ onComplete }: Props) {
           {[0, 1, 2].map((s) => (
             <div
               key={s}
-              className={`h-1.5 flex-1 rounded-full ${s <= step ? "bg-brand-500" : "bg-gray-200"}`}
+              className={`h-1.5 flex-1 rounded-full ${s <= step ? "bg-brand-500" : "bg-gray-200 dark:bg-gray-700"}`}
             />
           ))}
         </div>
@@ -115,7 +120,7 @@ export default function OnboardingPage({ onComplete }: Props) {
                   })
                 }
                 placeholder="e.g. 5"
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
             <div>
@@ -132,7 +137,7 @@ export default function OnboardingPage({ onComplete }: Props) {
                   })
                 }
                 placeholder="e.g. Python, TypeScript, Go"
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
             <div>
@@ -149,7 +154,7 @@ export default function OnboardingPage({ onComplete }: Props) {
                   })
                 }
                 placeholder="e.g. backend APIs, data pipelines"
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
             <div>
@@ -166,7 +171,7 @@ export default function OnboardingPage({ onComplete }: Props) {
                   })
                 }
                 placeholder="e.g. systems programming, concurrency"
-                className="w-full rounded border border-gray-300 px-3 py-2 text-sm"
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
           </div>
@@ -180,7 +185,7 @@ export default function OnboardingPage({ onComplete }: Props) {
               {GO_LEVELS.map(({ value, label }) => (
                 <label
                   key={value}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50"
+                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800"
                 >
                   <input
                     type="radio"
@@ -203,7 +208,7 @@ export default function OnboardingPage({ onComplete }: Props) {
             <h2 className="text-lg font-semibold">
               Topic Interests (optional)
             </h2>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Select topics you'd like to explore:
             </p>
             <div className="flex flex-wrap gap-2">
@@ -213,8 +218,8 @@ export default function OnboardingPage({ onComplete }: Props) {
                   onClick={() => toggleTopic(topic)}
                   className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
                     selectedTopics.includes(topic)
-                      ? "border-brand-500 bg-brand-50 text-brand-700"
-                      : "border-gray-300 text-gray-600 hover:border-gray-400"
+                      ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-300"
+                      : "border-gray-300 text-gray-600 hover:border-gray-400 dark:border-gray-700 dark:text-gray-400 dark:hover:border-gray-600"
                   }`}
                 >
                   {topic}
@@ -229,7 +234,7 @@ export default function OnboardingPage({ onComplete }: Props) {
           <button
             onClick={() => setStep(step - 1)}
             disabled={step === 0}
-            className="rounded border border-gray-300 px-4 py-2 text-sm disabled:opacity-30"
+            className="rounded border border-gray-300 px-4 py-2 text-sm disabled:opacity-30 dark:border-gray-700"
           >
             Back
           </button>

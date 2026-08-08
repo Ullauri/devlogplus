@@ -1,5 +1,8 @@
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  // Theme is driven by a `dark` class on <html>, set by src/hooks/useTheme.ts
+  // (and pre-paint by the inline script in index.html).
+  darkMode: "class",
   theme: {
     extend: {
       colors: {

@@ -94,7 +94,7 @@ export default function QuizPage() {
   ) => (
     <div
       key={q.id}
-      className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
+      className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900"
     >
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="flex-1">
@@ -103,7 +103,7 @@ export default function QuizPage() {
           </p>
           {q.topic_name && (
             <span
-              className="mt-2 inline-block rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-200"
+              className="mt-2 inline-block rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-900/30 dark:text-brand-300 dark:ring-brand-800"
               title="Knowledge Profile topic this question targets"
             >
               {q.topic_name}
@@ -114,39 +114,46 @@ export default function QuizPage() {
       </div>
 
       {q.answer ? (
-        <div className="mt-2 rounded bg-gray-50 p-3 text-sm">
-          <p className="text-gray-700">{q.answer.answer_text}</p>
+        <div className="mt-2 rounded bg-gray-50 p-3 text-sm dark:bg-gray-800/50">
+          <p className="text-gray-700 dark:text-gray-300">
+            {q.answer.answer_text}
+          </p>
           {q.evaluation && (
-            <div className="mt-2 border-t pt-2">
+            <div className="mt-2 border-t border-gray-200 pt-2 dark:border-gray-800">
               <span
                 className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                   q.evaluation.correctness === "full"
-                    ? "bg-green-100 text-green-800"
+                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200"
                     : q.evaluation.correctness === "partial"
-                      ? "bg-yellow-100 text-yellow-800"
-                      : "bg-red-100 text-red-800"
+                      ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200"
+                      : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200"
                 }`}
               >
                 {q.evaluation.correctness}
               </span>
-              <p className="mt-1 text-xs text-gray-600">
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
                 {q.evaluation.explanation}
               </p>
             </div>
           )}
           {q.reference_answer && (
-            <details className="mt-2 border-t pt-2" open={!!q.evaluation}>
-              <summary className="cursor-pointer text-xs font-semibold text-brand-700 hover:text-brand-800">
+            <details
+              className="mt-2 border-t border-gray-200 pt-2 dark:border-gray-800"
+              open={!!q.evaluation}
+            >
+              <summary className="cursor-pointer text-xs font-semibold text-brand-700 hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-200">
                 Expected answer
               </summary>
-              <p className="mt-1 whitespace-pre-line text-xs text-gray-700">
+              <p className="mt-1 whitespace-pre-line text-xs text-gray-700 dark:text-gray-300">
                 {q.reference_answer}
               </p>
             </details>
           )}
         </div>
       ) : readOnly ? (
-        <p className="mt-2 text-sm italic text-gray-400">No answer submitted</p>
+        <p className="mt-2 text-sm italic text-gray-400 dark:text-gray-500">
+          No answer submitted
+        </p>
       ) : (
         <div className="mt-2 flex gap-2">
           <textarea
@@ -154,7 +161,7 @@ export default function QuizPage() {
             onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
             placeholder="Your answer…"
             rows={3}
-            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm"
+            className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
           />
           <button
             onClick={() => submitAnswer(q.id)}
@@ -179,24 +186,36 @@ export default function QuizPage() {
     ).length;
     const incorrect = evaluated.length - full - partial;
     return (
-      <div className="mb-4 flex gap-4 rounded-lg border border-gray-200 bg-white p-4">
+      <div className="mb-4 flex gap-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
         <div className="text-center">
-          <div className="text-2xl font-bold text-green-700">{full}</div>
-          <div className="text-xs text-gray-500">Correct</div>
+          <div className="text-2xl font-bold text-green-700 dark:text-green-300">
+            {full}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            Correct
+          </div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-yellow-600">{partial}</div>
-          <div className="text-xs text-gray-500">Partial</div>
+          <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+            {partial}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            Partial
+          </div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-red-600">{incorrect}</div>
-          <div className="text-xs text-gray-500">Incorrect</div>
+          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+            {incorrect}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            Incorrect
+          </div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-gray-700">
+          <div className="text-2xl font-bold text-gray-700 dark:text-gray-300">
             {evaluated.length}
           </div>
-          <div className="text-xs text-gray-500">Total</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Total</div>
         </div>
       </div>
     );
@@ -209,12 +228,12 @@ export default function QuizPage() {
         <div className="mb-6 flex items-baseline gap-3">
           <button
             onClick={() => setReviewSession(null)}
-            className="text-sm text-brand-600 hover:text-brand-800"
+            className="text-sm text-brand-600 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-200"
           >
             ← Back to Quiz
           </button>
           <h1 className="text-2xl font-bold">Quiz Results</h1>
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-gray-400 dark:text-gray-500">
             {new Date(reviewSession.created_at).toLocaleDateString()} ·{" "}
             {reviewSession.question_count} questions · {reviewSession.status}
           </span>
@@ -223,7 +242,7 @@ export default function QuizPage() {
         {renderScoreSummary(reviewSession.questions)}
 
         {reviewSession.status !== "evaluated" && (
-          <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+          <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
             {status.running.some((r) => r === "quiz_evaluation") ? (
               <>Evaluation is running… Refresh to check for updates.</>
             ) : (
@@ -231,7 +250,7 @@ export default function QuizPage() {
             )}
             <button
               onClick={() => openReview(reviewSession.id)}
-              className="ml-2 font-medium text-yellow-900 underline hover:no-underline"
+              className="ml-2 font-medium text-yellow-900 underline hover:no-underline dark:text-yellow-100"
             >
               Refresh
             </button>
@@ -269,7 +288,7 @@ export default function QuizPage() {
     <div>
       <div className="mb-6 flex items-baseline gap-3">
         <h1 className="text-2xl font-bold">Quiz</h1>
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-400 dark:text-gray-500">
           Test and reinforce your knowledge
         </span>
       </div>
@@ -288,7 +307,9 @@ export default function QuizPage() {
         <div>
           {status.running.length === 0 && (
             <div className="mb-4">
-              <p className="mb-3 text-gray-500">No active quiz right now.</p>
+              <p className="mb-3 text-gray-500 dark:text-gray-400">
+                No active quiz right now.
+              </p>
               <RunPipelineButton
                 label="Generate quiz now"
                 onRun={() => api.pipelines.runQuizGeneration()}
@@ -307,12 +328,12 @@ export default function QuizPage() {
                   <button
                     key={s.id}
                     onClick={() => openReview(s.id)}
-                    className="w-full cursor-pointer rounded border border-gray-200 bg-white p-3 text-left text-sm transition-colors hover:border-brand-300 hover:bg-brand-50"
+                    className="w-full cursor-pointer rounded border border-gray-200 bg-white p-3 text-left text-sm transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-brand-700 dark:hover:bg-brand-900/30"
                   >
                     <span className="font-medium">
                       {new Date(s.created_at).toLocaleDateString()}
                     </span>
-                    <span className="ml-2 text-gray-500">
+                    <span className="ml-2 text-gray-500 dark:text-gray-400">
                       {s.question_count} questions · {s.status}
                     </span>
                   </button>
@@ -324,7 +345,7 @@ export default function QuizPage() {
       ) : (
         <div>
           <div className="mb-4 flex items-center justify-between">
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-gray-500 dark:text-gray-400">
               Status: <span className="font-medium">{current.status}</span> ·{" "}
               {current.question_count} questions
             </span>
