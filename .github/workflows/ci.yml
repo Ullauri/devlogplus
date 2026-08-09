@@ -122,6 +122,21 @@ jobs:
       - name: Verify OpenAPI spec is up to date
         run: poetry run python scripts/export_openapi.py --check
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Verify generated frontend types are up to date
+        working-directory: frontend
+        run: npm run openapi:types:check
+
       - name: Upload backend coverage
         if: always()
         uses: actions/upload-artifact@v4

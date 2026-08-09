@@ -604,6 +604,8 @@ This is essential for iterating on prompts, diagnosing quality issues, and under
 
 ### Containerization
 
+> **Superseded by [ADR 0007](adr/0007-native-dev-no-docker.md):** native run (`make run`/`make dev`) is now the standard path; Docker Compose remains available for the database and as a dev convenience only. The section below reflects the original MVP draft and is kept for historical context.
+
 **Docker Compose** for local development and runtime.
 
 The standard way to run the application is via Docker Compose, which manages:
