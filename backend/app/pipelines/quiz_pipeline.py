@@ -166,7 +166,7 @@ async def generate_quiz(
     db: AsyncSession,
     *,
     run_id: uuid.UUID | None = None,
-) -> QuizSession:
+) -> QuizSession | None:
     """Generate a new weekly quiz session with questions.
 
     Args:
@@ -178,6 +178,9 @@ async def generate_quiz(
     2. Gather feedforward signals
     3. Call LLM to generate questions
     4. Store session and questions
+
+    Returns the new session, or ``None`` when no questions survived the
+    filters (no session is created in that case) or the run failed.
     """
     log_kwargs: dict = {
         "pipeline": PipelineType.QUIZ_GENERATION,
@@ -267,21 +270,18 @@ async def generate_quiz(
         # back to Knowledge Profile Topic.id values.
         topic_lookup = await _load_topic_name_lookup(db)
 
-        # Create quiz session
-        session = QuizSession(
-            status=QuizSessionStatus.PENDING,
-            question_count=len(gen_result.questions),
-        )
-        db.add(session)
-        await db.flush()
-
-        # Create questions, applying hard-avoid + diversity gates as a
-        # belt-and-braces enforcement on top of the prompt instructions.
+        # Apply the hard-avoid + diversity gates *before* creating the session,
+        # as belt-and-braces enforcement on top of the prompt instructions.
+        #
+        # The gates run first so a run that filters everything out leaves no
+        # session behind. An empty session is not merely useless: it counts as
+        # an unfinished quiz, which used to displace the real one the user was
+        # part-way through.
         skipped_disliked = 0
         skipped_already_liked = 0
         skipped_duplicate_topic = 0
         seen_topics: set[str] = set()
-        stored_count = 0
+        accepted: list[dict] = []
 
         for q in gen_result.questions:
             text_key = q.question_text.strip()
@@ -324,24 +324,53 @@ async def generate_quiz(
                     q.target_topic,
                 )
 
-            question = QuizQuestion(
-                session_id=session.id,
-                question_text=q.question_text,
-                question_type=q_type,
-                reference_answer=(q.reference_answer.strip() or None)
-                if q.reference_answer
-                else None,
-                topic_id=resolved_topic_id,
-                order_index=stored_count,
+            accepted.append(
+                {
+                    "question_text": q.question_text,
+                    "question_type": q_type,
+                    "reference_answer": (q.reference_answer.strip() or None)
+                    if q.reference_answer
+                    else None,
+                    "topic_id": resolved_topic_id,
+                    "order_index": len(accepted),
+                }
             )
-            db.add(question)
-            stored_count += 1
             if topic_key:
                 seen_topics.add(topic_key)
 
-        # Reflect the actual stored count on the session so downstream
+        stored_count = len(accepted)
+
+        if stored_count == 0:
+            logger.warning(
+                "Quiz generation stored no questions (generated=%d) — no session created",
+                len(gen_result.questions),
+            )
+            log.status = PipelineStatus.COMPLETED
+            log.completed_at = datetime.now(UTC)
+            log.metadata_ = {
+                "session_id": None,
+                "generated": len(gen_result.questions),
+                "stored": 0,
+                "skipped_disliked": skipped_disliked,
+                "skipped_already_liked": skipped_already_liked,
+                "skipped_duplicate_topic": skipped_duplicate_topic,
+                "distinct_topics": 0,
+                "question_count": 0,
+            }
+            await db.flush()
+            return None
+
+        # question_count reflects the actual stored count so downstream
         # consumers (UI progress, evaluation pipeline) see the truth.
-        session.question_count = stored_count
+        session = QuizSession(
+            status=QuizSessionStatus.PENDING,
+            question_count=stored_count,
+        )
+        db.add(session)
+        await db.flush()
+
+        for kwargs in accepted:
+            db.add(QuizQuestion(session_id=session.id, **kwargs))
 
         await db.flush()
 

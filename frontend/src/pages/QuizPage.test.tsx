@@ -539,6 +539,128 @@ describe("QuizPage — review past session", () => {
     });
   });
 
+  it("keeps an unfinished session answerable when opened from the list", async () => {
+    // A quiz only locks on submit. One generated while an earlier quiz was
+    // unfinished lands in the list, and must still offer the answer box.
+    const unfinished = {
+      id: "s2",
+      status: "pending",
+      question_count: 1,
+      created_at: "2026-01-02T00:00:00Z",
+      questions: [
+        {
+          id: "q1",
+          question_text: "Explain goroutines",
+          question_type: "free_text",
+          order_index: 0,
+        },
+      ],
+    };
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s2",
+        status: "pending",
+        question_count: 1,
+        created_at: "2026-01-02T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+    mockGetSession.mockResolvedValue(unfinished);
+    mockSubmitAnswer.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+    await waitFor(() => screen.getByText("Past Sessions"));
+    await user.click(screen.getByText(/1 questions/).closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Unfinished Quiz")).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/No answer submitted/)).not.toBeInTheDocument();
+
+    await user.type(
+      screen.getByPlaceholderText("Your answer…"),
+      "concurrent functions",
+    );
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => {
+      expect(mockSubmitAnswer).toHaveBeenCalledWith(
+        "q1",
+        "concurrent functions",
+      );
+    });
+    // The answer refreshes the session on screen, not the (absent) current one.
+    expect(mockGetSession).toHaveBeenLastCalledWith("s2");
+  });
+
+  it("can complete an unfinished session from the review view", async () => {
+    const unfinished = {
+      id: "s2",
+      status: "in_progress",
+      question_count: 1,
+      created_at: "2026-01-02T00:00:00Z",
+      questions: [
+        {
+          id: "q1",
+          question_text: "Explain goroutines",
+          question_type: "free_text",
+          order_index: 0,
+          answer: { answer_text: "Lightweight threads" },
+        },
+      ],
+    };
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s2",
+        status: "in_progress",
+        question_count: 1,
+        created_at: "2026-01-02T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+    mockGetSession.mockResolvedValue(unfinished);
+    mockCompleteSession.mockResolvedValue({});
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+    await waitFor(() => screen.getByText("Past Sessions"));
+    await user.click(screen.getByText(/1 questions/).closest("button")!);
+
+    await waitFor(() => screen.getByText("Unfinished Quiz"));
+    await user.click(screen.getByRole("button", { name: "Complete Quiz" }));
+
+    await waitFor(() => {
+      expect(mockCompleteSession).toHaveBeenCalledWith("s2");
+    });
+  });
+
+  it("locks answers once a session is evaluated", async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s1",
+        status: "evaluated",
+        question_count: 2,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockRejectedValue(new Error("none"));
+    mockGetSession.mockResolvedValue(pastSession);
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+    await waitFor(() => screen.getByText("Past Sessions"));
+    await user.click(screen.getByText(/2 questions/).closest("button")!);
+
+    await waitFor(() => screen.getByText("Quiz Results"));
+    expect(
+      screen.queryByPlaceholderText("Your answer…"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Complete Quiz" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("completing a quiz redirects to the review view", async () => {
     const activeSession = {
       id: "s1",

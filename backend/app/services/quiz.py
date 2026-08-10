@@ -35,7 +35,19 @@ async def list_sessions(db: AsyncSession, *, offset: int = 0, limit: int = 20) -
 
 
 async def get_current_session(db: AsyncSession) -> QuizSession | None:
-    """Get the most recent non-evaluated session (if any)."""
+    """Get the oldest unfinished session that has questions (if any).
+
+    A quiz leaves this endpoint only when the user completes it — never
+    because time passed or because a newer quiz was generated. Hence
+    *oldest* first: ordering newest-first meant a fresh session silently
+    displaced an unfinished one, and since the UI only offers the answer
+    box for the current session, the displaced quiz could never be
+    answered again.
+
+    Sessions with no questions are skipped. A generation run that filters
+    every proposed question out has nothing to show, and surfacing it
+    would hide a real quiz behind an empty one.
+    """
     stmt = (
         select(QuizSession)
         .options(
@@ -43,8 +55,11 @@ async def get_current_session(db: AsyncSession) -> QuizSession | None:
             selectinload(QuizSession.questions).selectinload(QuizQuestion.evaluation),
             selectinload(QuizSession.questions).selectinload(QuizQuestion.topic),
         )
-        .where(QuizSession.status.in_([QuizSessionStatus.PENDING, QuizSessionStatus.IN_PROGRESS]))
-        .order_by(QuizSession.created_at.desc())
+        .where(
+            QuizSession.status.in_([QuizSessionStatus.PENDING, QuizSessionStatus.IN_PROGRESS]),
+            QuizSession.questions.any(),
+        )
+        .order_by(QuizSession.created_at.asc())
         .limit(1)
     )
     result = await db.execute(stmt)
