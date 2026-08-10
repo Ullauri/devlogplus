@@ -15,6 +15,10 @@ const QUIZ_PIPELINES: readonly PipelineType[] = [
   "quiz_evaluation",
 ];
 
+/** A quiz the user has submitted — answers are locked, results are the point. */
+const isFinished = (status: string) =>
+  status === "completed" || status === "evaluated";
+
 export default function QuizPage() {
   const [sessions, setSessions] = useState<QuizSession[]>([]);
   const [current, setCurrent] = useState<
@@ -55,14 +59,18 @@ export default function QuizPage() {
     }
   }, [loadAll, status]);
 
+  // An unfinished quiz can be answered from either view — as the current
+  // quiz, or from the session list once a newer quiz took the current slot —
+  // so refresh whichever one is on screen.
   const submitAnswer = async (qId: string) => {
     const text = answers[qId];
     if (!text) return;
     await api.quiz.submitAnswer(qId, text);
-    // Refresh
-    if (current) {
-      api.quiz.getSession(current.id).then(setCurrent);
-    }
+    const open = reviewSession ?? current;
+    if (!open) return;
+    const detail = await api.quiz.getSession(open.id);
+    if (reviewSession) setReviewSession(detail);
+    else setCurrent(detail);
   };
 
   const openReview = async (sessionId: string) => {
@@ -71,19 +79,16 @@ export default function QuizPage() {
     setReviewSession(detail);
   };
 
-  const completeSession = async () => {
-    if (!current) return;
-    const completedId = current.id;
-    await api.quiz.completeSession(completedId);
-    setCurrent(null);
-    api.quiz.listSessions().then(setSessions);
+  const completeSession = async (sessionId: string) => {
+    await api.quiz.completeSession(sessionId);
+    void loadAll();
     // Kick off LLM evaluation immediately (runs in background on the server)
     api.pipelines
-      .runQuizEvaluation(completedId)
+      .runQuizEvaluation(sessionId)
       .then(() => status.refresh())
       .catch(() => {}); // evaluation can be re-triggered manually from the review view
     // Show results immediately
-    openReview(completedId);
+    openReview(sessionId);
   };
 
   // Shared question card renderer
@@ -221,8 +226,10 @@ export default function QuizPage() {
     );
   };
 
-  // Review view for a completed session
+  // Review view for a session opened from the list. Unfinished sessions stay
+  // answerable here: a quiz is only ever locked by submitting it.
   if (reviewSession) {
+    const finished = isFinished(reviewSession.status);
     return (
       <div>
         <div className="mb-6 flex items-baseline gap-3">
@@ -232,16 +239,26 @@ export default function QuizPage() {
           >
             ← Back to Quiz
           </button>
-          <h1 className="text-2xl font-bold">Quiz Results</h1>
+          <h1 className="text-2xl font-bold">
+            {finished ? "Quiz Results" : "Unfinished Quiz"}
+          </h1>
           <span className="text-sm text-gray-400 dark:text-gray-500">
             {new Date(reviewSession.created_at).toLocaleDateString()} ·{" "}
             {reviewSession.question_count} questions · {reviewSession.status}
           </span>
+          {reviewSession.status === "in_progress" && (
+            <button
+              onClick={() => completeSession(reviewSession.id)}
+              className="ml-auto rounded bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700"
+            >
+              Complete Quiz
+            </button>
+          )}
         </div>
 
         {renderScoreSummary(reviewSession.questions)}
 
-        {reviewSession.status !== "evaluated" && (
+        {reviewSession.status === "completed" && (
           <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
             {status.running.some((r) => r === "quiz_evaluation") ? (
               <>Evaluation is running… Refresh to check for updates.</>
@@ -277,7 +294,7 @@ export default function QuizPage() {
 
         <div className="space-y-4">
           {reviewSession.questions.map((q, i) =>
-            renderQuestionCard(q, i, true),
+            renderQuestionCard(q, i, finished),
           )}
         </div>
       </div>
@@ -351,7 +368,7 @@ export default function QuizPage() {
             </span>
             {current.status === "in_progress" && (
               <button
-                onClick={completeSession}
+                onClick={() => completeSession(current.id)}
                 className="rounded bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700"
               >
                 Complete Quiz

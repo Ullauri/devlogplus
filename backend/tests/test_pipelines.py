@@ -374,6 +374,41 @@ async def test_generate_quiz_requests_a_scaled_token_budget(db_session: AsyncSes
     assert mock_llm.await_args.kwargs["max_tokens"] > 4096
 
 
+async def test_generate_quiz_creates_no_session_when_nothing_is_stored(
+    db_session: AsyncSession,
+):
+    """A run that stores no questions must leave no session behind.
+
+    Regression: the session row was created before the skip filters ran, so a
+    run that filtered everything out committed an empty PENDING session. That
+    session then counted as an unfinished quiz and displaced the real one the
+    user was part-way through.
+    """
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        result = await quiz_pipeline.generate_quiz(db_session)
+
+    assert result is None
+    sessions = (await db_session.execute(select(QuizSession))).scalars().all()
+    assert sessions == []
+
+    log = (
+        (
+            await db_session.execute(
+                select(ProcessingLog).where(ProcessingLog.pipeline == PipelineType.QUIZ_GENERATION)
+            )
+        )
+        .scalars()
+        .one()
+    )
+    assert log.status == PipelineStatus.COMPLETED
+    assert (log.metadata_ or {})["stored"] == 0
+    assert (log.metadata_ or {})["session_id"] is None
+
+
 async def test_evaluate_quiz_requests_a_scaled_token_budget(db_session: AsyncSession):
     """evaluate_quiz must budget per answer rather than using the 4096 default."""
     session = await _create_completed_quiz_session(db_session, num_questions=10)

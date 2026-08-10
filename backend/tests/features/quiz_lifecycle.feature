@@ -20,6 +20,13 @@ Feature: Quiz Generation, Answering, and Evaluation
     When I complete the quiz session
     Then the quiz session status should be "completed"
 
+  Scenario: An unanswered quiz survives a newer quiz being generated
+    Given a quiz session exists with questions
+    When the quiz generation pipeline runs
+    Then the current quiz should still be the unanswered earlier session
+    When I complete the earlier session
+    Then the current quiz should be the newly generated session
+
   Scenario: Evaluate a completed quiz
     Given a completed quiz session with answers exists
     When the quiz evaluation pipeline runs

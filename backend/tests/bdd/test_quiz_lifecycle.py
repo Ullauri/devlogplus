@@ -87,6 +87,9 @@ def given_quiz_session(bdd_db, ctx):
     session = create_quiz_session(bdd_db, status="pending")
     run_async(bdd_db.commit())
     ctx["quiz_session"] = session
+    # Kept under a stable key too: the generation step overwrites
+    # ``quiz_session``, and the supersession scenario needs both.
+    ctx["earlier_session"] = session
 
 
 @when(
@@ -128,6 +131,36 @@ def when_complete_session(bdd_client, ctx):
     session_id = str(ctx["quiz_session"].id)
     resp = run_async(bdd_client.post(f"/api/v1/quizzes/sessions/{session_id}/complete"))
     ctx["complete_response"] = resp
+
+
+# ---------------------------------------------------------------------------
+# Supersession: a quiz expires when submitted, not when a newer one arrives
+# ---------------------------------------------------------------------------
+
+
+@then("the current quiz should still be the unanswered earlier session")
+def then_current_is_earlier_session(bdd_client, ctx):
+    earlier = ctx["earlier_session"]
+    generated = ctx["quiz_session"]
+    assert generated.id != earlier.id, "generation step should have made a new session"
+
+    resp = run_async(bdd_client.get("/api/v1/quizzes/sessions/current"))
+    assert resp.status_code == 200
+    assert resp.json()["id"] == str(earlier.id)
+
+
+@when("I complete the earlier session")
+def when_complete_earlier_session(bdd_client, ctx):
+    session_id = str(ctx["earlier_session"].id)
+    resp = run_async(bdd_client.post(f"/api/v1/quizzes/sessions/{session_id}/complete"))
+    assert resp.status_code == 200
+
+
+@then("the current quiz should be the newly generated session")
+def then_current_is_generated_session(bdd_client, ctx):
+    resp = run_async(bdd_client.get("/api/v1/quizzes/sessions/current"))
+    assert resp.status_code == 200
+    assert resp.json()["id"] == str(ctx["quiz_session"].id)
 
 
 # ---------------------------------------------------------------------------

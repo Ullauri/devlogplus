@@ -70,6 +70,57 @@ async def test_get_current_session(client: AsyncClient, db_session: AsyncSession
     assert data["status"] in ("pending", "in_progress")
 
 
+async def test_current_session_is_not_superseded_by_a_newer_one(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """An unfinished quiz outranks a newer one — quizzes expire on submit only.
+
+    Regression: ``get_current_session`` returned the *newest* unfinished
+    session, so the weekly generation run silently displaced a quiz the user
+    had not answered yet. Because the answer box only renders for the current
+    session, the displaced quiz became permanently unanswerable.
+    """
+    unfinished = await _create_quiz_session(db_session)
+    newer = await _create_quiz_session(db_session)
+    assert newer.created_at > unfinished.created_at
+
+    resp = await client.get("/api/v1/quizzes/sessions/current")
+    assert resp.status_code == 200
+    assert resp.json()["id"] == str(unfinished.id)
+
+
+async def test_current_session_advances_once_the_older_quiz_is_completed(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """Submitting the older quiz is what hands the slot to the newer one."""
+    older = await _create_quiz_session(db_session)
+    newer = await _create_quiz_session(db_session)
+
+    complete = await client.post(f"/api/v1/quizzes/sessions/{older.id}/complete")
+    assert complete.status_code == 200
+
+    resp = await client.get("/api/v1/quizzes/sessions/current")
+    assert resp.json()["id"] == str(newer.id)
+
+
+async def test_current_session_skips_sessions_with_no_questions(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """A question-less session must not shadow a real quiz.
+
+    A generation run whose questions were all filtered out used to leave an
+    empty session behind; being the newest, it became the current quiz and
+    the page showed nothing to answer.
+    """
+    real = await _create_quiz_session(db_session)
+    empty = QuizSession(status=QuizSessionStatus.PENDING, question_count=0)
+    db_session.add(empty)
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/quizzes/sessions/current")
+    assert resp.json()["id"] == str(real.id)
+
+
 async def test_submit_answer(client: AsyncClient, db_session: AsyncSession):
     """Submit an answer to a quiz question."""
     session = await _create_quiz_session(db_session, num_questions=1)
