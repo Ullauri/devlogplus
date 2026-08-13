@@ -117,32 +117,15 @@ async def _create_evaluated_project(
 
 async def test_determine_difficulty_applies_positive_adjustment(db_session: AsyncSession):
     """_determine_difficulty must add difficulty_adjustment=+1 to last_difficulty."""
-    project = await _create_evaluated_project(
-        db_session, difficulty_level=5, difficulty_adjustment=1
-    )
+    await _create_evaluated_project(db_session, difficulty_level=5, difficulty_adjustment=1)
 
-    # list_projects will return this project; we also need evaluation to be loaded.
-    # Patch list_projects to return a project with evaluation eagerly loaded.
-    from sqlalchemy import select as sa_select
-    from sqlalchemy.orm import selectinload
+    # Go through the real list_projects — patching it would hide whether the
+    # service eager-loads `evaluation` (a lazy load here raises greenlet_spawn).
+    db_session.expunge_all()
 
-    stmt = (
-        sa_select(WeeklyProject)
-        .options(selectinload(WeeklyProject.evaluation))
-        .where(WeeklyProject.id == project.id)
-    )
-    result = await db_session.execute(stmt)
-    loaded_project = result.scalar_one()
-
-    with (
-        patch(
-            "backend.app.pipelines.project_pipeline.project_svc.list_projects",
-            new=AsyncMock(return_value=[loaded_project]),
-        ),
-        patch(
-            "backend.app.pipelines.project_pipeline.onboarding_svc.get_onboarding_state",
-            new=AsyncMock(return_value=None),
-        ),
+    with patch(
+        "backend.app.pipelines.project_pipeline.onboarding_svc.get_onboarding_state",
+        new=AsyncMock(return_value=None),
     ):
         difficulty = await _determine_difficulty(db_session)
 
@@ -151,30 +134,12 @@ async def test_determine_difficulty_applies_positive_adjustment(db_session: Asyn
 
 async def test_determine_difficulty_zero_adjustment_unchanged(db_session: AsyncSession):
     """_determine_difficulty must return last_difficulty unchanged when adjustment=0."""
-    project = await _create_evaluated_project(
-        db_session, difficulty_level=5, difficulty_adjustment=0
-    )
+    await _create_evaluated_project(db_session, difficulty_level=5, difficulty_adjustment=0)
+    db_session.expunge_all()
 
-    from sqlalchemy import select as sa_select
-    from sqlalchemy.orm import selectinload
-
-    stmt = (
-        sa_select(WeeklyProject)
-        .options(selectinload(WeeklyProject.evaluation))
-        .where(WeeklyProject.id == project.id)
-    )
-    result = await db_session.execute(stmt)
-    loaded_project = result.scalar_one()
-
-    with (
-        patch(
-            "backend.app.pipelines.project_pipeline.project_svc.list_projects",
-            new=AsyncMock(return_value=[loaded_project]),
-        ),
-        patch(
-            "backend.app.pipelines.project_pipeline.onboarding_svc.get_onboarding_state",
-            new=AsyncMock(return_value=None),
-        ),
+    with patch(
+        "backend.app.pipelines.project_pipeline.onboarding_svc.get_onboarding_state",
+        new=AsyncMock(return_value=None),
     ):
         difficulty = await _determine_difficulty(db_session)
 
@@ -203,27 +168,11 @@ async def test_determine_difficulty_missing_key_defaults_to_zero(db_session: Asy
     )
     db_session.add(evaluation)
     await db_session.flush()
+    db_session.expunge_all()
 
-    from sqlalchemy import select as sa_select
-    from sqlalchemy.orm import selectinload
-
-    stmt = (
-        sa_select(WeeklyProject)
-        .options(selectinload(WeeklyProject.evaluation))
-        .where(WeeklyProject.id == project.id)
-    )
-    result = await db_session.execute(stmt)
-    loaded_project = result.scalar_one()
-
-    with (
-        patch(
-            "backend.app.pipelines.project_pipeline.project_svc.list_projects",
-            new=AsyncMock(return_value=[loaded_project]),
-        ),
-        patch(
-            "backend.app.pipelines.project_pipeline.onboarding_svc.get_onboarding_state",
-            new=AsyncMock(return_value=None),
-        ),
+    with patch(
+        "backend.app.pipelines.project_pipeline.onboarding_svc.get_onboarding_state",
+        new=AsyncMock(return_value=None),
     ):
         difficulty = await _determine_difficulty(db_session)
 
