@@ -44,9 +44,19 @@ async def get_current_project(db: AsyncSession) -> WeeklyProject | None:
 async def list_projects(
     db: AsyncSession, *, offset: int = 0, limit: int = 20
 ) -> list[WeeklyProject]:
-    """List weekly projects (most recent first)."""
+    """List weekly projects (most recent first).
+
+    ``evaluation`` is eager-loaded: callers reach for it (the project pipeline
+    reads the last evaluation's difficulty adjustment), and a lazy load on an
+    AsyncSession raises ``greenlet_spawn has not been called`` rather than
+    quietly emitting a query.
+    """
     stmt = (
-        select(WeeklyProject).order_by(WeeklyProject.issued_at.desc()).offset(offset).limit(limit)
+        select(WeeklyProject)
+        .options(selectinload(WeeklyProject.evaluation))
+        .order_by(WeeklyProject.issued_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())
