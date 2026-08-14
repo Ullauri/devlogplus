@@ -7,6 +7,7 @@ discard the status=failed write, leaving the log stuck at status=started.
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from string import Formatter
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -15,6 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.base import (
+    FeedbackReaction,
+    FeedbackTargetType,
     PipelineStatus,
     PipelineType,
     ProjectStatus,
@@ -28,7 +31,9 @@ from backend.app.models.settings import ProcessingLog
 from backend.app.pipelines import profile_update as profile_update_pipeline
 from backend.app.pipelines import quiz_pipeline
 from backend.app.pipelines.project_pipeline import _determine_difficulty, _format_avoid_titles
-from backend.app.prompts import project_generation
+from backend.app.prompts import project_generation, quiz_generation
+from backend.app.schemas.feedback import FeedbackCreate
+from backend.app.services import feedback as feedback_svc
 from backend.app.services import pipelines as pipelines_svc
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -407,6 +412,195 @@ async def test_generate_quiz_creates_no_session_when_nothing_is_stored(
     assert log.status == PipelineStatus.COMPLETED
     assert (log.metadata_ or {})["stored"] == 0
     assert (log.metadata_ or {})["session_id"] is None
+
+
+async def _seed_asked_quiz(db_session: AsyncSession, *texts: str) -> QuizSession:
+    """A past session whose questions carry no feedback of any kind."""
+    session = QuizSession(status=QuizSessionStatus.EVALUATED, question_count=len(texts))
+    db_session.add(session)
+    await db_session.flush()
+    for i, text in enumerate(texts):
+        db_session.add(
+            QuizQuestion(
+                session_id=session.id,
+                question_text=text,
+                question_type=QuizQuestionType.REINFORCEMENT,
+                order_index=i,
+            )
+        )
+    await db_session.flush()
+    return session
+
+
+async def test_generate_quiz_tells_the_model_what_it_already_asked(
+    db_session: AsyncSession,
+):
+    """Recently-asked questions must reach the prompt's avoid-list.
+
+    Regression: the avoid-list was built only from thumbs-up'd and
+    thumbs-down'd questions, so a quiz the user answered in full and never
+    rated left no trace. The next run re-derived the same topics from the same
+    profile and the user was served the quiz they had just completed, reworded.
+    """
+    await _seed_asked_quiz(db_session, "Explain Aurora failover", "What does an ELB do?")
+
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.generate_quiz(db_session)
+
+    prompt = mock_llm.await_args.kwargs["messages"][1]["content"]
+    assert "Explain Aurora failover" in prompt
+    assert "What does an ELB do?" in prompt
+
+
+async def test_generate_quiz_skips_a_verbatim_repeat_of_a_recent_question(
+    db_session: AsyncSession,
+):
+    """The filter is belt-and-braces for when the model ignores the avoid-list."""
+    await _seed_asked_quiz(db_session, "Explain Aurora failover")
+
+    mock_llm = AsyncMock(
+        return_value={
+            "questions": [
+                {
+                    "question_text": "Explain Aurora failover",
+                    "question_type": "reinforcement",
+                    "target_topic": "Aurora",
+                    "difficulty_rationale": "repeat",
+                    "reference_answer": "…",
+                },
+                {
+                    "question_text": "How does pgvector index embeddings?",
+                    "question_type": "exploration",
+                    "target_topic": "pgvector",
+                    "difficulty_rationale": "new ground",
+                    "reference_answer": "…",
+                },
+            ]
+        }
+    )
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        session = await quiz_pipeline.generate_quiz(db_session)
+
+    assert session is not None
+    stmt = select(QuizQuestion).where(QuizQuestion.session_id == session.id)
+    questions = (await db_session.execute(stmt)).scalars().all()
+    assert [q.question_text for q in questions] == ["How does pgvector index embeddings?"]
+
+    log = (
+        (
+            await db_session.execute(
+                select(ProcessingLog).where(ProcessingLog.pipeline == PipelineType.QUIZ_GENERATION)
+            )
+        )
+        .scalars()
+        .one()
+    )
+    assert (log.metadata_ or {})["skipped_recently_asked"] == 1
+
+
+async def test_rated_questions_survive_the_avoid_list_cap(db_session: AsyncSession):
+    """A thumbs-down must never be crowded out of the prompt by recency.
+
+    The listing is capped so a large history cannot grow the prompt without
+    bound, but rating a question is a deliberate act and the rated sets are
+    small. An earlier cut truncated the sorted union, which dropped rated
+    questions alphabetically.
+    """
+    padding = [f"Padding question number {i:03d}?" for i in range(80)]
+    await _seed_asked_quiz(db_session, *padding)
+
+    disliked_session = await _seed_asked_quiz(db_session, "zzz never ask me this again")
+    disliked_q = (
+        (
+            await db_session.execute(
+                select(QuizQuestion).where(QuizQuestion.session_id == disliked_session.id)
+            )
+        )
+        .scalars()
+        .one()
+    )
+    await feedback_svc.create_feedback(
+        db_session,
+        FeedbackCreate(
+            target_type=FeedbackTargetType.QUIZ_QUESTION,
+            target_id=disliked_q.id,
+            reaction=FeedbackReaction.THUMBS_DOWN,
+        ),
+    )
+
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.generate_quiz(db_session)
+
+    prompt = mock_llm.await_args.kwargs["messages"][1]["content"]
+    assert "zzz never ask me this again" in prompt
+    # …and the cap still bounded the block rather than listing all 81.
+    avoid_block = prompt.split("## Avoid near-duplicates")[1].split("## Recently covered")[0]
+    assert avoid_block.count("\n- ") <= quiz_pipeline._MAX_AVOID_QUESTIONS_IN_PROMPT
+
+
+async def test_generate_quiz_lists_recently_covered_topics_separately(
+    db_session: AsyncSession,
+):
+    """Topics get their own steering block — the observed repeat was topical."""
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.generate_quiz(db_session)
+
+    prompt = mock_llm.await_args.kwargs["messages"][1]["content"]
+    assert "Recently covered topics" in prompt
+
+
+async def test_generate_quiz_retries_once_on_malformed_json(db_session: AsyncSession):
+    """One bad draw must not cost the user the whole weekly quiz."""
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.generate_quiz(db_session)
+
+    assert mock_llm.await_args.kwargs["json_retries"] == 1
+
+
+async def test_quiz_prompt_placeholders_are_pinned():
+    """Every caller of this template must supply every placeholder.
+
+    ``str.format`` raises KeyError on a missing one, and the callers outside
+    the pipeline are the ``make eval`` nodes — which cost real money to run,
+    so nothing in the normal test loop executes them. Two of them had already
+    drifted, missing ``avoid_questions`` and ``liked_directions``, and would
+    have raised on the next eval run.
+
+    Adding a placeholder means updating:
+      - backend/app/pipelines/quiz_pipeline.py
+      - backend/scripts/evaluations/nodes/eval_quiz_generation.py
+      - backend/scripts/evaluations/nodes/eval_e2e_userflow.py
+    """
+    placeholders = {
+        name for _, name, _, _ in Formatter().parse(quiz_generation.USER_PROMPT_TEMPLATE) if name
+    }
+    assert placeholders == {
+        "profile_summary",
+        "feedforward_signals",
+        "avoid_questions",
+        "recent_topics",
+        "liked_directions",
+        "question_count",
+    }
 
 
 async def test_evaluate_quiz_requests_a_scaled_token_budget(db_session: AsyncSession):

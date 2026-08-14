@@ -16,6 +16,7 @@ import pytest
 from backend.app.services.llm.client import (
     EmptyLLMResponseError,
     LLMJSONError,
+    OpenRouterClient,
     _extract_message_content,
     _parse_json_content,
     _raise_for_status_with_body,
@@ -303,6 +304,33 @@ def test_offset_comes_from_the_furthest_candidate_not_the_first() -> None:
     assert _reported_offset(message) > 0
 
 
+def test_offset_survives_an_earlier_control_character() -> None:
+    """The salvage pass forgives control characters, so its failure is the real one.
+
+    Regression, from a live quiz_generation response: a raw newline inside a
+    reference answer at char 12209 and a genuine break at char 14509, where
+    the model wrote ``"reference_answer="`` for ``"reference_answer": "``.
+    Ranking strict failures only meant the message blamed the newline the
+    salvage pass had already forgiven, and the run looked like a parser bug
+    rather than a bad draw.
+    """
+    content = (
+        '{"questions": [\n'
+        '  {"reference_answer": "Two points:\nsecond line here"},\n'
+        '  {"reference_answer"="missing the colon and quote"}\n'
+        "]}"
+    )
+    control_char_offset = content.index("Two points:")
+
+    with pytest.raises(LLMJSONError) as excinfo:
+        _parse_json_content(content, _completion(), model="m", pipeline="quiz_generation")
+
+    message = str(excinfo.value)
+    assert "malformed-JSON failure" in message
+    # The `=` is the break that no leniency can rescue; the newline is not.
+    assert _reported_offset(message) > control_char_offset
+
+
 def test_truncated_response_still_blames_max_tokens_not_the_json() -> None:
     """finish_reason=length keeps its own hint — a truncated object is also
     malformed, and the offset would be a red herring there."""
@@ -314,3 +342,73 @@ def test_truncated_response_still_blames_max_tokens_not_the_json() -> None:
     message = str(excinfo.value)
     assert "truncated at max_tokens" in message
     assert "malformed-JSON failure" not in message
+
+
+# ── Retrying a bad draw ─────────────────────────────────────────────────────
+# Malformed JSON in a long response is a sampling accident, not a property of
+# the prompt. Without a retry, one bad token costs the caller its whole result
+# — for quiz_generation, the user's weekly quiz, with nothing on the page to
+# say why it did not appear.
+
+
+def _json_completion(content: str) -> dict[str, object]:
+    return {
+        "choices": [{"finish_reason": "stop", "message": {"content": content}}],
+        "usage": {},
+    }
+
+
+async def test_chat_completion_json_retries_a_malformed_draw(monkeypatch) -> None:
+    client = OpenRouterClient()
+    responses = [
+        _json_completion('{"questions": [{"a": 1},]}'),  # trailing comma
+        _json_completion('{"questions": [{"a": 1}]}'),
+    ]
+    calls: list[dict] = []
+
+    async def fake_chat_completion(**kwargs):
+        calls.append(kwargs)
+        return responses[len(calls) - 1]
+
+    monkeypatch.setattr(client, "chat_completion", fake_chat_completion)
+
+    parsed = await client.chat_completion_json(
+        pipeline="quiz_generation", messages=[], json_retries=1
+    )
+
+    assert parsed == {"questions": [{"a": 1}]}
+    assert len(calls) == 2
+
+
+async def test_chat_completion_json_gives_up_after_the_last_retry(monkeypatch) -> None:
+    """The error still reaches the caller — a retry budget is not a swallow."""
+    client = OpenRouterClient()
+    calls: list[dict] = []
+
+    async def fake_chat_completion(**kwargs):
+        calls.append(kwargs)
+        return _json_completion('{"questions": [{"a": 1},]}')
+
+    monkeypatch.setattr(client, "chat_completion", fake_chat_completion)
+
+    with pytest.raises(LLMJSONError):
+        await client.chat_completion_json(pipeline="quiz_generation", messages=[], json_retries=1)
+
+    assert len(calls) == 2
+
+
+async def test_chat_completion_json_does_not_retry_by_default(monkeypatch) -> None:
+    """Callers opt in. A truncation would only repeat at double the cost."""
+    client = OpenRouterClient()
+    calls: list[dict] = []
+
+    async def fake_chat_completion(**kwargs):
+        calls.append(kwargs)
+        return _json_completion('{"questions": [{"a": 1},]}')
+
+    monkeypatch.setattr(client, "chat_completion", fake_chat_completion)
+
+    with pytest.raises(LLMJSONError):
+        await client.chat_completion_json(pipeline="quiz_generation", messages=[])
+
+    assert len(calls) == 1

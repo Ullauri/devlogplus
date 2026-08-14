@@ -45,13 +45,29 @@ that question — take the reaction into account.
 ## Avoid-list
 
 Questions listed under "Avoid near-duplicates" must NOT be re-asked or
-closely paraphrased. The list contains both:
-- Questions the user thumbs-down'd (they rejected them), AND
+closely paraphrased. The list contains:
+- Questions the user thumbs-down'd (they rejected them),
 - Questions the user thumbs-up'd (they already engaged with them — re-asking
-  yields little new signal).
+  yields little new signal), AND
+- Questions from recent quizzes, whether or not the user reacted to them.
 
-In both cases, pick a different angle on the topic or a different topic
-entirely.
+In every case, pick a different angle on the topic or a different topic
+entirely. "Different angle" means a genuinely different question — rewording
+the same question, or asking the same underlying thing about the same topic
+in a new sentence, still counts as a repeat.
+
+## Recently covered topics — steer away, not banned
+
+The "Recently covered topics" block lists topics the last several quizzes
+already drew on. Prefer topics that are NOT on that list.
+
+This is a strong preference, not a prohibition. If the user's profile is
+narrow enough that avoiding those topics entirely would mean generating
+fewer than the requested number of questions, it is better to revisit a
+listed topic from a materially different angle — a different sub-area, a
+different level of abstraction, or a practical scenario where the last
+question was conceptual — than to return fewer questions. Never return an
+empty list because everything looked too similar.
 
 ## Positive signals — directional, NOT prescriptive
 
@@ -122,9 +138,13 @@ USER_PROMPT_TEMPLATE = """\
 
 {feedforward_signals}
 
-## Avoid near-duplicates (previously thumbs-down'd OR already-asked & liked)
+## Avoid near-duplicates (thumbs-down'd, already-liked, OR recently asked)
 
 {avoid_questions}
+
+## Recently covered topics (last several quizzes — prefer something else)
+
+{recent_topics}
 
 ## Liked directions (thumbs-up'd in the past — lean toward, do NOT repeat)
 

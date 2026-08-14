@@ -25,9 +25,16 @@ from backend.scripts.evaluations.harness import EvalHarness, load_fixture, run_a
 # ---------------------------------------------------------------------------
 async def call_quiz_generation(input_data: dict[str, Any]) -> dict[str, Any]:
     """Invoke the quiz_generation node and return parsed output."""
+    # Every placeholder must be supplied or ``format`` raises KeyError. The
+    # fixture carries only profile and feedforward, so the signal blocks the
+    # pipeline builds from the database default to the same "None" it sends
+    # when there is nothing to report.
     prompt = quiz_generation.USER_PROMPT_TEMPLATE.format(
         profile_summary=input_data["profile_summary"],
         feedforward_signals=input_data["feedforward_signals"],
+        avoid_questions=input_data.get("avoid_questions", "None"),
+        recent_topics=input_data.get("recent_topics", "None"),
+        liked_directions=input_data.get("liked_directions", "None"),
         question_count=input_data["question_count"],
     )
 
