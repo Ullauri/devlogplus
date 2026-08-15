@@ -698,3 +698,113 @@ describe("QuizPage — review past session", () => {
     expect(mockGetSession).toHaveBeenCalledWith("s1");
   });
 });
+
+describe("QuizPage — history is reachable alongside a current quiz", () => {
+  // A quiz now holds the current slot until it is submitted, and the history
+  // list used to render only when there was no current quiz. One unfinished
+  // quiz therefore hid every graded quiz behind it — and the grades are the
+  // reason to open this page at all.
+  const currentSession = {
+    id: "s2",
+    status: "pending",
+    question_count: 1,
+    created_at: "2026-01-02T00:00:00Z",
+    questions: [
+      {
+        id: "q1",
+        question_text: "Explain goroutines",
+        question_type: "free_text",
+        order_index: 0,
+      },
+    ],
+  };
+
+  const gradedSession = {
+    id: "s1",
+    status: "evaluated",
+    question_count: 2,
+    created_at: "2026-01-01T00:00:00Z",
+    completed_at: "2026-01-01T12:00:00Z",
+    questions: [
+      {
+        id: "gq1",
+        question_text: "What is a channel?",
+        question_type: "free_text",
+        order_index: 0,
+        answer: { answer_text: "A pipe" },
+        evaluation: {
+          correctness: "partial",
+          explanation: "Partially correct.",
+        },
+        reference_answer: "A typed conduit between goroutines.",
+      },
+    ],
+  };
+
+  it("lists past sessions while a current quiz is on screen", async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s2",
+        status: "pending",
+        question_count: 1,
+        created_at: "2026-01-02T00:00:00Z",
+      },
+      {
+        id: "s1",
+        status: "evaluated",
+        question_count: 2,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockResolvedValue(currentSession);
+
+    renderWithRouter(<QuizPage />);
+
+    // The current quiz renders…
+    await waitFor(() => screen.getByText(/Explain goroutines/));
+    // …and so does the history below it.
+    expect(screen.getByText("Past Sessions")).toBeInTheDocument();
+    expect(screen.getByText(/2 questions/)).toBeInTheDocument();
+  });
+
+  it("opens a graded past session from under a current quiz", async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s1",
+        status: "evaluated",
+        question_count: 2,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockResolvedValue(currentSession);
+    mockGetSession.mockResolvedValue(gradedSession);
+    const user = userEvent.setup();
+
+    renderWithRouter(<QuizPage />);
+    await waitFor(() => screen.getByText("Past Sessions"));
+
+    await user.click(screen.getByText(/2 questions/).closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Quiz Results")).toBeInTheDocument();
+    });
+    expect(mockGetSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("marks which history row is the current quiz", async () => {
+    mockListSessions.mockResolvedValue([
+      {
+        id: "s2",
+        status: "pending",
+        question_count: 1,
+        created_at: "2026-01-02T00:00:00Z",
+      },
+    ]);
+    mockGetCurrent.mockResolvedValue(currentSession);
+
+    renderWithRouter(<QuizPage />);
+
+    await waitFor(() => screen.getByText("Past Sessions"));
+    expect(screen.getByText(/· current/)).toBeInTheDocument();
+  });
+});

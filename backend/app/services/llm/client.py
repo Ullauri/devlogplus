@@ -134,10 +134,17 @@ def _parse_json_content(
             seen.add(candidate)
             candidates.append(candidate)
 
-    # The furthest-reaching strict failure, kept for the error message. Position
-    # is the right ranking: the earliest candidates are deliberately loose
-    # readings that die at char 0 on the opening fence, and reporting that
-    # instead of the real defect is what makes these failures opaque.
+    # The furthest-reaching failure of any pass, kept for the error message.
+    # Position is the right ranking: the earliest candidates are deliberately
+    # loose readings that die at char 0 on the opening fence, and reporting
+    # that instead of the real defect is what makes these failures opaque.
+    #
+    # Both passes count. Ranking strict failures only meant that whenever the
+    # salvage pass got further — which is its whole purpose — the reported
+    # cause was the control character it had already forgiven, not the defect
+    # that actually sank the parse. One real case: a response reported as
+    # "invalid control character at char 12209" was in truth rejected at char
+    # 14509, where the model wrote `"reference_answer="` for `"reference_answer": "`.
     deepest: tuple[str, json.JSONDecodeError] | None = None
 
     # Strict first, so a well-formed response is parsed exactly as sent. The
@@ -150,7 +157,7 @@ def _parse_json_content(
             try:
                 parsed = json.loads(candidate, strict=strict)
             except json.JSONDecodeError as exc:
-                if strict and (deepest is None or exc.pos > deepest[1].pos):
+                if deepest is None or exc.pos > deepest[1].pos:
                     deepest = (candidate, exc)
                 continue
             if isinstance(parsed, dict):
@@ -331,18 +338,42 @@ class OpenRouterClient:
         messages: list[dict[str, str]],
         temperature: float = 0.3,
         max_tokens: int = 4096,
+        json_retries: int = 0,
     ) -> dict[str, Any]:
-        """Convenience: parse the assistant's response as JSON."""
-        result = await self.chat_completion(
-            pipeline=pipeline,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-        )
+        """Convenience: parse the assistant's response as JSON.
+
+        ``json_retries`` re-requests on a malformed-JSON failure. Sampling is
+        what produces these — a long response where one key came out as
+        ``"reference_answer="`` — so the same prompt usually parses on the next
+        draw, and without a retry a single bad token costs the caller its whole
+        result. Only :class:`LLMJSONError` is retried: a truncation
+        (``finish_reason=length``) or an empty response is a budget problem
+        that a second identical request would only repeat, at double the cost.
+        """
         model = settings.model_for_pipeline(pipeline)
-        content = _extract_message_content(result, model=model, pipeline=pipeline)
-        return _parse_json_content(content, result, model=model, pipeline=pipeline)
+        attempts = max(json_retries, 0) + 1
+        for attempt in range(attempts):
+            result = await self.chat_completion(
+                pipeline=pipeline,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+            )
+            content = _extract_message_content(result, model=model, pipeline=pipeline)
+            try:
+                return _parse_json_content(content, result, model=model, pipeline=pipeline)
+            except LLMJSONError:
+                if attempt + 1 >= attempts:
+                    raise
+                logger.warning(
+                    "Malformed JSON from pipeline=%s model=%s — retrying (attempt %d of %d).",
+                    pipeline,
+                    model,
+                    attempt + 2,
+                    attempts,
+                )
+        raise AssertionError("unreachable: loop returns or raises")  # pragma: no cover
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""

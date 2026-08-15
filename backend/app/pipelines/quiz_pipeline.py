@@ -62,6 +62,22 @@ _QUIZ_GENERATION_TOKENS_PER_QUESTION = 1600
 _QUIZ_EVALUATION_BASE_TOKENS = 2048
 _QUIZ_EVALUATION_TOKENS_PER_ANSWER = 1200
 
+# How many recent sessions count as "already asked".
+#
+# Feedback is the wrong signal for this on its own: it only covers the handful
+# of questions someone bothered to rate, so a quiz answered start to finish
+# without a single thumbs-up left no trace and the next run re-derived the same
+# topics from the same profile. Quizzes are weekly, so six sessions is about a
+# month and a half — long enough that a topic does not come back before the
+# user has forgotten the last question on it, short enough that a modest
+# profile still has somewhere to go.
+_RECENT_SESSION_WINDOW = 6
+
+# Ceilings on what these signals contribute to the prompt, so raising
+# `quiz_question_count` cannot grow the blocks without bound.
+_MAX_AVOID_QUESTIONS_IN_PROMPT = 60
+_MAX_RECENT_TOPICS_IN_PROMPT = 25
+
 
 def _budgeted_max_tokens(base: int, per_item: int, item_count: int) -> int:
     """Scale a token budget with the item count, clamped to a sane ceiling.
@@ -85,6 +101,57 @@ async def _load_question_lookup(
 def _truncate(text: str, n: int = 140) -> str:
     text = text.strip().replace("\n", " ")
     return text if len(text) <= n else text[: n - 1] + "…"
+
+
+async def _load_recent_questions(
+    db: AsyncSession, *, session_window: int = _RECENT_SESSION_WINDOW
+) -> list[QuizQuestion]:
+    """Questions from the most recent sessions, newest session first.
+
+    These are the questions the user has already *been asked*, regardless of
+    whether they reacted to any of them — the signal the avoid-list was
+    missing.
+    """
+    recent_session_ids = (
+        select(QuizSession.id)
+        .where(QuizSession.questions.any())
+        .order_by(QuizSession.created_at.desc())
+        .limit(session_window)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(QuizQuestion)
+        .join(QuizSession, QuizQuestion.session_id == QuizSession.id)
+        .where(QuizQuestion.session_id.in_(recent_session_ids))
+        .order_by(QuizSession.created_at.desc(), QuizQuestion.order_index)
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+def _format_recent_topics(
+    recent_questions: list[QuizQuestion],
+    max_items: int = _MAX_RECENT_TOPICS_IN_PROMPT,
+) -> str:
+    """List the topics recent quizzes already covered, most recent first.
+
+    Steering, not a ban. The observed failure was topical rather than literal
+    — the same ground reworded — but hard-refusing every recent topic would
+    starve a small profile, and a generation run that returns nothing is worse
+    than one that repeats itself.
+    """
+    seen: list[str] = []
+    lowered: set[str] = set()
+    for q in recent_questions:
+        name = (q.topic_name or "").strip()
+        key = name.casefold()
+        if not name or key in lowered:
+            continue
+        lowered.add(key)
+        seen.append(name)
+        if len(seen) >= max_items:
+            break
+    return "\n".join(f"- {name}" for name in seen) or "None"
 
 
 async def _load_topic_name_lookup(db: AsyncSession) -> dict[str, uuid.UUID]:
@@ -215,11 +282,32 @@ async def generate_quiz(
         liked_questions = list(liked_q_lookup.values())
         liked_q_texts = {q.question_text.strip() for q in liked_questions}
 
-        # Combined hard-avoid set: disliked + already-liked question texts.
-        # Both are dead-ends for re-asking, just for opposite reasons.
-        avoid_q_texts = disliked_q_texts | liked_q_texts
+        # Questions from recent sessions — asked already, reacted to or not.
+        # Without these the avoid-list saw only rated questions, so a quiz the
+        # user answered in full and never rated taught the next run nothing.
+        recent_questions = await _load_recent_questions(db)
+        recent_q_texts = {q.question_text.strip() for q in recent_questions}
+        recent_topics_text = _format_recent_topics(recent_questions)
+
+        # Three hard-avoid sets — disliked, already-liked, recently asked — all
+        # dead-ends for re-asking, for different reasons. The filter below
+        # checks each in full; only this prompt listing is capped.
+        #
+        # Rated questions are listed first and never dropped by the cap:
+        # rating one is a deliberate act, the sets are small, and truncating a
+        # sorted union would have discarded them alphabetically. Recent
+        # questions fill whatever budget is left, newest session first.
+        rated_avoid = sorted(disliked_q_texts | liked_q_texts)
+        recent_avoid: list[str] = []
+        listed: set[str] = disliked_q_texts | liked_q_texts
+        for q in recent_questions:
+            text = q.question_text.strip()
+            if text not in listed:
+                listed.add(text)
+                recent_avoid.append(text)
+        budget = max(_MAX_AVOID_QUESTIONS_IN_PROMPT - len(rated_avoid), 0)
         avoid_questions_text = (
-            "\n".join(f"- {_truncate(t)}" for t in sorted(avoid_q_texts)) or "None"
+            "\n".join(f"- {_truncate(t)}" for t in rated_avoid + recent_avoid[:budget]) or "None"
         )
         liked_directions_text = _format_liked_question_directions(liked_questions)
 
@@ -247,6 +335,7 @@ async def generate_quiz(
             profile_summary=profile_summary,
             feedforward_signals=feedforward_text,
             avoid_questions=avoid_questions_text,
+            recent_topics=recent_topics_text,
             liked_directions=liked_directions_text,
             question_count=question_count,
         )
@@ -262,9 +351,21 @@ async def generate_quiz(
                 _QUIZ_GENERATION_TOKENS_PER_QUESTION,
                 question_count,
             ),
+            # A quiz is a long JSON object, so it is the most exposed to a
+            # single malformed key, and a failure here costs the user their
+            # whole weekly quiz with nothing on the page to say why.
+            json_retries=1,
         )
 
         gen_result = QuizGenerationResult.model_validate(raw_result)
+        if not gen_result.questions:
+            # ``questions`` defaults to [], so a response shaped differently
+            # than asked parses cleanly into zero questions. Saying so here
+            # separates "the model returned none" from "the filters took them".
+            logger.warning(
+                "Quiz generation returned no questions at all (top-level keys: %s)",
+                sorted(raw_result) or "<empty object>",
+            )
 
         # Build a lookup so we can resolve LLM-supplied `target_topic` labels
         # back to Knowledge Profile Topic.id values.
@@ -279,6 +380,7 @@ async def generate_quiz(
         # part-way through.
         skipped_disliked = 0
         skipped_already_liked = 0
+        skipped_recently_asked = 0
         skipped_duplicate_topic = 0
         seen_topics: set[str] = set()
         accepted: list[dict] = []
@@ -296,6 +398,13 @@ async def generate_quiz(
             if text_key in liked_q_texts:
                 logger.info("Skipping already-liked question: %s", _truncate(text_key))
                 skipped_already_liked += 1
+                continue
+
+            # Verbatim repeat of something a recent quiz already asked. Only
+            # catches exact text — the reworded case is the prompt's job.
+            if text_key in recent_q_texts:
+                logger.info("Skipping recently-asked question: %s", _truncate(text_key))
+                skipped_recently_asked += 1
                 continue
 
             # Diversity guard: refuse a second question targeting the same
@@ -353,6 +462,7 @@ async def generate_quiz(
                 "stored": 0,
                 "skipped_disliked": skipped_disliked,
                 "skipped_already_liked": skipped_already_liked,
+                "skipped_recently_asked": skipped_recently_asked,
                 "skipped_duplicate_topic": skipped_duplicate_topic,
                 "distinct_topics": 0,
                 "question_count": 0,
@@ -382,6 +492,7 @@ async def generate_quiz(
             "stored": stored_count,
             "skipped_disliked": skipped_disliked,
             "skipped_already_liked": skipped_already_liked,
+            "skipped_recently_asked": skipped_recently_asked,
             "skipped_duplicate_topic": skipped_duplicate_topic,
             "distinct_topics": len(seen_topics),
             # Kept for backwards-compat with anything reading the old key.

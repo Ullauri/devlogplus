@@ -179,6 +179,40 @@ export default function QuizPage() {
     </div>
   );
 
+  // Past sessions render below the current quiz as well as instead of it.
+  // Gating this on `!current` meant an unfinished quiz — which now keeps the
+  // current slot until it is submitted — hid every graded quiz behind it, and
+  // the grades are the reason to come back to this page at all.
+  const renderPastSessions = () => {
+    if (sessions.length === 0) return null;
+    return (
+      <div className="mt-8">
+        <h2 className="mb-2 text-lg font-semibold">Past Sessions</h2>
+        <div className="space-y-2">
+          {sessions.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => openReview(s.id)}
+              className="w-full cursor-pointer rounded border border-gray-200 bg-white p-3 text-left text-sm transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-brand-700 dark:hover:bg-brand-900/30"
+            >
+              <span className="font-medium">
+                {new Date(s.created_at).toLocaleDateString()}
+              </span>
+              <span className="ml-2 text-gray-500 dark:text-gray-400">
+                {s.question_count} questions · {s.status}
+              </span>
+              {s.id === current?.id && (
+                <span className="ml-2 text-xs text-brand-600 dark:text-brand-400">
+                  · current
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   // Score summary for evaluated sessions
   const renderScoreSummary = (questions: QuizQuestion[]) => {
     const evaluated = questions.filter((q) => q.evaluation);
@@ -337,27 +371,7 @@ export default function QuizPage() {
               />
             </div>
           )}
-          {sessions.length > 0 && (
-            <div>
-              <h2 className="mb-2 text-lg font-semibold">Past Sessions</h2>
-              <div className="space-y-2">
-                {sessions.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => openReview(s.id)}
-                    className="w-full cursor-pointer rounded border border-gray-200 bg-white p-3 text-left text-sm transition-colors hover:border-brand-300 hover:bg-brand-50 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-brand-700 dark:hover:bg-brand-900/30"
-                  >
-                    <span className="font-medium">
-                      {new Date(s.created_at).toLocaleDateString()}
-                    </span>
-                    <span className="ml-2 text-gray-500 dark:text-gray-400">
-                      {s.question_count} questions · {s.status}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {renderPastSessions()}
         </div>
       ) : (
         <div>
@@ -379,6 +393,8 @@ export default function QuizPage() {
           <div className="space-y-4">
             {current.questions.map((q, i) => renderQuestionCard(q, i, false))}
           </div>
+
+          {renderPastSessions()}
         </div>
       )}
     </div>

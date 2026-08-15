@@ -107,9 +107,15 @@ async def _call_quiz_generation(
     question_count: int,
 ) -> dict[str, Any]:
     """Stage 3: Generate quiz questions from the updated profile."""
+    # Every placeholder must be supplied or ``format`` raises KeyError. This
+    # flow has no database behind it, so the signal blocks the pipeline builds
+    # from one default to the "None" it sends when there is nothing to report.
     prompt = quiz_gen_prompts.USER_PROMPT_TEMPLATE.format(
         profile_summary=profile_summary,
         feedforward_signals=feedforward_signals,
+        avoid_questions="None",
+        recent_topics="None",
+        liked_directions="None",
         question_count=question_count,
     )
     raw = await llm_client.chat_completion_json(
