@@ -41,10 +41,60 @@ a 1.7 MB generated JSON conflict on every merge, and a baseline that moves per
 branch cannot answer "is this finding new". Branches may *read* it — that is
 what `truecourse analyze --diff` is for — but only the workflow writes it.
 
-**Deterministic rules only.** TrueCourse's LLM rules need either a signed-in
-`claude` binary or a provider API key. CI has neither, and a baseline whose
-contents depend on whether a secret happened to be present is not a baseline.
-`--no-llm` makes that explicit rather than incidental.
+**Deterministic rules only in the pipeline; LLM rules on demand.** The
+committed baseline is produced by `--no-llm`.
+
+Not because the LLM rules are unreachable. TrueCourse's `api` transport takes a
+`--base-url`, documented for gateways and naming OpenRouter among them, and its
+cost table is keyed by OpenRouter model ids — so the same OpenRouter account
+that already powers all seven pipelines drives the LLM rules too:
+
+```
+truecourse config llm setup --transport api --provider openai \
+  --base-url https://openrouter.ai/api/v1 \
+  --model anthropic/claude-sonnet-5 --api-key-env OPENROUTER_API_KEY
+```
+
+`make truecourse-llm-setup` is that command, and `make truecourse-llm` is the
+run. Three reasons that stays a manual target rather than a step in this
+workflow:
+
+- **Cost, on every merge, forever.** ~100 LLM rules over the repo per merge.
+  This repo already quarantines LLM spend deliberately — `make eval` is kept out
+  of the normal test loop for exactly this reason — and a pipeline that bills on
+  every merge is a bigger commitment than the value of a slightly deeper
+  baseline.
+- **A baseline's job is answering "is this finding new".** Deterministic rules
+  answer that exactly: same code, same findings. LLM rules can flap on unchanged
+  code, which puts churn in `git log -- .truecourse/LATEST.json` that is not a
+  code change. (This does not affect consumers that deduplicate on rule key —
+  the LLM rule keys are a fixed set — but it does degrade the baseline's own
+  claim.)
+- **Source egress.** Deterministic rules never leave the runner. LLM rules ship
+  source to a third party on every merge, which is a different posture from the
+  pipelines sending journal text, and deserves a deliberate yes rather than
+  arriving as a side effect of a CI change.
+
+An earlier draft of this ADR argued instead that "CI has neither a `claude`
+binary nor a key, and a baseline whose contents depend on whether a secret
+happened to be present is not a baseline". The premise is wrong: an
+`OPENROUTER_API_KEY` repository secret would be reliably present. The reasons
+above are the ones that actually hold.
+
+The gateway wiring is confirmed: run against OpenRouter with a deliberately
+invalid key, the probe comes back with OpenRouter's own `User not found` and
+refuses to save. The request was built, routed and parsed by OpenRouter — only
+auth failed, so a real key takes that path to completion.
+
+One thing remains unverified, and it is not auth. TrueCourse's `generateObject`
+path submits strict `json_schema` structured outputs and **throws rather than
+degrading** when a schema cannot be enforced — its transport says so explicitly:
+"there is no silent degradation". OpenRouter forwards `response_format` to
+underlying providers whose support for strict schemas varies by route. If a rule
+fails that way it will fail loudly on the first real `make truecourse-llm`, which
+costs nothing but the run. Should it happen, `--model` is the knob:
+`make truecourse-llm TRUECOURSE_MODEL=openai/gpt-4o` picks a route with
+first-class structured-output support.
 
 **It is a signal, not a gate.** The workflow runs after the merge has already
 happened and does not fail on findings. Adding a severity gate to a repo with
@@ -66,7 +116,11 @@ deliberately, with a look at the diff.
   deduplicating against tasks already on file.
 - **+** `truecourse analyze --diff` works on a fresh clone or a new worktree
   immediately, because the baseline arrived with the checkout.
-- **+** No secrets, no API cost, no external service. The run is ~1 minute.
+- **+** No secrets, no API cost, no external service in the pipeline. The run is
+  ~1 minute.
+- **+** The deeper pass is still one command away when it is wanted:
+  `make truecourse-llm`, on the existing OpenRouter account, at a cost that is
+  incurred deliberately rather than per merge.
 - **−** A ~1.7 MB generated JSON is tracked, and it churns on most merges. It
   is one file, it is never hand-edited, and nothing merges it (only the
   workflow writes it), so the churn is confined to `git log` noise.
@@ -75,6 +129,9 @@ deliberately, with a look at the diff.
   design does not re-trigger workflows, so it cannot loop.
 - **−** The 922-finding backlog is now visible and unaddressed. That is the
   point — it was there before, and it was invisible.
-- **−** LLM rules and the `spec`/`guard` business-logic-drift track are not set
-  up. Both need an LLM transport and, for guard, a curated spec corpus; they are
-  separate decisions.
+- **−** A local `make truecourse` or `make truecourse-llm` rewrites the tracked
+  `.truecourse/LATEST.json`, so it shows as dirty and could be committed from a
+  branch by accident. `make truecourse-restore` puts it back, and both targets
+  print that as their last line.
+- **−** The `spec`/`guard` business-logic-drift track is not set up. It needs a
+  curated spec corpus on top of the LLM transport, and is a separate decision.
