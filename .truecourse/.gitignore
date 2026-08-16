@@ -1,0 +1,12 @@
+analyses/
+history.json
+diff.json
+ui-state.json
+logs/
+.analyze.lock
+.cache/
+contracts/result.json
+guard/runs/
+guard/result.json
+guard/auto-resolutions.json
+guard/evidence/

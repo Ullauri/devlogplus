@@ -29,3 +29,4 @@ that motivated it, the decision made, and the trade-offs accepted.
 | [0005](0005-openapi-spec-as-contract-with-prism.md) | OpenAPI spec as single source of truth (Prism contract testing) | Accepted |
 | [0006](0006-bdd-gherkin-for-scenario-tests.md) | BDD / Gherkin for end-to-end scenario tests | Accepted |
 | [0007](0007-native-dev-no-docker.md) | Native development, no Docker for local dev loop | Accepted |
+| [0008](0008-truecourse-analysis-baseline.md) | TrueCourse analysis baseline, refreshed on main and committed | Accepted |
