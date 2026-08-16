@@ -14,7 +14,11 @@ from datetime import UTC, date, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.config import settings
+from backend.app.config import (
+    READING_RECOMMENDATION_COUNT_MAX,
+    READING_RECOMMENDATION_COUNT_MIN,
+    settings,
+)
 from backend.app.models.base import (
     FeedbackTargetType,
     PipelineStatus,
@@ -25,6 +29,7 @@ from backend.app.models.reading import ReadingRecommendation
 from backend.app.models.settings import ProcessingLog
 from backend.app.prompts import reading_generation
 from backend.app.services import feedback as feedback_svc
+from backend.app.services import onboarding as onboarding_svc
 from backend.app.services import profile as profile_svc
 from backend.app.services import reading as reading_svc
 from backend.app.services.llm.client import llm_client
@@ -225,7 +230,13 @@ async def generate_readings(
         note_reading_lookup = await _load_reading_lookup(db, note_reading_ids)
         feedforward_text = _format_feedforward(relevant_feedback, note_reading_lookup)
 
-        recommendation_count = settings.reading_recommendation_count
+        recommendation_count = await onboarding_svc.get_int_setting(
+            db,
+            "reading_recommendation_count",
+            settings.reading_recommendation_count,
+            minimum=READING_RECOMMENDATION_COUNT_MIN,
+            maximum=READING_RECOMMENDATION_COUNT_MAX,
+        )
 
         # Generate via LLM
         prompt = reading_generation.USER_PROMPT_TEMPLATE.format(

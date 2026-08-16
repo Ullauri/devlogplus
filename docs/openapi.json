@@ -1435,7 +1435,7 @@
           "settings"
         ],
         "summary": "List all settings",
-        "description": "Return every application setting as a key-value pair.\n\nSettings include model selection, quiz question count, cron schedules,\nand other tunables.  Values are stored as JSON objects.",
+        "description": "Return every application setting as a key-value pair.\n\nThese are the runtime tunables — `quiz_question_count`,\n`reading_recommendation_count`, and anything else stored through this API.\nValues are JSON objects; scalars use the `{\"value\": x}` envelope. Model\nselection and credentials are *not* here: they are reserved to `.env` (see\n`RESERVED_KEYS`) and rejected with 403 on write.",
         "operationId": "list_settings_api_v1_settings_get",
         "responses": {
           "200": {

@@ -15,8 +15,12 @@ type PipelineKey =
 
 // ---- General settings ----
 // Editable DB-backed settings. Values are stored as JSON objects in the
-// backend; by convention scalars live under a "value" key (matches the
-// usage in quiz_pipeline and the transfer tests).
+// backend; by convention scalars live under a "value" key, which is the shape
+// `onboarding_svc.get_int_setting` unwraps when the pipelines read them back.
+//
+// min/max below must match the bounds in backend/app/config.py. The backend
+// ignores an out-of-range stored value and falls back to its .env default, so
+// a mismatch here shows up as a saved setting that silently does nothing.
 type GeneralSettingKey = "quiz_question_count" | "reading_recommendation_count";
 
 interface GeneralSettingConfig {
@@ -564,12 +568,17 @@ export default function SettingsPage() {
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-lg font-semibold">General</h2>
           <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-            These settings are stored in the database. Other configuration (API
-            keys, model selection, etc.) is managed via environment variables in{" "}
+            Saving here stores the value in the database and the next pipeline
+            run uses it — no restart needed. Leave one unset and it falls back
+            to the matching{" "}
+            <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">
+              .env
+            </code>{" "}
+            value. Credentials and model selection are{" "}
             <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">
               .env
             </code>
-            .
+            -only and cannot be set from here.
           </p>
 
           {settingsStatus.kind === "loading" ? (

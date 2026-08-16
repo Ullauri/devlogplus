@@ -3,6 +3,21 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# ---------------------------------------------------------------------------
+# Bounds for the counts a user may re-tune at runtime from the Settings page.
+#
+# These two settings have two sources: the env value below is the default, and
+# a row in `user_settings` overrides it when the user saves one. Both are
+# validated against the same range — the env value by the `Field` constraints,
+# the saved override by `onboarding_svc.get_int_setting` at the pipeline call
+# site — so a value that is legal in one place cannot be illegal in the other.
+# The frontend states the same min/max for its number inputs.
+# ---------------------------------------------------------------------------
+QUIZ_QUESTION_COUNT_MIN = 1
+QUIZ_QUESTION_COUNT_MAX = 50
+READING_RECOMMENDATION_COUNT_MIN = 1
+READING_RECOMMENDATION_COUNT_MAX = 20
+
 
 class Settings(BaseSettings):
     """All application settings, loaded from environment / .env file."""
@@ -52,8 +67,15 @@ class Settings(BaseSettings):
     llm_reasoning_effort: str = Field(default="none")
 
     # --- Application ---
-    quiz_question_count: int = Field(default=10, ge=1, le=50)
-    reading_recommendation_count: int = Field(default=5, ge=1, le=20)
+    # Defaults only. A `quiz_question_count` / `reading_recommendation_count`
+    # row in `user_settings` (written by the Settings page) takes precedence —
+    # see `onboarding_svc.get_int_setting`.
+    quiz_question_count: int = Field(
+        default=10, ge=QUIZ_QUESTION_COUNT_MIN, le=QUIZ_QUESTION_COUNT_MAX
+    )
+    reading_recommendation_count: int = Field(
+        default=5, ge=READING_RECOMMENDATION_COUNT_MIN, le=READING_RECOMMENDATION_COUNT_MAX
+    )
     reading_validate_urls: bool = Field(
         default=True,
         description=(

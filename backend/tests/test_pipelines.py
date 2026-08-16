@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app import config
 from backend.app.models.base import (
     FeedbackReaction,
     FeedbackTargetType,
@@ -29,11 +30,12 @@ from backend.app.models.project import ProjectEvaluation, WeeklyProject
 from backend.app.models.quiz import QuizQuestion, QuizSession
 from backend.app.models.settings import ProcessingLog
 from backend.app.pipelines import profile_update as profile_update_pipeline
-from backend.app.pipelines import quiz_pipeline
+from backend.app.pipelines import quiz_pipeline, reading_pipeline
 from backend.app.pipelines.project_pipeline import _determine_difficulty, _format_avoid_titles
 from backend.app.prompts import project_generation, quiz_generation
 from backend.app.schemas.feedback import FeedbackCreate
 from backend.app.services import feedback as feedback_svc
+from backend.app.services import onboarding as onboarding_svc
 from backend.app.services import pipelines as pipelines_svc
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
@@ -326,6 +328,101 @@ async def test_generate_quiz_requests_a_scaled_token_budget(db_session: AsyncSes
 
     assert mock_llm.await_count == 1
     assert mock_llm.await_args.kwargs["max_tokens"] > 4096
+
+
+# ---------------------------------------------------------------------------
+# Settings-page tunables actually reach the pipelines.
+#
+# Regression: `quiz_question_count` / `reading_recommendation_count` were saved
+# to `user_settings` by the Settings page and read from `.env` by the
+# pipelines. The two halves never met, so moving the slider changed nothing.
+# These tests cross that seam deliberately — they save through the same service
+# the API writes with, then assert the prompt the LLM receives carries the
+# saved number.
+# ---------------------------------------------------------------------------
+
+
+def _user_prompt(mock_llm: AsyncMock) -> str:
+    """The user-role content of the single LLM call the mock captured."""
+    messages = mock_llm.await_args.kwargs["messages"]
+    return next(m["content"] for m in messages if m["role"] == "user")
+
+
+async def test_generate_quiz_uses_the_saved_question_count(db_session: AsyncSession):
+    """A saved quiz_question_count must override the .env default."""
+    await onboarding_svc.set_setting(db_session, "quiz_question_count", {"value": 3})
+
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.generate_quiz(db_session)
+
+    assert mock_llm.await_count == 1
+    assert "Generate 3 free-text quiz questions" in _user_prompt(mock_llm)
+    # The token budget is derived from the same count, so it must move too.
+    assert mock_llm.await_args.kwargs["max_tokens"] == quiz_pipeline._budgeted_max_tokens(
+        quiz_pipeline._QUIZ_GENERATION_BASE_TOKENS,
+        quiz_pipeline._QUIZ_GENERATION_TOKENS_PER_QUESTION,
+        3,
+    )
+
+
+async def test_generate_quiz_falls_back_to_env_default(db_session: AsyncSession):
+    """With nothing saved, the .env default still applies."""
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.generate_quiz(db_session)
+
+    expected = config.settings.quiz_question_count
+    assert f"Generate {expected} free-text quiz questions" in _user_prompt(mock_llm)
+
+
+async def test_generate_quiz_ignores_an_out_of_range_saved_count(db_session: AsyncSession):
+    """A count outside config's bounds is refused, not handed to the model."""
+    await onboarding_svc.set_setting(db_session, "quiz_question_count", {"value": 5000})
+
+    mock_llm = AsyncMock(return_value={"questions": []})
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await quiz_pipeline.generate_quiz(db_session)
+
+    expected = config.settings.quiz_question_count
+    assert f"Generate {expected} free-text quiz questions" in _user_prompt(mock_llm)
+
+
+async def test_generate_readings_uses_the_saved_recommendation_count(db_session: AsyncSession):
+    """A saved reading_recommendation_count must override the .env default."""
+    await onboarding_svc.set_setting(db_session, "reading_recommendation_count", {"value": 2})
+
+    mock_llm = AsyncMock(return_value={"recommendations": []})
+    with patch(
+        "backend.app.pipelines.reading_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await reading_pipeline.generate_readings(db_session)
+
+    assert mock_llm.await_count == 1
+    assert "Generate up to 2 reading recommendations" in _user_prompt(mock_llm)
+
+
+async def test_generate_readings_falls_back_to_env_default(db_session: AsyncSession):
+    """With nothing saved, the .env default still applies."""
+    mock_llm = AsyncMock(return_value={"recommendations": []})
+    with patch(
+        "backend.app.pipelines.reading_pipeline.llm_client.chat_completion_json",
+        new=mock_llm,
+    ):
+        await reading_pipeline.generate_readings(db_session)
+
+    expected = config.settings.reading_recommendation_count
+    assert f"Generate up to {expected} reading recommendations" in _user_prompt(mock_llm)
 
 
 async def test_generate_quiz_creates_no_session_when_nothing_is_stored(
