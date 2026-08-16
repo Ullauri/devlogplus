@@ -61,19 +61,26 @@ account, not just the text.
 
 - URLs in the "Do NOT recommend these URLs" list must never appear in the
   output; the user has already rejected them.
-- Domains in the "Downranked domains" list have a pattern of rejection.
-  Strongly prefer other allowlisted domains; only recommend from these
-  when clearly the best available source.
+- Domains in the "Downranked domains" list have a pattern of rejection, either
+  explicit (thumbs-down, dismissed) or implicit (repeatedly recommended and
+  never once opened). Strongly prefer other allowlisted domains; only
+  recommend from these when clearly the best available source.
 
 ## Positive signals — directional, NOT prescriptive
 
-The "Liked directions" block lists past recommendations the user thumbs-upped.
+The "Liked directions" block lists past recommendations the user responded well
+to, each tagged with how that was expressed:
+
+- `[saved]` — the user deliberately kept it. The strongest signal here.
+- `[liked]` — the user thumbs-upped it.
+
 Treat these as *steering*, not as a template to copy:
 
-- DO lean toward the same themes, domains, and recommendation types.
+- DO lean toward the same themes, domains, and recommendation types,
+  weighting `[saved]` above `[liked]`.
 - DO go deeper, broader, or laterally adjacent to those themes.
-- DO NOT re-recommend any of the listed liked URLs — the user has already
-  read them. Surface NEW material in the same direction instead.
+- DO NOT re-recommend any of the listed URLs — the user has already
+  seen them. Surface NEW material in the same direction instead.
 
 ## Diversity — REQUIRED within every batch
 
@@ -128,11 +135,11 @@ USER_PROMPT_TEMPLATE = """\
 
 {avoid_urls}
 
-## Downranked domains (multiple rejections — avoid unless clearly best)
+## Downranked domains (rejected or never opened — avoid unless clearly best)
 
 {downranked_domains}
 
-## Liked directions (thumbs-up'd in the past — lean toward, do NOT repeat)
+## Liked directions (saved or thumbs-up'd — lean toward, do NOT repeat)
 
 {liked_directions}
 

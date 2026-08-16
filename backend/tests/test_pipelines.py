@@ -703,3 +703,50 @@ async def test_lifespan_closes_llm_client():
             pass  # simulates startup + shutdown
 
     mock_close.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Positive directional signal: saved outranks liked
+# ---------------------------------------------------------------------------
+def _reading(title: str, domain: str, created_offset: int = 0):
+    from backend.app.models.base import ReadingRecommendationType
+    from backend.app.models.reading import ReadingRecommendation
+
+    return ReadingRecommendation(
+        id=uuid.uuid4(),
+        title=title,
+        url=f"https://{domain}/{title}",
+        source_domain=domain,
+        recommendation_type=ReadingRecommendationType.DEEP_DIVE,
+        batch_date=datetime.now(UTC).date(),
+        created_at=datetime.now(UTC) - timedelta(days=created_offset),
+    )
+
+
+async def test_liked_directions_lists_saved_before_liked():
+    """Saving is deliberate; a thumbs-up can be a passing reaction."""
+    from backend.app.pipelines.reading_pipeline import _format_liked_directions
+
+    text = _format_liked_directions([_reading("Kept", "a.com")], [_reading("Rated", "b.com")])
+
+    lines = text.splitlines()
+    assert lines[0].startswith('- [saved] "Kept"')
+    assert lines[1].startswith('- [liked] "Rated"')
+
+
+async def test_liked_directions_lists_a_saved_and_liked_item_once():
+    """An item both saved and thumbs-upped must not appear twice."""
+    from backend.app.pipelines.reading_pipeline import _format_liked_directions
+
+    both = _reading("Both", "a.com")
+
+    text = _format_liked_directions([both], [both])
+
+    assert text.count('"Both"') == 1
+    assert "[saved]" in text
+
+
+async def test_liked_directions_with_no_signal_at_all():
+    from backend.app.pipelines.reading_pipeline import _format_liked_directions
+
+    assert _format_liked_directions([], []) == "None"

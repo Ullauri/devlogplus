@@ -64,7 +64,7 @@ def when_generate_readings(bdd_db, ctx):
             "backend.app.pipelines.reading_pipeline.llm_client.chat_completion_json",
             new_callable=AsyncMock,
             return_value=mock_response,
-        ),
+        ) as mock_llm,
         patch(
             "backend.app.pipelines.reading_pipeline.reading_svc.check_links",
             new_callable=AsyncMock,
@@ -75,6 +75,9 @@ def when_generate_readings(bdd_db, ctx):
         run_async(bdd_db.commit())
 
     ctx["readings"] = readings
+    # Keep the user-role prompt so scenarios can assert on what the signals
+    # actually put in front of the model, not merely on what was stored.
+    ctx["prompt"] = mock_llm.call_args.kwargs["messages"][1]["content"]
 
 
 @then("reading recommendations should be created")
@@ -296,6 +299,49 @@ def when_generate_with_mislabelled_domain(bdd_db, ctx):
 @then("no recommendations should be stored")
 def then_nothing_stored(ctx):
     assert ctx["readings"] == []
+
+
+# ---------------------------------------------------------------------------
+# Engagement signals reaching the prompt
+# ---------------------------------------------------------------------------
+# read_at / saved_at / dismissed_at were recorded and read by nothing. These
+# assert on the prompt rather than on what was stored, because that is where
+# the signal either arrives or does not.
+@given(parsers.parse('two readings from "{domain}" have been dismissed'))
+def given_two_dismissed(bdd_db, ctx, domain):
+    for i in range(2):
+        create_reading_recommendation(
+            bdd_db,
+            url=f"https://{domain}/dismissed-{i}",
+            source_domain=domain,
+            title=f"Dismissed {i}",
+            dismissed=True,
+        )
+    run_async(bdd_db.commit())
+
+
+@then(parsers.parse('the prompt should downrank "{domain}"'))
+def then_prompt_downranks(ctx, domain):
+    section = ctx["prompt"].split("## Downranked domains")[1].split("##")[0]
+    assert domain in section, section
+
+
+@given(parsers.parse('a reading titled "{title}" has been saved'))
+def given_saved_reading(bdd_db, ctx, title):
+    create_reading_recommendation(
+        bdd_db,
+        url="https://go.dev/ref/mem",
+        source_domain="go.dev",
+        title=title,
+        saved=True,
+    )
+    run_async(bdd_db.commit())
+
+
+@then(parsers.parse('the prompt should offer "{title}" as a saved direction'))
+def then_prompt_offers_saved(ctx, title):
+    section = ctx["prompt"].split("## Liked directions")[1].split("##")[0]
+    assert f'[saved] "{title}"' in section, section
 
 
 # ---------------------------------------------------------------------------
