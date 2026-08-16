@@ -14,7 +14,11 @@ from difflib import get_close_matches
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.config import settings
+from backend.app.config import (
+    QUIZ_QUESTION_COUNT_MAX,
+    QUIZ_QUESTION_COUNT_MIN,
+    settings,
+)
 from backend.app.models.base import (
     FeedbackTargetType,
     PipelineStatus,
@@ -31,6 +35,7 @@ from backend.app.models.topic import Topic
 from backend.app.models.triage import TriageItem
 from backend.app.prompts import quiz_evaluation, quiz_generation
 from backend.app.services import feedback as feedback_svc
+from backend.app.services import onboarding as onboarding_svc
 from backend.app.services import profile as profile_svc
 from backend.app.services.llm.client import llm_client
 from backend.app.services.llm.models import QuizEvaluationResult, QuizGenerationResult
@@ -328,7 +333,13 @@ async def generate_quiz(
         note_q_lookup = await _load_question_lookup(db, note_q_ids)
         feedforward_text = _format_quiz_feedforward(relevant_feedback, note_q_lookup)
 
-        question_count = settings.quiz_question_count
+        question_count = await onboarding_svc.get_int_setting(
+            db,
+            "quiz_question_count",
+            settings.quiz_question_count,
+            minimum=QUIZ_QUESTION_COUNT_MIN,
+            maximum=QUIZ_QUESTION_COUNT_MAX,
+        )
 
         # Generate questions via LLM
         prompt = quiz_generation.USER_PROMPT_TEMPLATE.format(

@@ -16,9 +16,17 @@ config = context.config
 # Override sqlalchemy.url from application settings
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-# Set up Python logging from alembic.ini
+# Set up Python logging from alembic.ini.
+#
+# disable_existing_loggers=False matters whenever env.py is imported into a
+# process that already has loggers: fileConfig defaults to True, which sets
+# `disabled = True` on every logger alembic.ini does not name — i.e. all of
+# `backend.app.*`. The test suite runs migrations in-process (conftest's
+# `_run_alembic_upgrade`), so with the default every application log record
+# emitted during a test was dropped before reaching a handler, and any test
+# asserting on a warning could not see it.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # MetaData for autogenerate support
 target_metadata = Base.metadata

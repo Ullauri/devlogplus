@@ -586,8 +586,11 @@ export interface paths {
          * List all settings
          * @description Return every application setting as a key-value pair.
          *
-         *     Settings include model selection, quiz question count, cron schedules,
-         *     and other tunables.  Values are stored as JSON objects.
+         *     These are the runtime tunables — `quiz_question_count`,
+         *     `reading_recommendation_count`, and anything else stored through this API.
+         *     Values are JSON objects; scalars use the `{"value": x}` envelope. Model
+         *     selection and credentials are *not* here: they are reserved to `.env` (see
+         *     `RESERVED_KEYS`) and rejected with 403 on write.
          */
         get: operations["list_settings_api_v1_settings_get"];
         put?: never;
