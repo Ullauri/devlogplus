@@ -7,18 +7,29 @@ from datetime import UTC, datetime
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.base import (
     EvidenceStrength,
+    FeedbackReaction,
+    FeedbackTargetType,
+    ProjectStatus,
+    ProjectTaskType,
     QuizQuestionType,
     QuizSessionStatus,
     TopicCategory,
+    TriageSeverity,
+    TriageSource,
+    TriageStatus,
 )
+from backend.app.models.feedback import Feedback
 from backend.app.models.journal import JournalEntry, JournalEntryVersion
+from backend.app.models.project import ProjectEvaluation, ProjectTask, WeeklyProject
 from backend.app.models.quiz import QuizQuestion, QuizSession
 from backend.app.models.settings import OnboardingState, UserSettings
 from backend.app.models.topic import Topic
+from backend.app.models.triage import TriageItem
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -110,7 +121,7 @@ async def test_export_empty_db(client: AsyncClient):
     resp = await client.get("/api/v1/transfer/export")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["format_version"] == 1
+    assert data["format_version"] == 2
     assert data["app_version"] == "0.1.0"
     assert data["journal_entries"] == []
     assert data["topics"] == []
@@ -125,7 +136,7 @@ async def test_export_metadata_empty(client: AsyncClient):
     resp = await client.get("/api/v1/transfer/export/metadata")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["format_version"] == 1
+    assert data["format_version"] == 2
     assert all(v == 0 for v in data["table_counts"].values())
 
 
@@ -567,3 +578,187 @@ async def test_to_model_logs_dropped_unknown_keys():
     mock_logger.debug.assert_called_once()
     call_args = str(mock_logger.debug.call_args)
     assert "unknown_future_column" in call_args or "another_unknown" in call_args
+
+
+# ---------------------------------------------------------------------------
+# Projects do not transfer
+# ---------------------------------------------------------------------------
+# A project row is a pointer to Go code under `workspace/projects/`, and that
+# directory is not in the bundle. Carrying the rows alone lands a project on
+# the new machine whose files are missing.
+async def _seed_project(db: AsyncSession) -> WeeklyProject:
+    project = WeeklyProject(
+        title="Connection Pool Watchdog",
+        description="A CLI tool that monitors a connection pool",
+        difficulty_level=3,
+        project_path="workspace/projects/2026-08-11",
+        status=ProjectStatus.EVALUATED,
+    )
+    db.add(project)
+    await db.flush()
+
+    db.add(
+        ProjectTask(
+            project_id=project.id,
+            title="Fix the leak",
+            description="Connections are never returned to the pool",
+            task_type=ProjectTaskType.BUG_FIX,
+            order_index=0,
+        )
+    )
+    db.add(
+        ProjectEvaluation(
+            project_id=project.id,
+            code_quality_score=7.5,
+            task_completion={"Fix the leak": {"completed": True}},
+            overall_assessment="Solid",
+            confidence=0.8,
+        )
+    )
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+async def test_export_omits_projects_entirely(client: AsyncClient, db_session: AsyncSession):
+    """Not merely empty — the keys are gone from what this server writes."""
+    await _seed_project(db_session)
+
+    resp = await client.get("/api/v1/transfer/export")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "weekly_projects" not in data
+    assert "project_tasks" not in data
+    assert "project_evaluations" not in data
+
+
+async def test_export_omits_feedback_and_triage_about_a_project(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """Signals about a project follow the project out.
+
+    Left in, they arrive as a thumbs-down and an open triage item whose
+    subject the new machine has no way to open.
+    """
+    project = await _seed_project(db_session)
+    db_session.add(
+        Feedback(
+            target_type=FeedbackTargetType.PROJECT,
+            target_id=project.id,
+            reaction=FeedbackReaction.THUMBS_DOWN,
+        )
+    )
+    db_session.add(
+        Feedback(
+            target_type=FeedbackTargetType.READING,
+            target_id=uuid.uuid4(),
+            reaction=FeedbackReaction.THUMBS_UP,
+        )
+    )
+    db_session.add(
+        TriageItem(
+            source=TriageSource.PROJECT_EVALUATION,
+            source_id=project.id,
+            title="Tests did not run",
+            description="The evaluator could not run the test suite",
+            severity=TriageSeverity.MEDIUM,
+            status=TriageStatus.PENDING,
+        )
+    )
+    db_session.add(
+        TriageItem(
+            source=TriageSource.PROFILE_UPDATE,
+            title="Conflicting evidence",
+            description="Two entries disagree about your Go level",
+            severity=TriageSeverity.LOW,
+            status=TriageStatus.PENDING,
+        )
+    )
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/transfer/export")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [f["target_type"] for f in data["feedback"]] == ["reading"]
+    assert [t["source"] for t in data["triage_items"]] == ["profile_update"]
+
+
+async def test_export_metadata_does_not_offer_project_counts(client: AsyncClient):
+    """The preview must describe the bundle, not the database.
+
+    Counting projects here would promise rows the download does not contain.
+    """
+    resp = await client.get("/api/v1/transfer/export/metadata")
+
+    assert resp.status_code == 200
+    counts = resp.json()["table_counts"]
+    assert "weekly_projects" not in counts
+    assert "project_tasks" not in counts
+    assert "project_evaluations" not in counts
+
+
+async def test_import_accepts_a_version_1_bundle_and_drops_its_projects(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """The old laptop's bundle still imports — minus the part that cannot travel.
+
+    Rejecting it outright would strand the journal and profile that make up
+    most of its value, so the projects are read and discarded instead.
+    """
+    project_id = str(uuid.uuid4())
+    bundle = {
+        "format_version": 1,
+        "exported_at": datetime.now(UTC).isoformat(),
+        "app_version": "0.1.0",
+        "journal_entries": [
+            {
+                "id": str(uuid.uuid4()),
+                "title": "From the old laptop",
+                "is_processed": False,
+                "processed_at": None,
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        ],
+        "weekly_projects": [
+            {
+                "id": project_id,
+                "title": "Rate Limiter Kit",
+                "description": "Code that lives on the other machine",
+                "difficulty_level": 4,
+                "project_path": "workspace/projects/2026-08-15",
+                "status": "issued",
+                "issued_at": datetime.now(UTC).isoformat(),
+                "submitted_at": None,
+                "metadata_": None,
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        ],
+        "feedback": [
+            {
+                "id": str(uuid.uuid4()),
+                "target_type": "project",
+                "target_id": project_id,
+                "reaction": "thumbs_down",
+                "note": None,
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        ],
+    }
+
+    resp = await client.post("/api/v1/transfer/import", files=[_upload_file(bundle)])
+
+    assert resp.status_code == 200
+    counts = resp.json()["counts"]
+    assert counts["journal_entries"] == 1
+    assert counts["weekly_projects"] == 0
+    # The feedback pointed at a project that was not imported.
+    assert counts["feedback"] == 0
+
+    projects = (await db_session.execute(select(WeeklyProject))).scalars().all()
+    assert projects == []
+    feedback = (await db_session.execute(select(Feedback))).scalars().all()
+    assert feedback == []

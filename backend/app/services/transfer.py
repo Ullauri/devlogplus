@@ -28,7 +28,9 @@ from backend.app.models import (
     UserSettings,
     WeeklyProject,
 )
+from backend.app.models.base import FeedbackTargetType, TriageSource
 from backend.app.schemas.transfer import (
+    CURRENT_FORMAT_VERSION,
     DataExportBundle,
     FeedbackExport,
     ImportResult,
@@ -36,8 +38,6 @@ from backend.app.schemas.transfer import (
     JournalEntryVersionExport,
     OnboardingStateExport,
     ProfileSnapshotExport,
-    ProjectEvaluationExport,
-    ProjectTaskExport,
     QuizAnswerExport,
     QuizEvaluationExport,
     QuizQuestionExport,
@@ -48,7 +48,6 @@ from backend.app.schemas.transfer import (
     TopicRelationshipExport,
     TriageItemExport,
     UserSettingsExport,
-    WeeklyProjectExport,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,14 +71,17 @@ _EXPORT_TABLES: list[type] = [
     QuizEvaluation,
     ReadingRecommendation,
     ReadingAllowlist,
-    WeeklyProject,
-    ProjectTask,
-    ProjectEvaluation,
     Feedback,
     TriageItem,
     UserSettings,
     OnboardingState,
 ]
+
+# Feedback targets and triage sources that only make sense next to a project.
+# Projects do not transfer (see `DataExportBundle`), so exporting these would
+# move a thumbs-down whose subject is not there to read, pointing at a
+# `target_id` that resolves to nothing on the new machine.
+_PROJECT_FEEDBACK_TARGETS = frozenset({FeedbackTargetType.PROJECT, FeedbackTargetType.PROJECT_TASK})
 
 
 async def count_tables(db: AsyncSession) -> dict[str, int]:
@@ -109,16 +111,15 @@ async def export_all(db: AsyncSession) -> DataExportBundle:
     quiz_evaluations = await _all(QuizEvaluation)
     reading_recommendations = await _all(ReadingRecommendation)
     reading_allowlist = await _all(ReadingAllowlist)
-    weekly_projects = await _all(WeeklyProject)
-    project_tasks = await _all(ProjectTask)
-    project_evaluations = await _all(ProjectEvaluation)
-    feedback = await _all(Feedback)
-    triage_items = await _all(TriageItem)
+    feedback = [r for r in await _all(Feedback) if r.target_type not in _PROJECT_FEEDBACK_TARGETS]
+    triage_items = [
+        r for r in await _all(TriageItem) if r.source != TriageSource.PROJECT_EVALUATION
+    ]
     user_settings = await _all(UserSettings)
     onboarding_state = await _all(OnboardingState)
 
     bundle = DataExportBundle(
-        format_version=1,
+        format_version=CURRENT_FORMAT_VERSION,
         exported_at=datetime.now(UTC),
         app_version=APP_VERSION,
         journal_entries=[JournalEntryExport.model_validate(r) for r in journal_entries],
@@ -138,11 +139,6 @@ async def export_all(db: AsyncSession) -> DataExportBundle:
             ReadingRecommendationExport.model_validate(r) for r in reading_recommendations
         ],
         reading_allowlist=[ReadingAllowlistExport.model_validate(r) for r in reading_allowlist],
-        weekly_projects=[WeeklyProjectExport.model_validate(r) for r in weekly_projects],
-        project_tasks=[ProjectTaskExport.model_validate(r) for r in project_tasks],
-        project_evaluations=[
-            ProjectEvaluationExport.model_validate(r) for r in project_evaluations
-        ],
         feedback=[FeedbackExport.model_validate(r) for r in feedback],
         triage_items=[TriageItemExport.model_validate(r) for r in triage_items],
         user_settings=[UserSettingsExport.model_validate(r) for r in user_settings],
@@ -150,11 +146,10 @@ async def export_all(db: AsyncSession) -> DataExportBundle:
     )
 
     logger.info(
-        "Exported %d journal entries, %d topics, %d quiz sessions, %d projects",
+        "Exported %d journal entries, %d topics, %d quiz sessions (projects excluded)",
         len(bundle.journal_entries),
         len(bundle.topics),
         len(bundle.quiz_sessions),
-        len(bundle.weekly_projects),
     )
     return bundle
 
@@ -189,9 +184,6 @@ _DELETE_ORDER = [
 def _to_model(model_cls, data: dict):
     """Instantiate an ORM model from an export dict, ignoring unknown keys."""
     cols = {c.key for c in model_cls.__table__.columns}
-    # Handle the metadata_ / metadata alias on WeeklyProject
-    if model_cls is WeeklyProject and "metadata_" in data:
-        data["metadata_"] = data.pop("metadata_", None)
     dropped = {k for k in data if k not in cols}
     if dropped:
         logger.debug(
@@ -307,26 +299,40 @@ async def import_all(
     counts["reading_recommendations"] = len(bundle.reading_recommendations)
     counts["reading_allowlist"] = len(bundle.reading_allowlist)
 
-    # --- Projects → tasks → evaluations
-    for item in bundle.weekly_projects:
-        db.add(_to_model(WeeklyProject, item.model_dump()))
-    await db.flush()
-    for item in bundle.project_tasks:
-        db.add(_to_model(ProjectTask, item.model_dump()))
-    for item in bundle.project_evaluations:
-        db.add(_to_model(ProjectEvaluation, item.model_dump()))
-    counts["weekly_projects"] = len(bundle.weekly_projects)
-    counts["project_tasks"] = len(bundle.project_tasks)
-    counts["project_evaluations"] = len(bundle.project_evaluations)
+    # --- Projects are dropped, not restored.
+    # Step 1 already deleted them, and nothing re-inserts them: the Go code a
+    # project row points at lives on the old machine's disk, so restoring the
+    # row would leave a project whose `project_path` resolves to nothing.
+    # Counted at zero rather than omitted, so the summary shows the decision
+    # was made rather than leaving the reader to wonder.
+    skipped = (
+        len(bundle.weekly_projects) + len(bundle.project_tasks) + len(bundle.project_evaluations)
+    )
+    if skipped:
+        logger.info(
+            "Skipped %d project row(s) from a format_version %d bundle — "
+            "projects do not transfer between machines.",
+            skipped,
+            bundle.format_version,
+        )
+    counts["weekly_projects"] = 0
+    counts["project_tasks"] = 0
+    counts["project_evaluations"] = 0
 
     # --- Feedback, triage, settings, onboarding, snapshots
-    for item in bundle.feedback:
+    # A format_version 1 bundle predates the project exclusion and still
+    # carries signals about projects. Filtered here for the same reason export
+    # filters them: without the project they point at, a thumbs-down on a task
+    # nobody can open is noise the new machine cannot act on.
+    kept_feedback = [f for f in bundle.feedback if f.target_type not in _PROJECT_FEEDBACK_TARGETS]
+    for item in kept_feedback:
         db.add(_to_model(Feedback, item.model_dump()))
-    counts["feedback"] = len(bundle.feedback)
+    counts["feedback"] = len(kept_feedback)
 
-    for item in bundle.triage_items:
+    kept_triage = [t for t in bundle.triage_items if t.source != TriageSource.PROJECT_EVALUATION]
+    for item in kept_triage:
         db.add(_to_model(TriageItem, item.model_dump()))
-    counts["triage_items"] = len(bundle.triage_items)
+    counts["triage_items"] = len(kept_triage)
 
     for item in bundle.user_settings:
         db.add(_to_model(UserSettings, item.model_dump()))

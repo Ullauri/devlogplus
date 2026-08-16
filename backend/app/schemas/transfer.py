@@ -9,6 +9,12 @@ from pydantic import BaseModel, Field
 
 from backend.app.schemas.common import BaseSchema
 
+# Version 2 dropped the three project tables. Version 1 bundles are still
+# importable — their project rows are read and discarded rather than rejected,
+# because everything else in an old bundle is still worth moving.
+CURRENT_FORMAT_VERSION = 2
+SUPPORTED_FORMAT_VERSIONS = frozenset({1, 2})
+
 
 # ---------------------------------------------------------------------------
 # Per-table row schemas  (flat, JSON-friendly — no ORM relationships)
@@ -200,9 +206,25 @@ class ProfileSnapshotExport(BaseSchema):
 # Top-level bundle
 # ---------------------------------------------------------------------------
 class DataExportBundle(BaseModel):
-    """Complete application data bundle for device-to-device transfer."""
+    """Application data bundle for device-to-device transfer.
 
-    format_version: int = Field(1, description="Schema version for forward-compatible migrations")
+    Deliberately not *complete*: weekly projects are excluded. A project row is
+    mostly a pointer — ``project_path`` names a directory under
+    ``workspace/projects/`` holding the Go code the whole record is about — and
+    that directory does not travel inside a JSON file. Carrying the rows alone
+    would land a project on the new machine whose code is missing, whose
+    "Submit for Evaluation" button reads files that are not there, and whose
+    evaluation scores describe a checkout nobody can open.
+
+    A ``format_version`` 1 bundle written by an older server still lists them.
+    They are read (so the import can report how many it dropped) and never
+    inserted — see the project fields below.
+    """
+
+    format_version: int = Field(
+        CURRENT_FORMAT_VERSION,
+        description="Schema version for forward-compatible migrations",
+    )
     exported_at: datetime = Field(description="When this export was created")
     app_version: str = Field(description="DevLog+ version that produced the export")
 
@@ -225,10 +247,13 @@ class DataExportBundle(BaseModel):
     reading_recommendations: list[ReadingRecommendationExport] = []
     reading_allowlist: list[ReadingAllowlistExport] = []
 
-    # Projects
-    weekly_projects: list[WeeklyProjectExport] = []
-    project_tasks: list[ProjectTaskExport] = []
-    project_evaluations: list[ProjectEvaluationExport] = []
+    # Projects — read from format_version 1 bundles, never written, never
+    # imported. `exclude=True` keeps them out of what this server produces
+    # while still accepting them from what an older one produced, so the
+    # import can count what it is dropping and say so.
+    weekly_projects: list[WeeklyProjectExport] = Field(default=[], exclude=True)
+    project_tasks: list[ProjectTaskExport] = Field(default=[], exclude=True)
+    project_evaluations: list[ProjectEvaluationExport] = Field(default=[], exclude=True)
 
     # Signals
     feedback: list[FeedbackExport] = []
