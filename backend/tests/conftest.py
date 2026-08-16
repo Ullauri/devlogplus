@@ -5,11 +5,18 @@ and tears it down automatically when tests finish.
 
 All async fixtures and tests share a single session-scoped event loop to avoid
 asyncpg "attached to a different loop" errors.
+
+Two autouse fixtures below seal the test process off from anything real: the
+container replaces the configured database everywhere, not only where ``get_db``
+is injected, and the LLM client refuses to make a call nobody patched. Both
+guard the same blind spot — a ``BackgroundTasks`` pipeline run, which starts
+after the response the test asserted on has already been returned.
 """
 
 import asyncio
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -24,9 +31,11 @@ from sqlalchemy.ext.asyncio import (
 )
 from testcontainers.postgres import PostgresContainer
 
+from backend.app import database
 from backend.app.database import get_db
 from backend.app.main import app
 from backend.app.models import Base
+from backend.app.services.llm.client import llm_client
 
 # ---------------------------------------------------------------------------
 # All async tests in this directory use a single session-scoped event loop
@@ -126,6 +135,53 @@ async def test_session_factory(test_engine):
         class_=AsyncSession,
         expire_on_commit=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# Sealing the developer's real database off from the test run
+# ---------------------------------------------------------------------------
+@pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
+async def _seal_off_the_configured_database(test_engine, test_session_factory):
+    """Point every un-injected session at the container, not at ``DATABASE_URL``.
+
+    Overriding ``get_db`` only covers sessions the app asks a request for.
+    Anything opening its own — a ``BackgroundTasks`` pipeline run, the MCP
+    server — goes through ``database.session_scope``, which reads this module
+    global. Left alone it points at the developer's real database, and the
+    background half of a test writes there: 82 bogus ``project_evaluation``
+    failures accumulated in one before this fixture existed.
+
+    Autouse and session-scoped, because the leak is in code a test does not
+    mention and would therefore never think to opt in to.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(database, "engine", test_engine)
+        mp.setattr(database, "async_session_factory", test_session_factory)
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _no_real_llm_calls():
+    """Refuse to reach OpenRouter, loudly, from anywhere in the suite.
+
+    Tests that want an LLM response patch the client themselves, and those
+    patches still win — this only catches the paths that arrive by accident.
+    The one that matters runs inside a background task, after the assertions
+    have already passed, so a real call there would bill the user's API key
+    and still leave the test green.
+
+    ``chat_completion`` is the only seam needed: ``chat_completion_text`` and
+    ``chat_completion_json`` both funnel through it.
+    """
+
+    async def _refuse(*args, **kwargs):
+        raise RuntimeError(
+            "A test reached the real LLM client. Patch chat_completion (or the "
+            "_text/_json wrapper the code under test calls) in the test itself."
+        )
+
+    with patch.object(llm_client, "chat_completion", new=_refuse):
+        yield
 
 
 # ---------------------------------------------------------------------------

@@ -20,7 +20,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.database import async_session_factory, get_db
+from backend.app.database import get_db, session_scope
 from backend.app.models.base import PipelineType
 from backend.app.pipelines import (
     profile_update as profile_update_pipeline,
@@ -58,7 +58,7 @@ async def _run_in_background(
     the HTTP client.
     """
     logger.info("Starting manual pipeline run: %s (run_id=%s)", label, run_id)
-    async with async_session_factory() as session:
+    async with session_scope() as session:
         try:
             await fn(session, run_id=run_id)
             await session.commit()
