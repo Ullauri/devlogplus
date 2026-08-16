@@ -82,23 +82,34 @@ def _format_feedforward(
 
 
 def _format_liked_directions(
+    saved_readings: list[ReadingRecommendation],
     liked_readings: list[ReadingRecommendation],
     max_items: int = 10,
 ) -> str:
-    """Summarise thumbs-up'd readings as positive *directional* signals.
+    """Summarise saved and thumbs-up'd readings as positive *directional* signals.
 
     We surface theme + domain + recommendation_type (not the URL itself
     in this block — the URL is added to the hard avoid list separately so
     the model never re-recommends the exact link).
+
+    Saved items are listed first and labelled: saving is a deliberate act of
+    keeping something, where a thumbs-up can be a passing reaction. An item
+    that is both is listed once, as saved.
     """
-    if not liked_readings:
+    if not saved_readings and not liked_readings:
         return "None"
-    # Most recent first (created_at desc); cap to keep prompt focused.
-    sorted_likes = sorted(liked_readings, key=lambda r: r.created_at or datetime.min, reverse=True)
+
+    def _recent_first(rows: list[ReadingRecommendation]) -> list[ReadingRecommendation]:
+        return sorted(rows, key=lambda r: r.created_at or datetime.min, reverse=True)
+
+    saved_ids = {r.id for r in saved_readings}
+    ordered = [(r, "saved") for r in _recent_first(saved_readings)]
+    ordered += [(r, "liked") for r in _recent_first(liked_readings) if r.id not in saved_ids]
+
     lines: list[str] = []
-    for r in sorted_likes[:max_items]:
+    for r, source in ordered[:max_items]:
         rec_type = r.recommendation_type.value if r.recommendation_type else "?"
-        lines.append(f'- "{r.title}" — {r.source_domain} ({rec_type})')
+        lines.append(f'- [{source}] "{r.title}" — {r.source_domain} ({rec_type})')
     return "\n".join(lines)
 
 
@@ -141,13 +152,24 @@ async def generate_readings(
         allowlist_text = "\n".join(f"- {e.domain} ({e.name})" for e in allowlist)
         allowed_domains = {e.domain for e in allowlist}
 
+        # Engagement state — what the user did with past items without ever
+        # clicking a thumb. Dismissals count as rejections alongside
+        # thumbs-down; saves are the strongest positive available.
+        engagement = await reading_svc.get_engagement_signals(db)
+
         # Gather thumbs-down readings: exclude their URLs, downrank their domains.
         disliked_reading_ids = await feedback_svc.list_disliked_target_ids(
             db, FeedbackTargetType.READING
         )
         disliked_lookup = await _load_reading_lookup(db, disliked_reading_ids)
         disliked_urls = {reading_svc.normalize_url(r.url) for r in disliked_lookup.values()}
-        domain_dislike_counts = Counter(r.source_domain for r in disliked_lookup.values())
+        # A dismissal is a rejection the user could not be bothered to
+        # thumbs-down, so it carries the same weight for domain downranking.
+        # Counted per reading, so an item both dismissed and thumbs-downed
+        # does not register twice.
+        rejected_readings = {r.id: r for r in disliked_lookup.values()}
+        rejected_readings.update({r.id: r for r in engagement.dismissed})
+        domain_dislike_counts = Counter(r.source_domain for r in rejected_readings.values())
         downranked_domains = {d for d, n in domain_dislike_counts.items() if n >= 2}
 
         # Gather thumbs-up readings: positive *directional* signal.
@@ -169,13 +191,20 @@ async def generate_readings(
         avoid_urls = all_stored_urls | disliked_urls | liked_urls
 
         avoid_urls_text = "\n".join(f"- {u}" for u in sorted(avoid_urls)) or "None"
-        downrank_text = (
-            "\n".join(
-                f"- {d} ({domain_dislike_counts[d]} rejections)" for d in sorted(downranked_domains)
-            )
-            or "None"
-        )
-        liked_directions_text = _format_liked_directions(liked_readings)
+        downrank_lines = [
+            f"- {d} ({domain_dislike_counts[d]} rejected)" for d in sorted(downranked_domains)
+        ]
+        # A domain recommended repeatedly and never once opened is not landing,
+        # even though the user never said so explicitly.
+        downrank_lines += [
+            f"- {d} ({n} recommended, none ever opened)"
+            for d, n in sorted(engagement.ignored_domains.items())
+            if d not in downranked_domains
+        ]
+        downrank_text = "\n".join(downrank_lines) or "None"
+        # Saved items lead: keeping something is a deliberate act, where a
+        # thumbs-up can be a passing reaction.
+        liked_directions_text = _format_liked_directions(engagement.saved, liked_readings)
 
         # Feedforward signals — scoped to readings + general notes,
         # and contextualised with the item they reference.

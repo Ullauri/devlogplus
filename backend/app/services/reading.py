@@ -4,7 +4,8 @@ import asyncio
 import logging
 import re
 import uuid
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
@@ -497,6 +498,59 @@ async def get_all_recommendation_urls(db: AsyncSession) -> set[str]:
     stmt = select(ReadingRecommendation.url)
     result = await db.execute(stmt)
     return {normalize_url(u) for u in result.scalars().all()}
+
+
+# ---------------------------------------------------------------------------
+# Engagement signals
+# ---------------------------------------------------------------------------
+# ``read_at``, ``saved_at`` and ``dismissed_at`` are recorded on every item but
+# were read by nothing: the columns carried a comment claiming they fed
+# profile_update and reading_generation, and neither pipeline ever looked at
+# them. Saving and dismissing are the cheapest feedback a user gives — no
+# thumbs click, no note — so leaving them inert threw away most of the signal
+# actually available.
+#
+# The three columns say different things and are used differently:
+#   saved     — kept deliberately. The strongest positive available.
+#   dismissed — rejected. Counts as a rejection for domain downranking.
+#   read      — opened. Ambiguous alone (you can read something and hate it),
+#               so it is used only in aggregate: a domain repeatedly
+#               recommended and never once opened is not landing.
+
+# How many recommendations a domain needs before "never opened" means
+# anything. Below this it is small-sample noise.
+IGNORED_DOMAIN_MIN_RECOMMENDATIONS = 3
+
+
+@dataclass(frozen=True)
+class EngagementSignals:
+    """What the user's read/save/dismiss actions imply for the next batch."""
+
+    saved: list[ReadingRecommendation] = field(default_factory=list)
+    dismissed: list[ReadingRecommendation] = field(default_factory=list)
+    # domain -> how many recommendations from it have gone unopened
+    ignored_domains: dict[str, int] = field(default_factory=dict)
+
+
+async def get_engagement_signals(db: AsyncSession) -> EngagementSignals:
+    """Derive directional signal from per-item read/save/dismiss state."""
+    result = await db.execute(select(ReadingRecommendation))
+    rows = list(result.scalars().all())
+
+    # Dismissing clears saved_at, but guard anyway so a dismissed item can
+    # never be presented as something the user wanted to keep.
+    saved = [r for r in rows if r.saved_at is not None and r.dismissed_at is None]
+    dismissed = [r for r in rows if r.dismissed_at is not None]
+
+    recommended_per_domain = Counter(r.source_domain for r in rows)
+    read_per_domain = Counter(r.source_domain for r in rows if r.read_at is not None)
+    ignored_domains = {
+        domain: n
+        for domain, n in recommended_per_domain.items()
+        if n >= IGNORED_DOMAIN_MIN_RECOMMENDATIONS and read_per_domain[domain] == 0
+    }
+
+    return EngagementSignals(saved=saved, dismissed=dismissed, ignored_domains=ignored_domains)
 
 
 async def get_recommendation(

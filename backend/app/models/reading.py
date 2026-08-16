@@ -40,8 +40,12 @@ class ReadingRecommendation(Base, UUIDMixin, TimestampMixin):
     batch_date: Mapped[date] = mapped_column(Date, nullable=False)
 
     # Per-item user state.  Each is a nullable timestamp rather than a status
-    # enum so we record *when* the action happened (useful for engagement
-    # metrics feeding back into profile_update / reading_generation).
+    # enum so we record *when* the action happened. Consumed by
+    # ``reading_svc.get_engagement_signals``, which the reading-generation
+    # pipeline uses to steer the next batch: saved items are its strongest
+    # positive signal, dismissals count as rejections for domain downranking,
+    # and a domain that is repeatedly recommended but never read is downranked
+    # too. ``profile_update`` does not read them.
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

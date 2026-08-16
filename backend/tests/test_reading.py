@@ -1,6 +1,6 @@
 """Tests for the reading recommendations and allowlist API endpoints."""
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import pytest
@@ -368,3 +368,81 @@ async def test_seed_default_allowlist_includes_batch2_domains(db_session: AsyncS
         f"Expected at least 68 default allowlist entries (batch 1 + batch 2), "
         f"got {total}. seed_default_allowlist() is missing batch-2 domains."
     )
+
+
+# ---------------------------------------------------------------------------
+# Engagement signals (read / saved / dismissed feeding generation)
+# ---------------------------------------------------------------------------
+async def _make_rec_on(
+    db: AsyncSession, *, domain: str, title: str, **state
+) -> ReadingRecommendation:
+    rec = ReadingRecommendation(
+        title=title,
+        url=f"https://{domain}/{title}",
+        source_domain=domain,
+        description=None,
+        topic_id=None,
+        recommendation_type=ReadingRecommendationType.DEEP_DIVE,
+        batch_date=date.today(),
+        **state,
+    )
+    db.add(rec)
+    await db.flush()
+    return rec
+
+
+async def test_engagement_signals_collect_saved_and_dismissed(db_session: AsyncSession):
+    """Saving and dismissing are feedback the user gives without clicking a thumb."""
+    now = datetime.now(UTC)
+    await _make_rec_on(db_session, domain="a.com", title="kept", saved_at=now)
+    await _make_rec_on(db_session, domain="b.com", title="binned", dismissed_at=now)
+    await _make_rec_on(db_session, domain="c.com", title="untouched")
+
+    signals = await reading_svc.get_engagement_signals(db_session)
+
+    assert [r.title for r in signals.saved] == ["kept"]
+    assert [r.title for r in signals.dismissed] == ["binned"]
+
+
+async def test_dismissed_item_is_never_reported_as_saved(db_session: AsyncSession):
+    """Dismissed trumps saved, so a stale saved_at must not read as a keeper."""
+    now = datetime.now(UTC)
+    await _make_rec_on(db_session, domain="a.com", title="both", saved_at=now, dismissed_at=now)
+
+    signals = await reading_svc.get_engagement_signals(db_session)
+
+    assert signals.saved == []
+    assert [r.title for r in signals.dismissed] == ["both"]
+
+
+async def test_domain_never_opened_is_flagged_as_ignored(db_session: AsyncSession):
+    """A domain recommended repeatedly and never read is not landing."""
+    for i in range(reading_svc.IGNORED_DOMAIN_MIN_RECOMMENDATIONS):
+        await _make_rec_on(db_session, domain="ignored.com", title=f"never-{i}")
+
+    signals = await reading_svc.get_engagement_signals(db_session)
+
+    assert signals.ignored_domains == {
+        "ignored.com": reading_svc.IGNORED_DOMAIN_MIN_RECOMMENDATIONS
+    }
+
+
+async def test_one_read_clears_a_domain_of_being_ignored(db_session: AsyncSession):
+    """A single open is enough — this flags indifference, not unpopularity."""
+    for i in range(reading_svc.IGNORED_DOMAIN_MIN_RECOMMENDATIONS - 1):
+        await _make_rec_on(db_session, domain="ok.com", title=f"unread-{i}")
+    await _make_rec_on(db_session, domain="ok.com", title="opened", read_at=datetime.now(UTC))
+
+    signals = await reading_svc.get_engagement_signals(db_session)
+
+    assert signals.ignored_domains == {}
+
+
+async def test_small_sample_domain_is_not_flagged_as_ignored(db_session: AsyncSession):
+    """Below the threshold, "never opened" is noise."""
+    for i in range(reading_svc.IGNORED_DOMAIN_MIN_RECOMMENDATIONS - 1):
+        await _make_rec_on(db_session, domain="new.com", title=f"unread-{i}")
+
+    signals = await reading_svc.get_engagement_signals(db_session)
+
+    assert signals.ignored_domains == {}

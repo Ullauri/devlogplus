@@ -39,13 +39,30 @@ def run_async(coro):
 # ---------------------------------------------------------------------------
 # Per-test async database session (mirrors the root conftest pattern)
 # ---------------------------------------------------------------------------
+async def _truncate_all(test_session_factory) -> None:
+    async with test_session_factory() as cleanup:
+        for table in reversed(Base.metadata.sorted_tables):
+            await cleanup.execute(text(f"TRUNCATE {table.fullname} CASCADE"))
+        await cleanup.commit()
+
+
 @pytest.fixture()
 def bdd_db(test_session_factory):
-    """Yield a fresh DB session; truncate all tables after the test."""
+    """Yield a fresh DB session; truncate all tables either side of the test.
+
+    Truncating *before* as well as after matters: migration 002 seeds
+    ``reading_allowlist`` with the default domains, so whichever scenario runs
+    first meets a pre-populated table while every later one meets an empty
+    table — the previous test's teardown having wiped the seed. That made the
+    first scenario to insert "go.dev" fail on the unique constraint, so
+    ``test_generate_reading_recommendations`` passed in a full run and failed
+    when this file was run on its own. Cleaning up front removes the
+    dependency on run order rather than on what ran before.
+    """
 
     async def _make():
-        session = test_session_factory()
-        return session
+        await _truncate_all(test_session_factory)
+        return test_session_factory()
 
     session: AsyncSession = run_async(_make())
 
@@ -54,10 +71,7 @@ def bdd_db(test_session_factory):
     # Cleanup: close session then truncate
     async def _cleanup():
         await session.close()
-        async with test_session_factory() as cleanup:
-            for table in reversed(Base.metadata.sorted_tables):
-                await cleanup.execute(text(f"TRUNCATE {table.fullname} CASCADE"))
-            await cleanup.commit()
+        await _truncate_all(test_session_factory)
 
     run_async(_cleanup())
 
@@ -485,12 +499,16 @@ def create_reading_recommendation(
     source_domain: str,
     title: str = "A previous recommendation",
     recommendation_type: str = "deep_dive",
+    dismissed: bool = False,
+    saved: bool = False,
 ) -> Any:
     """Insert a single ReadingRecommendation row and return it."""
-    from datetime import date
+    from datetime import UTC, date, datetime
 
     from backend.app.models.base import ReadingRecommendationType
     from backend.app.models.reading import ReadingRecommendation
+
+    now = datetime.now(UTC)
 
     async def _create():
         rec = ReadingRecommendation(
@@ -500,6 +518,8 @@ def create_reading_recommendation(
             description="seeded for tests",
             recommendation_type=ReadingRecommendationType(recommendation_type),
             batch_date=date.today(),
+            dismissed_at=now if dismissed else None,
+            saved_at=now if saved else None,
         )
         db.add(rec)
         await db.flush()

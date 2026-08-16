@@ -40,6 +40,18 @@ Feature: Weekly Reading Recommendations
     When the reading generation pipeline runs with a URL labelled with an allowlisted domain
     Then no recommendations should be stored
 
+  Scenario: Dismissing recommendations downranks their domain
+    Given the reading allowlist contains "go.dev" and "blog.golang.org"
+    And two readings from "blog.golang.org" have been dismissed
+    When the reading generation pipeline runs
+    Then the prompt should downrank "blog.golang.org"
+
+  Scenario: A saved recommendation steers the next batch
+    Given the reading allowlist contains "go.dev" and "blog.golang.org"
+    And a reading titled "Go Memory Model" has been saved
+    When the reading generation pipeline runs
+    Then the prompt should offer "Go Memory Model" as a saved direction
+
   Scenario: A previously thumbs-upped recommendation is not re-recommended
     Given the reading allowlist contains "go.dev" and "blog.golang.org"
     And I have thumbs-upped a previous reading at "https://go.dev/doc/effective_go#concurrency"
