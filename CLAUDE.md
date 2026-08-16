@@ -44,6 +44,7 @@ Each layer has its own `CLAUDE.md`. Start there for layer-specific conventions.
 
 ## Gotchas
 - Every `CLAUDE.md` has a sibling `copilot-instructions.md` symlink pointing to it — Copilot reads from that path. Don't replace any `CLAUDE.md` with a symlink; always edit the `.md` file directly.
+- `.truecourse/LATEST.json` is generated and is refreshed **only** by the `TrueCourse` workflow on `main`. Never hand-edit it and never commit a regenerated one from a branch — it is a 1.7 MB generated JSON, so two branches refreshing it conflict on every merge. To see what your in-flight changes introduce, run `truecourse analyze --diff` (writes the gitignored `.truecourse/diff.json`). See `docs/adr/0008-truecourse-analysis-baseline.md`.
 
 ## Key files
 - `backend/app/main.py` — FastAPI app wiring
@@ -51,4 +52,5 @@ Each layer has its own `CLAUDE.md`. Start there for layer-specific conventions.
 - `docs/PRD.md` — product requirements (15 areas)
 - `docs/openapi.json` — API contract (generated; source of truth for Prism)
 - `docs/adr/` — Architecture Decision Records (see `docs/adr/README.md` for index)
+- `.truecourse/LATEST.json` — TrueCourse code-analysis baseline (generated on `main`; read-only elsewhere)
 - `Makefile` — all dev/test/eval/deploy commands

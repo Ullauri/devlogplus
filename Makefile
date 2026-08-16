@@ -1,4 +1,4 @@
-.PHONY: lint lint-backend lint-frontend lint-fix lint-check typecheck-frontend format format-backend format-frontend test test-backend test-frontend test-integration test-mutation-frontend test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp langfuse-up langfuse-down langfuse-reset langfuse-check
+.PHONY: lint lint-backend lint-frontend lint-fix lint-check typecheck-frontend format format-backend format-frontend test test-backend test-frontend test-integration test-mutation-frontend test-arch test-arch-backend test-arch-frontend run dev dev-mock mock-api up down backup migrate migrate-docker venv openapi openapi-check precommit-install eval eval-e2e eval-topic-extraction eval-profile-update eval-quiz-generation eval-quiz-evaluation eval-reading-generation eval-project-generation eval-project-evaluation mcp langfuse-up langfuse-down langfuse-reset langfuse-check truecourse truecourse-llm truecourse-llm-setup truecourse-restore
 
 VENV_DIR := .venv
 PYTHON := python3
@@ -217,6 +217,89 @@ eval-project-generation: ## [Manual] Evaluate project_generation node
 
 eval-project-evaluation: ## [Manual] Evaluate project_evaluation node
 	poetry run python -m backend.scripts.evaluations.nodes.eval_project_evaluation --iterations $(ITERS)
+
+# ── TrueCourse (code analysis) ───────────────────────────────────────
+#    `make truecourse` is free, offline and deterministic — the exact
+#    rules CI runs on `main` after every merge.
+#
+#    `make truecourse-llm` adds the ~100 LLM rules on top. Like the eval
+#    targets above it costs real money and is manual only: there is
+#    deliberately no cadence and no CI job for it. Run it when you want
+#    the deeper semantic pass, not on a schedule.
+#
+#    Both REWRITE the local `.truecourse/LATEST.json`. That file is the
+#    committed baseline and is refreshed on `main` by the TrueCourse
+#    workflow, never from a branch (see docs/adr/0008). Put it back with
+#    `make truecourse-restore` before you commit anything.
+#
+#    One-time, to route the LLM rules through the same OpenRouter
+#    account the pipelines already use:
+#
+#      make truecourse-llm-setup
+#
+#    That records the *name* of the env var, never the key itself, and
+#    makes one live call to prove the configuration works — a config
+#    that fails its probe is never saved.
+# ─────────────────────────────────────────────────────────────────────
+TRUECOURSE_MODEL    ?= anthropic/claude-sonnet-5
+TRUECOURSE_BASE_URL ?= https://openrouter.ai/api/v1
+
+truecourse: ## Deterministic code analysis (free, offline — the rules CI runs)
+	@command -v truecourse >/dev/null 2>&1 || { \
+		echo "truecourse is not on PATH. It needs its own Node >= 22,"; \
+		echo "unrelated to the frontend's Node 20:"; \
+		echo "  nvm install 22 && nvm use 22 && npm install -g truecourse"; \
+		exit 1; }
+	truecourse analyze --no-llm --no-stash --no-skills
+	@echo ""
+	@echo "→ truecourse list            # the findings"
+	@echo "→ make truecourse-restore    # put the committed baseline back"
+
+truecourse-llm-setup: ## [Manual, one-time] Point TrueCourse's LLM rules at OpenRouter
+	@set -eu; \
+	command -v truecourse >/dev/null 2>&1 || { \
+		echo "truecourse is not on PATH (needs Node >= 22)."; exit 1; }; \
+	if [ -z "$${OPENROUTER_API_KEY:-}" ] && [ -f .env ]; then \
+		OPENROUTER_API_KEY=$$(grep -m1 '^OPENROUTER_API_KEY=' .env | cut -d= -f2- | tr -d '"'); \
+		export OPENROUTER_API_KEY; \
+	fi; \
+	[ -n "$${OPENROUTER_API_KEY:-}" ] || { \
+		echo "OPENROUTER_API_KEY is neither exported nor in .env."; exit 1; }; \
+	echo "Provider openai, pointed at $(TRUECOURSE_BASE_URL), model $(TRUECOURSE_MODEL)."; \
+	echo "OpenRouter is not a provider kind of its own — it speaks OpenAI's"; \
+	echo "protocol, so it is reached as a gateway via --base-url."; \
+	echo ""; \
+	truecourse config llm setup \
+		--transport api \
+		--provider openai \
+		--base-url $(TRUECOURSE_BASE_URL) \
+		--model $(TRUECOURSE_MODEL) \
+		--api-key-env OPENROUTER_API_KEY
+
+truecourse-llm: ## [Manual] Code analysis WITH LLM rules via OpenRouter — costs real money
+	@set -eu; \
+	command -v truecourse >/dev/null 2>&1 || { \
+		echo "truecourse is not on PATH (needs Node >= 22)."; exit 1; }; \
+	if [ -z "$${OPENROUTER_API_KEY:-}" ] && [ -f .env ]; then \
+		OPENROUTER_API_KEY=$$(grep -m1 '^OPENROUTER_API_KEY=' .env | cut -d= -f2- | tr -d '"'); \
+		export OPENROUTER_API_KEY; \
+	fi; \
+	[ -n "$${OPENROUTER_API_KEY:-}" ] || { \
+		echo "OPENROUTER_API_KEY is neither exported nor in .env."; \
+		echo "Run 'make truecourse-llm-setup' once first."; exit 1; }; \
+	echo "═══════════════════════════════════════════════════"; \
+	echo "  DevLog+ — TrueCourse analysis WITH LLM rules"; \
+	echo "  Model: $(TRUECOURSE_MODEL) via OpenRouter"; \
+	echo "  This sends source to the model and costs real money."; \
+	echo "═══════════════════════════════════════════════════"; \
+	truecourse analyze --llm --llm-transport api --no-stash --no-skills
+	@echo ""
+	@echo "→ truecourse list            # the findings, LLM rules included"
+	@echo "→ make truecourse-restore    # put the committed baseline back"
+
+truecourse-restore: ## Restore the committed .truecourse baseline after a local run
+	git checkout -- .truecourse/LATEST.json
+	@echo "✅ .truecourse/LATEST.json restored to the committed baseline."
 
 # ── Git hooks ────────────────────────────────────────────────────────
 precommit-install: ## Install pre-commit hooks

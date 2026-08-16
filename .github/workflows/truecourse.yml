@@ -1,0 +1,116 @@
+name: TrueCourse
+
+# Refresh the committed TrueCourse analysis baseline after every merge to main.
+#
+# `.truecourse/LATEST.json` is the materialised current-state view of the repo's
+# code findings. TrueCourse's own guidance is to regenerate it *on main only* and
+# commit the result -- two feature branches both rewriting a 1.7 MB generated
+# JSON conflict on every PR, and a per-branch baseline is not a baseline. So this
+# is the one place it is produced, and `.truecourse/LATEST.json` is read-only to
+# everyone else. See docs/adr/0008-truecourse-analysis-baseline.md.
+#
+# The run is a *signal*, never a gate: it does not block a merge (the merge has
+# already happened) and it does not fail on findings. Downstream consumers read
+# the committed baseline out of git.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# The commit-back needs write access. The repository default for GITHUB_TOKEN is
+# read-only; a workflow-level `permissions:` block overrides that default, so
+# nothing has to change in repository settings. If the push ever 403s, this is
+# the first thing to check.
+permissions:
+  contents: write
+
+# Never cancel in progress: a cancelled run leaves the baseline pointing at an
+# older commit than main, which is exactly the state this workflow exists to
+# prevent. Queue instead, so the last merge wins.
+concurrency:
+  group: truecourse-baseline
+  cancel-in-progress: false
+
+env:
+  # Pinned to a patch range on purpose. Rule keys are the identity a consumer
+  # deduplicates on, so a minor bump that renames or splits a rule silently
+  # re-files work that is already tracked. Bumping the minor is a deliberate
+  # change with a look at the diff, not something that happens on a Tuesday.
+  TRUECOURSE_VERSION: "~0.7.4"
+
+jobs:
+  baseline:
+    name: Refresh analysis baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # TrueCourse baselines are commit-anchored: it reads git to record the
+          # branch and commit the analysis describes. A shallow clone is enough
+          # for HEAD, but full history keeps `analyze --diff` usable from a
+          # workflow_dispatch run on an older ref.
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # TrueCourse requires Node >= 22 (its own .node-version pins 22.x).
+          # This is deliberately *not* the repo's NODE_VERSION (20): the tool's
+          # runtime and the frontend's runtime are unrelated.
+          node-version: "22"
+
+      - name: Install TrueCourse
+        run: npm install -g "truecourse@${TRUECOURSE_VERSION}"
+
+      - name: Analyze
+        # --no-llm      deterministic rules only. The LLM rules need either a
+        #               `claude` binary signed in or a provider API key; CI has
+        #               neither, and a baseline whose contents depend on whether
+        #               a secret happened to be present is not a baseline.
+        # --no-stash    a fresh checkout is clean; never let it touch the tree.
+        # --no-skills   suppress the Claude Code skills install prompt.
+        run: truecourse analyze --no-llm --no-stash --no-skills
+
+      - name: Summarise findings
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const latest = JSON.parse(fs.readFileSync(".truecourse/LATEST.json", "utf8"));
+            const bySeverity = {};
+            for (const v of latest.violations) {
+              bySeverity[v.severity] = (bySeverity[v.severity] ?? 0) + 1;
+            }
+            const order = ["critical", "high", "medium", "low", "info"];
+            const rows = order
+              .filter((s) => bySeverity[s])
+              .map((s) => `| ${s} | ${bySeverity[s]} |`)
+              .join("\n");
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+              `## TrueCourse baseline`,
+              ``,
+              `Commit \`${latest.analysis.commitHash ?? "unknown"}\` · ${latest.violations.length} active findings`,
+              ``,
+              `| severity | count |`,
+              `|---|---:|`,
+              rows,
+              ``,
+            ].join("\n"));
+          '
+
+      - name: Commit the refreshed baseline
+        run: |
+          set -euo pipefail
+          # Only LATEST.json is tracked. analyses/, history.json, logs/ and the
+          # rest are per-checkout and already covered by .truecourse/.gitignore.
+          if git diff --quiet -- .truecourse/LATEST.json; then
+            echo "Baseline unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .truecourse/LATEST.json
+          git commit -m "chore(truecourse): refresh analysis baseline for ${GITHUB_SHA:0:7}"
+          # A push authenticated with GITHUB_TOKEN does not trigger workflows,
+          # so this cannot loop back into another run of this job.
+          git push origin HEAD:main
