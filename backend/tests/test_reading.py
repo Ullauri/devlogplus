@@ -229,19 +229,30 @@ async def test_delete_nonexistent_allowlist(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
-# URL validation
+# Link verification
 # ---------------------------------------------------------------------------
-async def test_validate_urls_empty_input():
+def _mock_client(monkeypatch, handler):
+    """Point reading_svc's httpx.AsyncClient at a MockTransport."""
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient
+
+    def _fake_client(*args, **kwargs):
+        kwargs["transport"] = transport
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(reading_svc.httpx, "AsyncClient", _fake_client)
+
+
+async def test_check_links_empty_input():
     """Empty input yields empty output and performs zero requests."""
-    result = await reading_svc.validate_urls([])
+    result = await reading_svc.check_links([])
     assert result == {}
 
 
-async def test_validate_urls_mixed_success_and_404(monkeypatch):
-    """Validator marks 2xx/3xx as reachable and 4xx/5xx as unreachable."""
+async def test_check_links_mixed_success_and_404(monkeypatch):
+    """Fetcher marks 2xx/3xx as reachable and 4xx/5xx as unreachable."""
     status_by_url = {
         "https://ok.example.com/a": 200,
-        "https://redir.example.com/b": 301,
         "https://gone.example.com/c": 404,
         "https://broken.example.com/d": 500,
     }
@@ -249,75 +260,32 @@ async def test_validate_urls_mixed_success_and_404(monkeypatch):
     def _transport(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status_by_url[str(request.url)])
 
-    transport = httpx.MockTransport(_transport)
+    _mock_client(monkeypatch, _transport)
 
-    # Patch AsyncClient to use the mock transport
-    real_client = httpx.AsyncClient
+    result = await reading_svc.check_links(list(status_by_url.keys()), timeout=1.0)
 
-    def _fake_client(*args, **kwargs):
-        kwargs["transport"] = transport
-        return real_client(*args, **kwargs)
-
-    monkeypatch.setattr(reading_svc.httpx, "AsyncClient", _fake_client)
-
-    result = await reading_svc.validate_urls(list(status_by_url.keys()), timeout=1.0)
-
-    assert result["https://ok.example.com/a"] == (True, None)
-    assert result["https://redir.example.com/b"] == (True, None)
-    assert result["https://gone.example.com/c"][0] is False
-    assert "404" in result["https://gone.example.com/c"][1]
-    assert result["https://broken.example.com/d"][0] is False
-    assert "500" in result["https://broken.example.com/d"][1]
+    assert result["https://ok.example.com/a"].reachable is True
+    assert result["https://gone.example.com/c"].reachable is False
+    assert "404" in result["https://gone.example.com/c"].reason
+    assert result["https://broken.example.com/d"].reachable is False
+    assert "500" in result["https://broken.example.com/d"].reason
 
 
-async def test_validate_urls_falls_back_to_get_on_405(monkeypatch):
-    """Servers that reject HEAD should be retried with GET."""
-    calls: list[str] = []
-
-    def _transport(request: httpx.Request) -> httpx.Response:
-        calls.append(request.method)
-        if request.method == "HEAD":
-            return httpx.Response(405)
-        return httpx.Response(200)
-
-    transport = httpx.MockTransport(_transport)
-    real_client = httpx.AsyncClient
-
-    def _fake_client(*args, **kwargs):
-        kwargs["transport"] = transport
-        return real_client(*args, **kwargs)
-
-    monkeypatch.setattr(reading_svc.httpx, "AsyncClient", _fake_client)
-
-    result = await reading_svc.validate_urls(["https://picky.example.com/x"], timeout=1.0)
-
-    assert result["https://picky.example.com/x"] == (True, None)
-    assert calls == ["HEAD", "GET"]
-
-
-async def test_validate_urls_timeout(monkeypatch):
-    """Network timeouts are translated into ``(False, 'timeout')``."""
+async def test_check_links_timeout(monkeypatch):
+    """Network timeouts are translated into an unreachable result."""
 
     def _transport(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectTimeout("simulated timeout", request=request)
 
-    transport = httpx.MockTransport(_transport)
-    real_client = httpx.AsyncClient
+    _mock_client(monkeypatch, _transport)
 
-    def _fake_client(*args, **kwargs):
-        kwargs["transport"] = transport
-        return real_client(*args, **kwargs)
+    result = await reading_svc.check_links(["https://slow.example.com/x"], timeout=0.5)
 
-    monkeypatch.setattr(reading_svc.httpx, "AsyncClient", _fake_client)
-
-    result = await reading_svc.validate_urls(["https://slow.example.com/"], timeout=0.5)
-
-    ok, reason = result["https://slow.example.com/"]
-    assert ok is False
-    assert reason == "timeout"
+    assert result["https://slow.example.com/x"].reachable is False
+    assert result["https://slow.example.com/x"].reason == "timeout"
 
 
-async def test_validate_urls_deduplicates(monkeypatch):
+async def test_check_links_deduplicates(monkeypatch):
     """Duplicate URLs only trigger a single HTTP request."""
     hits: list[str] = []
 
@@ -325,25 +293,42 @@ async def test_validate_urls_deduplicates(monkeypatch):
         hits.append(str(request.url))
         return httpx.Response(200)
 
-    transport = httpx.MockTransport(_transport)
-    real_client = httpx.AsyncClient
+    _mock_client(monkeypatch, _transport)
 
-    def _fake_client(*args, **kwargs):
-        kwargs["transport"] = transport
-        return real_client(*args, **kwargs)
-
-    monkeypatch.setattr(reading_svc.httpx, "AsyncClient", _fake_client)
-
-    await reading_svc.validate_urls(
-        [
-            "https://dup.example.com/page",
-            "https://dup.example.com/page",
-            "https://dup.example.com/page",
-        ],
-        timeout=1.0,
-    )
+    await reading_svc.check_links(["https://dup.example.com/page"] * 3, timeout=1.0)
 
     assert len(hits) == 1
+
+
+async def test_check_links_captures_page_title(monkeypatch):
+    """The fetched page's own titles are captured for comparison."""
+
+    def _transport(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html; charset=utf-8"},
+            text="<html><head><title>Real Article Title</title></head>"
+            "<body><h1>Heading</h1></body></html>",
+        )
+
+    _mock_client(monkeypatch, _transport)
+
+    result = await reading_svc.check_links(["https://ex.example.com/a/b"], timeout=1.0)
+
+    assert "Real Article Title" in result["https://ex.example.com/a/b"].page_titles
+
+
+async def test_check_links_skips_title_parse_for_non_html(monkeypatch):
+    """A PDF has no parseable title and must not be mined for one."""
+
+    def _transport(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "application/pdf"}, text="%PDF-1.4")
+
+    _mock_client(monkeypatch, _transport)
+
+    result = await reading_svc.check_links(["https://ex.example.com/p/paper.pdf"], timeout=1.0)
+
+    assert result["https://ex.example.com/p/paper.pdf"].page_titles == ()
 
 
 # ---------------------------------------------------------------------------

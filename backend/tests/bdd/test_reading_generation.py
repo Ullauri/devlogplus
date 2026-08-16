@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from backend.app.services.reading import LinkCheck
 from backend.tests.bdd.conftest import (
     create_allowlist_entries,
     create_feedback,
@@ -65,9 +66,9 @@ def when_generate_readings(bdd_db, ctx):
             return_value=mock_response,
         ),
         patch(
-            "backend.app.pipelines.reading_pipeline.reading_svc.validate_urls",
+            "backend.app.pipelines.reading_pipeline.reading_svc.check_links",
             new_callable=AsyncMock,
-            return_value={},  # empty → pipeline treats unknown URLs as reachable
+            return_value={},  # empty → pipeline skips link verification
         ),
     ):
         readings = run_async(generate_readings(bdd_db))
@@ -114,7 +115,7 @@ def when_generate_with_bad_domain(bdd_db, ctx):
             return_value=mock_response,
         ),
         patch(
-            "backend.app.pipelines.reading_pipeline.reading_svc.validate_urls",
+            "backend.app.pipelines.reading_pipeline.reading_svc.check_links",
             new_callable=AsyncMock,
             return_value={},
         ),
@@ -144,8 +145,16 @@ def when_generate_with_broken_url(bdd_db, ctx):
     mock_response = make_reading_generation_response()
     # Default recs: effective_go (reachable) and blog.golang.org/pipelines (broken)
     url_status = {
-        "https://go.dev/doc/effective_go#concurrency": (True, None),
-        "https://blog.golang.org/pipelines": (False, "HTTP 404"),
+        "https://go.dev/doc/effective_go#concurrency": LinkCheck(
+            "https://go.dev/doc/effective_go#concurrency",
+            reachable=True,
+            final_url="https://go.dev/doc/effective_go",
+        ),
+        "https://blog.golang.org/pipelines": LinkCheck(
+            "https://blog.golang.org/pipelines",
+            reachable=False,
+            reason="HTTP 404",
+        ),
     }
 
     with (
@@ -155,7 +164,7 @@ def when_generate_with_broken_url(bdd_db, ctx):
             return_value=mock_response,
         ),
         patch(
-            "backend.app.pipelines.reading_pipeline.reading_svc.validate_urls",
+            "backend.app.pipelines.reading_pipeline.reading_svc.check_links",
             new_callable=AsyncMock,
             return_value=url_status,
         ),
@@ -170,6 +179,123 @@ def when_generate_with_broken_url(bdd_db, ctx):
 def then_only_reachable(ctx):
     assert len(ctx["readings"]) == 1
     assert ctx["readings"][0].url == "https://go.dev/doc/effective_go#concurrency"
+
+
+# ---------------------------------------------------------------------------
+# Link verification scenarios
+# ---------------------------------------------------------------------------
+# A reachable 200 is not evidence that a link is the article it claims to be.
+# These cover the two ways a real page can still be the wrong page.
+def _run_pipeline(bdd_db, ctx, recommendations, link_checks):
+    from backend.app.pipelines.reading_pipeline import generate_readings
+
+    with (
+        patch(
+            "backend.app.pipelines.reading_pipeline.llm_client.chat_completion_json",
+            new_callable=AsyncMock,
+            return_value=make_reading_generation_response(recommendations),
+        ),
+        patch(
+            "backend.app.pipelines.reading_pipeline.reading_svc.check_links",
+            new_callable=AsyncMock,
+            return_value=link_checks,
+        ),
+    ):
+        ctx["readings"] = run_async(generate_readings(bdd_db))
+        run_async(bdd_db.commit())
+
+
+def _rec(title, url, topic):
+    return {
+        "title": title,
+        "url": url,
+        "source_domain": "go.dev",
+        "description": "d",
+        "recommendation_type": "deep_dive",
+        "target_topic": topic,
+        "rationale": "r",
+    }
+
+
+@when("the reading generation pipeline runs and one URL is a site landing page")
+def when_generate_with_landing_page(bdd_db, ctx):
+    good = "https://go.dev/doc/effective_go"
+    landing = "https://go.dev/blog"
+    _run_pipeline(
+        bdd_db,
+        ctx,
+        [
+            _rec("Effective Go", good, "Go basics"),
+            _rec("Go Generics In Depth", landing, "Go generics"),
+        ],
+        {
+            good: LinkCheck(good, reachable=True, final_url=good, page_titles=("Effective Go",)),
+            landing: LinkCheck(
+                landing, reachable=True, final_url=landing, page_titles=("The Go Blog",)
+            ),
+        },
+    )
+
+
+@then("the landing page should not appear in the batch")
+def then_no_landing_page(ctx):
+    urls = [r.url for r in ctx["readings"]]
+    assert urls == ["https://go.dev/doc/effective_go"]
+
+
+@then("the processing log should record it as a landing page")
+def then_log_records_landing_page(bdd_db, ctx):
+    log = _latest_reading_log(bdd_db)
+    skipped = (log.metadata_ or {}).get("skipped_bad_link", [])
+    assert any("landing page" in s.get("reason", "") for s in skipped), skipped
+
+
+@when("the reading generation pipeline runs and one URL resolves to an unrelated page")
+def when_generate_with_mismatched_page(bdd_db, ctx):
+    good = "https://go.dev/doc/effective_go"
+    wrong = "https://go.dev/doc/faq"
+    _run_pipeline(
+        bdd_db,
+        ctx,
+        [
+            _rec("Effective Go", good, "Go basics"),
+            _rec("Understanding Go Scheduler Internals", wrong, "Go runtime"),
+        ],
+        {
+            good: LinkCheck(good, reachable=True, final_url=good, page_titles=("Effective Go",)),
+            wrong: LinkCheck(
+                wrong,
+                reachable=True,
+                final_url=wrong,
+                page_titles=("Frequently Asked Questions About Modules",),
+            ),
+        },
+    )
+
+
+@then("the mismatched link should not appear in the batch")
+def then_no_mismatch(ctx):
+    urls = [r.url for r in ctx["readings"]]
+    assert urls == ["https://go.dev/doc/effective_go"]
+
+
+@when("the reading generation pipeline runs with a URL labelled with an allowlisted domain")
+def when_generate_with_mislabelled_domain(bdd_db, ctx):
+    # The exact production failure: blog.langchain.dev stored under a
+    # thenewstack.io label because a matching source_domain satisfied the check
+    # on its own.
+    url = "https://blog.langchain.dev"
+    _run_pipeline(
+        bdd_db,
+        ctx,
+        [_rec("Understanding LangChain and LangGraph", url, "LLM frameworks")],
+        {url: LinkCheck(url, reachable=True, final_url=url, page_titles=("LangChain Blog",))},
+    )
+
+
+@then("no recommendations should be stored")
+def then_nothing_stored(ctx):
+    assert ctx["readings"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +321,7 @@ def _latest_reading_log(bdd_db):
 @then("the processing log should record the skipped URL")
 def then_log_records_skipped(bdd_db, ctx):
     log = _latest_reading_log(bdd_db)
-    skipped = (log.metadata_ or {}).get("skipped_unreachable", [])
+    skipped = (log.metadata_ or {}).get("skipped_bad_link", [])
     assert any("blog.golang.org/pipelines" in s.get("url", "") for s in skipped)
 
 
@@ -254,7 +380,7 @@ def when_generate_proposes_liked_url(bdd_db, ctx):
             return_value=mock_response,
         ),
         patch(
-            "backend.app.pipelines.reading_pipeline.reading_svc.validate_urls",
+            "backend.app.pipelines.reading_pipeline.reading_svc.check_links",
             new_callable=AsyncMock,
             return_value={},
         ),
@@ -321,7 +447,7 @@ def when_generate_two_same_topic(bdd_db, ctx):
             return_value=mock_response,
         ),
         patch(
-            "backend.app.pipelines.reading_pipeline.reading_svc.validate_urls",
+            "backend.app.pipelines.reading_pipeline.reading_svc.check_links",
             new_callable=AsyncMock,
             return_value={},
         ),
@@ -399,7 +525,7 @@ def when_generate_proposes_existing_url(bdd_db, ctx):
             return_value=mock_response,
         ),
         patch(
-            "backend.app.pipelines.reading_pipeline.reading_svc.validate_urls",
+            "backend.app.pipelines.reading_pipeline.reading_svc.check_links",
             new_callable=AsyncMock,
             return_value={},
         ),

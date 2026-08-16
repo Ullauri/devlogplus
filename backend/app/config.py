@@ -57,9 +57,23 @@ class Settings(BaseSettings):
     reading_validate_urls: bool = Field(
         default=True,
         description=(
-            "If true, the reading pipeline issues HEAD/GET requests against every "
-            "LLM-proposed URL and drops recommendations that don't resolve (2xx/3xx). "
+            "If true, the reading pipeline fetches every LLM-proposed URL and drops "
+            "recommendations that don't resolve, that point at a site index or listing "
+            "page, or whose page title doesn't match the claimed title. "
             "Disable for offline dev or to skip the network round-trip."
+        ),
+    )
+    # Keep in step with reading_svc.DEFAULT_MIN_TITLE_OVERLAP — the service
+    # layer cannot import config, so the value is stated in both places and a
+    # test asserts they match.
+    reading_min_title_overlap: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum agreement (0..1) between a recommendation's claimed title and the "
+            "fetched page's own title before the link is accepted. Raise to be stricter "
+            "about mismatched links; set to 0 to accept any reachable non-index page."
         ),
     )
     reading_url_validation_timeout: float = Field(

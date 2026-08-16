@@ -49,11 +49,22 @@ def _format_feedforward(
     reading_lookup: dict[uuid.UUID, ReadingRecommendation],
     max_items: int = 10,
 ) -> str:
-    """Build a context-rich feedforward bullet list for the LLM prompt."""
+    """Build a context-rich feedforward bullet list for the LLM prompt.
+
+    Notes are deduplicated by text before the cap is applied. The UI re-submits
+    the note field on every click, so a single complaint lands as three or four
+    identical rows; without this, one piece of feedback ate a third of the
+    budget and genuinely different steering never reached the prompt at all.
+    """
     lines: list[str] = []
+    seen_notes: set[str] = set()
     for fb in feedback_items:
         if not fb.note:
             continue
+        note_key = " ".join(fb.note.split()).lower()
+        if note_key in seen_notes:
+            continue
+        seen_notes.add(note_key)
         if fb.target_type == FeedbackTargetType.READING:
             reading = reading_lookup.get(fb.target_id)
             if reading is not None:
@@ -208,14 +219,15 @@ async def generate_readings(
 
         gen_result = ReadingGenerationResult.model_validate(raw_result)
 
-        # ── URL reachability validation ──────────────────────────────
-        # The LLM sometimes hallucinates plausible URLs that 404 (seen most
-        # often on martinfowler.com and thoughtworks.com article slugs).
-        # Before persisting, probe each URL and drop the dead ones.
-        url_status: dict[str, tuple[bool, str | None]] = {}
+        # ── Link verification ────────────────────────────────────────
+        # Fetch every proposed URL and confirm it is the article it claims to
+        # be. Reachability alone is not enough: the model has no web access, so
+        # its wrong guesses are either invented slugs (404, caught) or the
+        # domain's landing page (200, previously waved straight through).
+        link_checks: dict[str, reading_svc.LinkCheck] = {}
         if settings.reading_validate_urls:
             candidate_urls = [rec.url for rec in gen_result.recommendations]
-            url_status = await reading_svc.validate_urls(
+            link_checks = await reading_svc.check_links(
                 candidate_urls,
                 timeout=settings.reading_url_validation_timeout,
             )
@@ -227,7 +239,8 @@ async def generate_readings(
         skipped_already_liked = 0
         skipped_duplicate_url = 0
         skipped_duplicate_topic = 0
-        skipped_unreachable: list[dict[str, str]] = []
+        skipped_off_allowlist = 0
+        skipped_bad_link: list[dict[str, str]] = []
         seen_topics: set[str] = set()
 
         for rec in gen_result.recommendations:
@@ -253,29 +266,42 @@ async def generate_readings(
                 skipped_duplicate_url += 1
                 continue
 
-            # Validate domain is on allowlist
-            domain_ok = any(
-                rec.source_domain == d or rec.url.startswith(f"https://{d}")
-                for d in allowed_domains
-            )
-            if not domain_ok:
+            # Validate the URL's real host against the allowlist. The model's
+            # own `source_domain` label is never trusted — it used to satisfy
+            # this check on its own, which let any URL through behind a
+            # correct-looking label.
+            matched_domain = reading_svc.allowlist_match(rec.url, allowed_domains)
+            if matched_domain is None:
                 logger.warning(
-                    "Skipping recommendation from non-allowed domain: %s",
+                    "Skipping recommendation whose URL is not on the allowlist: %s (labelled %s)",
+                    rec.url,
                     rec.source_domain,
                 )
+                skipped_off_allowlist += 1
                 continue
 
-            # Validate URL actually resolves
+            # Confirm the link is the article it claims to be, not an index
+            # page or an unrelated one.
             if settings.reading_validate_urls:
-                reachable, reason = url_status.get(rec.url, (True, None))
-                if not reachable:
-                    logger.warning(
-                        "Skipping unreachable recommendation (%s): %s",
-                        reason,
-                        rec.url,
+                # A missing entry means the URL was never fetched, which only
+                # happens when the check is stubbed out. Absence of evidence is
+                # not treated as a failure, matching the prior behaviour.
+                check = link_checks.get(rec.url)
+                if check is not None:
+                    ok, reason = reading_svc.judge_link(
+                        rec.title,
+                        check,
+                        min_title_overlap=settings.reading_min_title_overlap,
                     )
-                    skipped_unreachable.append({"url": rec.url, "reason": reason or "unknown"})
-                    continue
+                    if not ok:
+                        logger.warning(
+                            "Skipping recommendation '%s' (%s): %s",
+                            rec.title,
+                            reason,
+                            rec.url,
+                        )
+                        skipped_bad_link.append({"url": rec.url, "reason": reason or "unknown"})
+                        continue
 
             # Diversity guard (final gate): refuse a second otherwise-valid rec
             # with the same target_topic in this batch. Prompt asks for distinct
@@ -302,7 +328,10 @@ async def generate_readings(
             reading = ReadingRecommendation(
                 title=rec.title,
                 url=rec.url,
-                source_domain=rec.source_domain,
+                # The allowlist entry the URL actually belongs to, not the
+                # model's label for it. Domain-level dislike counts are derived
+                # from this column, so a wrong label mis-attributed rejections.
+                source_domain=matched_domain,
                 description=rec.description,
                 recommendation_type=rec_type,
                 batch_date=batch_date,
@@ -323,7 +352,8 @@ async def generate_readings(
             "skipped_already_liked": skipped_already_liked,
             "skipped_duplicate_url": skipped_duplicate_url,
             "skipped_duplicate_topic": skipped_duplicate_topic,
-            "skipped_unreachable": skipped_unreachable,
+            "skipped_off_allowlist": skipped_off_allowlist,
+            "skipped_bad_link": skipped_bad_link,
             "batch_date": str(batch_date),
             "distinct_topics": len(seen_topics),
         }
