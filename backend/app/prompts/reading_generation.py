@@ -30,6 +30,25 @@ This is a hard constraint — no exceptions.
 - Titles and descriptions should be specific and helpful.
 - Only recommend text-based content (no videos).
 
+## Link accuracy — HARD constraint
+
+Every URL must point at ONE specific article, and the `title` you give must be
+that article's actual title. This is the single most common failure: a
+plausible-sounding title attached to a link that just opens a site's front page.
+
+- NEVER recommend a section index, listing, feed, tag, or landing page —
+  e.g. `https://research.google/blog/`, `https://anthropic.com/news`,
+  `https://thoughtworks.com/insights/blog`. These are not articles.
+- NEVER invent a URL slug to make a desired article exist. If you cannot
+  recall the real, specific URL of a real article, leave it out.
+- Returning FEWER recommendations than requested is correct and expected
+  behaviour when you are unsure. A short, accurate list is the goal; padding
+  the count with guessed links is the failure mode.
+
+Every URL is fetched and compared against the title you supply before the user
+sees it. Guessed links and landing pages are discarded, so they cost the user a
+recommendation slot and gain nothing.
+
 ## Feedforward integration
 
 If the user has provided directional signals (e.g., "more backend content",
@@ -123,8 +142,13 @@ USER_PROMPT_TEMPLATE = """\
 
 ## Instructions
 
-Generate {recommendation_count} reading recommendations from ONLY the
+Generate up to {recommendation_count} reading recommendations from ONLY the
 approved domains listed above. Focus on knowledge expansion.
+
+Each URL must be a specific article whose real title matches the `title` you
+give it. Omit any recommendation whose exact URL you are not confident of —
+returning fewer than {recommendation_count} is better than including a guessed
+link or a site landing page.
 
 Respect the negative signals: never repeat a URL from the "Do NOT recommend"
 list and avoid downranked domains unless they are clearly the best source.

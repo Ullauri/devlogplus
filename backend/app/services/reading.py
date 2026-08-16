@@ -2,8 +2,12 @@
 
 import asyncio
 import logging
+import re
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from html.parser import HTMLParser
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import or_, select
@@ -21,17 +25,81 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_url(url: str) -> str:
-    """Normalize a URL for deduplication: lowercase and strip trailing slash."""
-    return url.strip().lower().rstrip("/")
+    """Normalize a URL for deduplication.
+
+    Lowercases, drops the fragment, strips a leading ``www.`` and any trailing
+    slash. The fragment matters: ``/manage-resources-containers/`` and
+    ``/manage-resources-containers/#requests-and-limits`` are the same page,
+    and both were once stored as separate recommendations because the original
+    implementation compared raw strings.
+    """
+    parts = urlsplit(url.strip().lower())
+    if not parts.scheme:
+        # Not a URL we can parse structurally — fall back to string handling.
+        return url.strip().lower().split("#")[0].rstrip("/")
+    host = (parts.netloc or "").removeprefix("www.")
+    rebuilt = f"{parts.scheme}://{host}{parts.path}"
+    if parts.query:
+        rebuilt = f"{rebuilt}?{parts.query}"
+    return rebuilt.rstrip("/")
 
 
 # ---------------------------------------------------------------------------
-# URL reachability validation
+# Allowlist matching
 # ---------------------------------------------------------------------------
-# The LLM occasionally hallucinates plausible-but-nonexistent article URLs
-# (e.g. made-up martinfowler.com slugs). Before surfacing a recommendation
-# to the user we confirm the page actually resolves with a cheap HEAD request
-# (falling back to GET for servers that reject HEAD).
+def allowlist_match(url: str, allowed_domains: set[str]) -> str | None:
+    """Return the allowlist entry a URL genuinely belongs to, else ``None``.
+
+    Matching is done against the URL's actual host (and path prefix, for
+    entries such as ``go.dev/blog``) — never against a model-supplied
+    ``source_domain`` field. The pipeline previously accepted a recommendation
+    when *either* the claimed ``source_domain`` or the URL matched, which meant
+    a correct-looking label admitted any URL at all: ``blog.langchain.dev`` was
+    stored under ``thenewstack.io``, and ``docs.anthropic.com`` under
+    ``anthropic.com/news``. Neither host is on the allowlist.
+
+    Subdomains do not inherit their parent's entry: ``anthropic.com/news`` does
+    not authorise ``docs.anthropic.com``. A ``www.`` prefix is ignored.
+    """
+    parts = urlsplit(url.strip())
+    host = (parts.hostname or "").lower().removeprefix("www.")
+    if not host:
+        return None
+    path = parts.path or "/"
+
+    for entry in allowed_domains:
+        candidate = entry.strip().lower().removeprefix("www.").rstrip("/")
+        if not candidate:
+            continue
+        if "/" in candidate:
+            entry_host, entry_path = candidate.split("/", 1)
+            entry_path = "/" + entry_path
+            if host == entry_host and (path == entry_path or path.startswith(entry_path + "/")):
+                return entry
+        elif host == candidate:
+            return entry
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Link verification
+# ---------------------------------------------------------------------------
+# The model that generates these recommendations has no web access — it emits
+# URLs from memory across ~70 allowlisted domains. When it does not know a real
+# article slug it produces something plausible, and the *shape* of that guess
+# determines whether the old reachability-only check caught it:
+#
+#   a specific-but-invented slug  ->  404  ->  dropped
+#   the domain's landing page     ->  200  ->  kept
+#
+# So the previous check actively selected for landing pages: it filtered out
+# wrong-and-specific guesses while waving through wrong-and-generic ones. That
+# is the "title says article, link is a site index" failure users reported
+# repeatedly through feedforward notes.
+#
+# Reachability therefore is not enough. We fetch the page and check that it is
+# (a) not an index/listing page and (b) actually about what the recommendation
+# claims, by comparing the claimed title against the page's own title.
 #
 # Kept here — rather than in the pipeline layer — because it is a reusable
 # piece of "reading" domain logic and is easier to unit-test in isolation.
@@ -40,61 +108,308 @@ def normalize_url(url: str) -> str:
 # bare httpx/<ver> user agents.
 _URL_VALIDATION_UA = "Mozilla/5.0 (compatible; DevLogPlus-LinkCheck/1.0; +https://github.com/)"
 
+# Only parse the head of the document — titles live near the top and some of
+# these pages are megabytes of prose.
+_HTML_PARSE_LIMIT = 200_000
 
-async def _check_single_url(
+# A final path segment drawn from this set means the URL addresses a listing,
+# not an article. These are the exact shapes that kept reaching users:
+# research.google/blog/, anthropic.com/news, thoughtworks.com/insights/blog.
+_INDEX_SEGMENTS = frozenset(
+    {
+        "all",
+        "archive",
+        "archives",
+        "article",
+        "articles",
+        "blog",
+        "blogs",
+        "categories",
+        "category",
+        "docs",
+        "documentation",
+        "feed",
+        "home",
+        "index",
+        "index.html",
+        "insights",
+        "latest",
+        "library",
+        "news",
+        "post",
+        "posts",
+        "research",
+        "resources",
+        "tag",
+        "tags",
+        "topics",
+    }
+)
+
+# Dropped before comparing titles: too common to carry meaning, and present in
+# both real matches and coincidental ones.
+_TITLE_STOPWORDS = frozenset(
+    {
+        "and",
+        "are",
+        "article",
+        "blog",
+        "docs",
+        "documentation",
+        "for",
+        "guide",
+        "home",
+        "how",
+        "index",
+        "intro",
+        "introduction",
+        "news",
+        "official",
+        "page",
+        "part",
+        "site",
+        "the",
+        "their",
+        "them",
+        "this",
+        "using",
+        "what",
+        "when",
+        "why",
+        "with",
+        "you",
+        "your",
+    }
+)
+
+_TOKEN_SPLIT_RE = re.compile(r"[^a-z0-9]+")
+
+# Calibrated against the 30 recommendations already on file, scored by hand.
+# The genuinely-wrong links all sit at or below 0.20 (a docs section titled
+# "19.3. Connections and Authentication" sold as "Patterns for Managing
+# Database Connections at Scale"); the correct-but-paraphrased ones start at
+# 0.29 ("What is connection pooling, and why should you care?" offered as
+# "Database Connection Pooling: Best Practices and Common Pitfalls"). 0.25
+# sits in that gap. Mirrored by ``Settings.reading_min_title_overlap``; the
+# service layer may not import config, so the test suite asserts they agree.
+DEFAULT_MIN_TITLE_OVERLAP = 0.25
+
+
+@dataclass(frozen=True)
+class LinkCheck:
+    """The observed facts about one fetched URL.
+
+    Deliberately holds *facts*, not a verdict — ``judge_link`` turns these into
+    an accept/reject so the judgement can be unit-tested without a network.
+    """
+
+    url: str
+    reachable: bool
+    reason: str | None = None
+    final_url: str | None = None
+    page_titles: tuple[str, ...] = ()
+
+
+class _TitleParser(HTMLParser):
+    """Pull ``<title>``, ``og:title`` and the first ``<h1>`` out of a document.
+
+    All three are collected because no single one is reliable: some sites give
+    every page the same generic ``<title>`` and put the real headline in
+    ``og:title``, and JS-rendered pages sometimes carry only ``og:title``.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.title: str | None = None
+        self.og_title: str | None = None
+        self.h1: str | None = None
+        self._capturing: str | None = None
+        self._buffer: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "meta" and self.og_title is None:
+            attr = dict(attrs)
+            key = (attr.get("property") or attr.get("name") or "").lower()
+            if key in ("og:title", "twitter:title") and attr.get("content"):
+                self.og_title = attr["content"]
+        elif tag == "title" and self.title is None:
+            self._capturing, self._buffer = "title", []
+        elif tag == "h1" and self.h1 is None:
+            self._capturing, self._buffer = "h1", []
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._capturing != tag:
+            return
+        text = "".join(self._buffer).strip()
+        if tag == "title":
+            self.title = text or None
+        else:
+            self.h1 = text or None
+        self._capturing, self._buffer = None, []
+
+    def handle_data(self, data: str) -> None:
+        if self._capturing:
+            self._buffer.append(data)
+
+
+def extract_titles(html: str) -> tuple[str, ...]:
+    """Return the candidate titles found in a document, most specific first."""
+    parser = _TitleParser()
+    try:
+        parser.feed(html[:_HTML_PARSE_LIMIT])
+    except Exception:  # noqa: BLE001 — malformed markup must not fail a batch
+        logger.debug("HTML title extraction failed", exc_info=True)
+    candidates = (parser.og_title, parser.title, parser.h1)
+    seen: list[str] = []
+    for c in candidates:
+        cleaned = re.sub(r"\s+", " ", c).strip() if c else ""
+        if cleaned and cleaned not in seen:
+            seen.append(cleaned)
+    return tuple(seen)
+
+
+def _path_segments(url: str) -> list[str]:
+    return [s for s in urlsplit(url).path.split("/") if s]
+
+
+def is_index_url(url: str) -> bool:
+    """True when the URL addresses a site index or listing rather than an article."""
+    segments = _path_segments(url)
+    if not segments:
+        # Bare domain — https://blog.langchain.dev with an article's title on it.
+        return True
+    return segments[-1].lower() in _INDEX_SEGMENTS
+
+
+def redirect_shallowed(requested_url: str, final_url: str) -> bool:
+    """True when a deep URL redirected to a shallower one — a soft 404.
+
+    Sites that do not return a real 404 bounce unknown article paths up to a
+    section index or the homepage. The response is a 200, so reachability alone
+    reads it as success.
+    """
+    requested = _path_segments(requested_url)
+    final = _path_segments(final_url)
+    return len(requested) >= 2 and len(final) < len(requested)
+
+
+def _title_tokens(text: str) -> set[str]:
+    return {
+        tok
+        for tok in _TOKEN_SPLIT_RE.split(text.lower())
+        if len(tok) > 2 and tok not in _TITLE_STOPWORDS
+    }
+
+
+def title_overlap(claimed: str, actual: str) -> float:
+    """Score how much a claimed title is supported by the page's own, ``0.0..1.0``.
+
+    A genuine match is often lopsided — martinfowler.com/bliki/CQRS.html is
+    titled just "CQRS", which covers little of a longer claimed title — so a
+    page title *fully contained* in the claim scores 1.0. Otherwise the score
+    is the share of the claim the page supports.
+
+    Containment rather than a symmetric ratio, because a symmetric measure is
+    fooled by short unrelated titles: "What is Amazon Aurora?" shares one of
+    its two tokens with "Aurora Failover: Understanding the Mechanics of High
+    Availability" and would score 0.5 on the page's side despite being a
+    different page. Requiring the page title to be *entirely* accounted for
+    separates the two cases.
+
+    Returns ``1.0`` when either side has no usable tokens — an unjudgeable
+    title is not evidence of a mismatch, and the index checks remain the
+    primary net.
+    """
+    claimed_tokens = _title_tokens(claimed)
+    actual_tokens = _title_tokens(actual)
+    if not claimed_tokens or not actual_tokens:
+        return 1.0
+    if actual_tokens <= claimed_tokens:
+        return 1.0
+    return len(claimed_tokens & actual_tokens) / len(claimed_tokens)
+
+
+def judge_link(
+    claimed_title: str,
+    check: LinkCheck,
+    *,
+    min_title_overlap: float = DEFAULT_MIN_TITLE_OVERLAP,
+) -> tuple[bool, str | None]:
+    """Decide whether a fetched link may be shown, and why not if it may not.
+
+    Pure and network-free so every branch is directly testable.
+    """
+    if not check.reachable:
+        return False, check.reason or "unreachable"
+
+    final_url = check.final_url or check.url
+    if is_index_url(final_url):
+        return False, f"landing page: {final_url}"
+    if redirect_shallowed(check.url, final_url):
+        return False, f"redirected to a shallower page: {final_url}"
+
+    if not check.page_titles:
+        # Non-HTML (a PDF) or a page we could not parse. Structure already
+        # cleared it; refusing here would drop legitimate results.
+        return True, None
+
+    best = max(title_overlap(claimed_title, actual) for actual in check.page_titles)
+    if best < min_title_overlap:
+        return False, f"title mismatch (overlap {best:.2f}): page is {check.page_titles[0]!r}"
+    return True, None
+
+
+async def _fetch_one(
     client: httpx.AsyncClient,
     url: str,
     *,
     timeout: float,  # noqa: ASYNC109 — passed to httpx, not asyncio.timeout
-) -> tuple[str, bool, str | None]:
-    """Return ``(url, is_reachable, reason)``.
-
-    A URL is considered reachable if the server responds with any status in
-    the range 200–399 (after following redirects). A 405 Method Not Allowed
-    on HEAD triggers a GET fallback, since some origins refuse HEAD.
-    """
+) -> LinkCheck:
+    """Fetch a single URL and report what was found. Never raises."""
     headers = {"User-Agent": _URL_VALIDATION_UA}
     try:
-        resp = await client.head(url, follow_redirects=True, timeout=timeout, headers=headers)
-        # Some servers block HEAD — retry once with GET.
-        if resp.status_code in (403, 405, 501):
-            resp = await client.get(url, follow_redirects=True, timeout=timeout, headers=headers)
-        if 200 <= resp.status_code < 400:
-            return url, True, None
-        return url, False, f"HTTP {resp.status_code}"
+        # GET rather than HEAD: the body is required to compare titles, so a
+        # HEAD-first probe would only add a round trip.
+        resp = await client.get(url, follow_redirects=True, timeout=timeout, headers=headers)
+        if not 200 <= resp.status_code < 400:
+            return LinkCheck(url, False, f"HTTP {resp.status_code}", str(resp.url))
+        titles: tuple[str, ...] = ()
+        if "html" in resp.headers.get("content-type", "").lower():
+            titles = extract_titles(resp.text)
+        return LinkCheck(url, True, None, str(resp.url), titles)
     except httpx.TimeoutException:
-        return url, False, "timeout"
+        return LinkCheck(url, False, "timeout")
     except httpx.HTTPError as exc:
-        return url, False, f"{type(exc).__name__}: {exc}"
+        return LinkCheck(url, False, f"{type(exc).__name__}: {exc}")
 
 
-async def validate_urls(
+async def check_links(
     urls: list[str],
     *,
     timeout: float = 5.0,  # noqa: ASYNC109 — passed to httpx, not asyncio.timeout
     concurrency: int = 8,
-) -> dict[str, tuple[bool, str | None]]:
-    """Concurrently check a batch of URLs.
+) -> dict[str, LinkCheck]:
+    """Concurrently fetch a batch of URLs and report what each one actually is.
 
-    Returns a mapping ``{url: (is_reachable, reason_if_unreachable)}``.
-    Never raises — network failures translate to ``(False, reason)``.
+    Returns a mapping ``{url: LinkCheck}``. Never raises — network failures
+    become ``reachable=False`` entries.
     """
     if not urls:
         return {}
 
     sem = asyncio.Semaphore(concurrency)
-    # Unique list while preserving order so repeats don't get checked twice.
+    # Unique list while preserving order so repeats don't get fetched twice.
     unique: list[str] = list(dict.fromkeys(urls))
 
     async with httpx.AsyncClient() as client:
 
-        async def _bounded(u: str) -> tuple[str, bool, str | None]:
+        async def _bounded(u: str) -> LinkCheck:
             async with sem:
-                return await _check_single_url(client, u, timeout=timeout)
+                return await _fetch_one(client, u, timeout=timeout)
 
         results = await asyncio.gather(*(_bounded(u) for u in unique))
 
-    return {u: (ok, reason) for (u, ok, reason) in results}
+    return {check.url: check for check in results}
 
 
 # ---------------------------------------------------------------------------

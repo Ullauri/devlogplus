@@ -1,5 +1,7 @@
 """Tests for the feedback API endpoints."""
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 
@@ -100,3 +102,63 @@ async def test_list_disliked_target_ids_service(client: AsyncClient):
     )
     assert resp.status_code == 200
     assert any(i["reaction"] == "thumbs_down" for i in resp.json())
+
+
+# ---------------------------------------------------------------------------
+# Latest reaction wins
+# ---------------------------------------------------------------------------
+# Feedback is an append-only log, so "did this ever get a thumbs-down" and "is
+# this thumbs-downed now" are different questions. The pipelines need the
+# second one; they used to ask the first.
+async def test_latest_reaction_wins_when_user_changes_their_mind(client: AsyncClient, db_session):
+    """An item rated up then down must not appear in both liked and disliked."""
+    from backend.app.models.base import FeedbackTargetType
+    from backend.app.services import feedback as feedback_svc
+
+    target_id = "00000000-0000-0000-0000-0000000000d1"
+    for reaction in ("thumbs_up", "thumbs_down"):
+        resp = await client.post(
+            "/api/v1/feedback",
+            json={
+                "target_type": "reading",
+                "target_id": target_id,
+                "reaction": reaction,
+            },
+        )
+        assert resp.status_code == 201
+        # Two separate clicks are two separate transactions in production. The
+        # test client shares one session, and Postgres ``now()`` is
+        # transaction-start time, so without this both rows would land on an
+        # identical created_at and the ordering would be arbitrary.
+        await db_session.commit()
+
+    disliked = await feedback_svc.list_disliked_target_ids(db_session, FeedbackTargetType.READING)
+    liked = await feedback_svc.list_liked_target_ids(db_session, FeedbackTargetType.READING)
+
+    assert uuid.UUID(target_id) in disliked
+    assert uuid.UUID(target_id) not in liked
+
+
+async def test_cleared_reaction_is_retracted(client: AsyncClient, db_session):
+    """Clearing a reaction writes a NULL row, which must retract the old one."""
+    from backend.app.models.base import FeedbackTargetType
+    from backend.app.services import feedback as feedback_svc
+
+    target_id = "00000000-0000-0000-0000-0000000000d2"
+    await client.post(
+        "/api/v1/feedback",
+        json={
+            "target_type": "reading",
+            "target_id": target_id,
+            "reaction": "thumbs_down",
+        },
+    )
+    await db_session.commit()  # see the note in the test above
+    # The UI's "click again to clear" path: same item, no reaction.
+    await client.post(
+        "/api/v1/feedback",
+        json={"target_type": "reading", "target_id": target_id, "note": "changed my mind"},
+    )
+
+    disliked = await feedback_svc.list_disliked_target_ids(db_session, FeedbackTargetType.READING)
+    assert uuid.UUID(target_id) not in disliked

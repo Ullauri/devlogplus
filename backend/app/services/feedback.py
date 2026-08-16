@@ -68,35 +68,56 @@ async def list_feedback_by_target_types(
     return list(result.scalars().all())
 
 
+async def latest_reactions(
+    db: AsyncSession, target_type: FeedbackTargetType
+) -> dict[uuid.UUID, FeedbackReaction | None]:
+    """Return each target's *current* reaction — the most recent one recorded.
+
+    Feedback is an append-only log: every click writes a new row, and clearing
+    a reaction writes a row with ``reaction = NULL``. Reading the whole log and
+    matching on reaction value therefore answers "was this ever thumbs-downed",
+    not "is this thumbs-downed", which are different questions once a user
+    changes their mind. It produced two live defects: a cleared reaction was
+    still honoured forever, and an item rated up and later down appeared in the
+    liked *and* disliked sets at once, steering the next batch both ways.
+
+    ``DISTINCT ON`` collapses the log to one row per target. ``created_at`` is
+    ``now()``, i.e. transaction-start time, so rows written in one transaction
+    tie; ``id`` then breaks the tie to keep the result deterministic rather
+    than correct — which is sound here because each click is its own request
+    and therefore its own transaction.
+    """
+    stmt = (
+        select(Feedback.target_id, Feedback.reaction)
+        .where(Feedback.target_type == target_type)
+        .distinct(Feedback.target_id)
+        .order_by(Feedback.target_id, Feedback.created_at.desc(), Feedback.id.desc())
+    )
+    result = await db.execute(stmt)
+    return {target_id: reaction for target_id, reaction in result.all()}
+
+
 async def list_disliked_target_ids(
     db: AsyncSession, target_type: FeedbackTargetType
 ) -> set[uuid.UUID]:
-    """Return the set of target IDs that received a ``thumbs_down`` reaction.
+    """Return target IDs whose *current* reaction is ``thumbs_down``.
 
     Used by generation pipelines to avoid recommending items the user has
-    already rejected.
+    rejected. See ``latest_reactions`` for why "current" rather than "ever".
     """
-    stmt = select(Feedback.target_id).where(
-        Feedback.target_type == target_type,
-        Feedback.reaction == FeedbackReaction.THUMBS_DOWN,
-    )
-    result = await db.execute(stmt)
-    return {row for row in result.scalars().all()}
+    reactions = await latest_reactions(db, target_type)
+    return {tid for tid, r in reactions.items() if r == FeedbackReaction.THUMBS_DOWN}
 
 
 async def list_liked_target_ids(
     db: AsyncSession, target_type: FeedbackTargetType
 ) -> set[uuid.UUID]:
-    """Return the set of target IDs that received a ``thumbs_up`` reaction.
+    """Return target IDs whose *current* reaction is ``thumbs_up``.
 
     Used by generation pipelines to learn what kinds of items the user has
     responded positively to, so future recommendations can lean in the same
     *direction* (topic / domain / type) without re-recommending the exact
     same item.
     """
-    stmt = select(Feedback.target_id).where(
-        Feedback.target_type == target_type,
-        Feedback.reaction == FeedbackReaction.THUMBS_UP,
-    )
-    result = await db.execute(stmt)
-    return {row for row in result.scalars().all()}
+    reactions = await latest_reactions(db, target_type)
+    return {tid for tid, r in reactions.items() if r == FeedbackReaction.THUMBS_UP}

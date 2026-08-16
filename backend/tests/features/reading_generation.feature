@@ -24,6 +24,22 @@ Feature: Weekly Reading Recommendations
     Then only recommendations with reachable URLs should be stored
     And the processing log should record the skipped URL
 
+  Scenario: A link to a site landing page is filtered out
+    Given the reading allowlist contains "go.dev" and "blog.golang.org"
+    When the reading generation pipeline runs and one URL is a site landing page
+    Then the landing page should not appear in the batch
+    And the processing log should record it as a landing page
+
+  Scenario: A link whose page is about something else is filtered out
+    Given the reading allowlist contains "go.dev" and "blog.golang.org"
+    When the reading generation pipeline runs and one URL resolves to an unrelated page
+    Then the mismatched link should not appear in the batch
+
+  Scenario: A URL whose host is off the allowlist is filtered out despite a valid label
+    Given the reading allowlist contains only "go.dev"
+    When the reading generation pipeline runs with a URL labelled with an allowlisted domain
+    Then no recommendations should be stored
+
   Scenario: A previously thumbs-upped recommendation is not re-recommended
     Given the reading allowlist contains "go.dev" and "blog.golang.org"
     And I have thumbs-upped a previous reading at "https://go.dev/doc/effective_go#concurrency"
