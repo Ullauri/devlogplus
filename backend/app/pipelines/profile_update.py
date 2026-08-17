@@ -1,9 +1,10 @@
-"""Nightly profile update pipeline.
+"""Profile update pipeline.
 
 Processes new journal entries → extracts topics → updates Knowledge Profile.
 This is the core pipeline that keeps the user's profile current.
 
-Run via cron nightly or manually via CLI.
+Runs only when a user asks for it, via ``POST /pipelines/profile-update/run``.
+There is no schedule and no CLI entrypoint.
 """
 
 import logging
@@ -39,7 +40,7 @@ async def run_profile_update(
     *,
     run_id: uuid.UUID | None = None,
 ) -> dict:
-    """Execute the full nightly profile update pipeline.
+    """Execute the full profile update pipeline.
 
     Args:
         db: Async session used for all reads/writes.
@@ -192,7 +193,7 @@ async def run_profile_update(
 
         # Step 6: Save profile snapshot
         profile = await profile_svc.get_knowledge_profile(db)
-        await profile_svc.create_snapshot(db, profile, trigger="nightly_update")
+        await profile_svc.create_snapshot(db, profile, trigger="profile_update")
 
         # Step 7: Complete processing log
         log.status = PipelineStatus.COMPLETED

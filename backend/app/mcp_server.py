@@ -146,7 +146,7 @@ async def create_journal_entry(content: str, title: str | None = None) -> str:
 
 @mcp.tool()
 async def trigger_profile_update() -> str:
-    """Run the nightly profile-update pipeline on demand.
+    """Run the profile-update pipeline.
 
     Processes unprocessed journal entries, extracts topics via LLM, and
     updates the Knowledge Profile. Skips if blocking triage items exist.

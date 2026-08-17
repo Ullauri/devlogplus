@@ -1,10 +1,10 @@
 /* ============================================================
  * RunPipelineButton
  * ------------------------------------------------------------
- * Small "Run X now" button used in tab empty states so users
- * never depend on a background schedule to see their first
- * piece of generated content. The UI is otherwise schedule-
- * agnostic — only the Settings tab discusses cadence.
+ * Small "Run X now" button used in tab empty states. Nothing
+ * in DevLog+ runs unattended, so this — and the equivalent
+ * list on the Settings tab — is how generated content comes
+ * into existence at all.
  *
  * Behaviour:
  *  - Clicking POSTs to a /pipelines/<x>/run endpoint via the

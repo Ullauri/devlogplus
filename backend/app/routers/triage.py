@@ -62,8 +62,8 @@ async def check_blocking_triage(
 ) -> dict:
     """Check whether unresolved high or critical triage items exist.
 
-    When blocking items are present, the nightly profile-update pipeline
-    will not run until they are resolved.  The frontend should surface a
+    When blocking items are present, the profile-update pipeline will
+    refuse to run until they are resolved.  The frontend should surface a
     prominent warning in this case.
     """
     blocking = await triage_svc.has_blocking_triage(db)

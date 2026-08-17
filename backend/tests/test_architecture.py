@@ -133,8 +133,8 @@ class TestRoutersBoundaries:
     """API routers never reach into prompt templates.
 
     Routers generally don't reach into pipelines either — the one
-    permitted exception is ``routers.pipelines``, which exposes manual
-    "Run now" triggers for the user to bypass cron.
+    permitted exception is ``routers.pipelines``, which exposes the
+    "Run now" triggers that are the only way a pipeline ever runs.
     """
 
     def test_routers_do_not_import_prompts(self, evaluable) -> None:

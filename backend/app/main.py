@@ -61,14 +61,17 @@ app = FastAPI(
         "- **Learning engine** — builds a Knowledge Profile from journal entries, quizzes, "
         "and feedback. Understands what you know, where you're weak, and what to explore "
         "next.\n"
-        "- **Practice engine** — generates weekly Go micro-projects calibrated to your "
+        "- **Practice engine** — generates Go micro-projects calibrated to your "
         "practical level.\n\n"
+        "Nothing runs on a schedule: every generation and profile refresh happens "
+        "because someone called a `/pipelines/*/run` endpoint.\n\n"
         "## Core workflow\n\n"
         "1. **Journal** — write technical entries (typed or dictated) about what you learn.\n"
-        "2. **Profile** — the system builds and maintains a Knowledge Profile nightly.\n"
-        "3. **Quiz** — weekly free-text quizzes probe your understanding.\n"
+        "2. **Profile** — run the profile pipeline to fold new entries into the "
+        "Knowledge Profile.\n"
+        "3. **Quiz** — free-text quizzes probe your understanding.\n"
         "4. **Readings** — curated reading recommendations from your allowlisted domains.\n"
-        "5. **Projects** — weekly Go micro-projects with bugs, features, and refactors.\n"
+        "5. **Projects** — Go micro-projects with bugs, features, and refactors.\n"
         "6. **Feedback** — thumbs-up/down reactions and feedforward notes steer future "
         "content.\n"
         "7. **Triage** — items the system can't resolve are surfaced for your "
@@ -84,8 +87,8 @@ app = FastAPI(
             "description": (
                 "CRUD operations for technical journal entries. Entries are text-only "
                 "(typed or dictated via browser Web Speech API). Edits are versioned — "
-                "the most recent version is the source of truth. New entries are "
-                "processed nightly by the profile-update pipeline."
+                "the most recent version is the source of truth. New entries stay "
+                "unprocessed until the profile-update pipeline is run."
             ),
         },
         {
@@ -94,7 +97,8 @@ app = FastAPI(
                 "Read-only view of the AI-derived Knowledge Profile. The profile "
                 "organizes topics by evidence strength (strong / developing / limited), "
                 "surfaces the current frontier (topics actively being learned) and the "
-                "next frontier (recommended adjacent topics). Updated nightly."
+                "next frontier (recommended adjacent topics). Updated whenever the "
+                "profile-update pipeline is run."
             ),
         },
         {
@@ -149,8 +153,7 @@ app = FastAPI(
             "name": "settings",
             "description": (
                 "User-configurable application settings stored as key-value pairs. "
-                "Includes model selection, quiz question count, cron schedules, and "
-                "other tunables."
+                "Includes model selection, quiz question count, and other tunables."
             ),
         },
         {
@@ -174,13 +177,13 @@ app = FastAPI(
         {
             "name": "pipelines",
             "description": (
-                "Manual, user-initiated triggers for the pipelines that "
-                "normally run on a cron schedule (profile update, quiz, "
-                "reading, and project generation). Intended as an opt-in "
-                "escape hatch exposed in the Settings page — not part of "
-                "the normal daily flow. Each trigger returns 202 Accepted "
-                "immediately and runs the pipeline in the background; use "
-                "`GET /pipelines/runs` to observe progress."
+                "User-initiated triggers for the batch pipelines (profile "
+                "update, quiz, reading, and project generation). Nothing "
+                "runs these on a schedule, so these endpoints — surfaced as "
+                "buttons in the Settings page — are the only way they run. "
+                "Each trigger returns 202 Accepted immediately and runs the "
+                "pipeline in the background; use `GET /pipelines/runs` to "
+                "observe progress."
             ),
         },
     ],

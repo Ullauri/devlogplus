@@ -78,8 +78,8 @@ async def complete_onboarding(
     - **Go experience level** — none / beginner / intermediate / advanced
     - **Topic interests** — optional list of topics to prioritise
 
-    This establishes baseline context before the normal nightly/weekly
-    processing cycles begin.
+    This establishes baseline context before the first generation or
+    profile-update run.
     """
     state = await onboarding_svc.complete_onboarding(db, data)
     return OnboardingStateResponse.model_validate(state)

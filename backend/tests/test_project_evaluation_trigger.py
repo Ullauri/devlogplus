@@ -1,7 +1,7 @@
 """Tests for triggering project evaluation.
 
 `evaluate_project` was fully implemented but unreachable: no router endpoint,
-no cron, no CLI — its only caller in the repo was a BDD test. A submitted
+no CLI — its only caller in the repo was a BDD test. A submitted
 project therefore sat in `submitted` forever, behind a button labelled "Submit
 for Evaluation".
 

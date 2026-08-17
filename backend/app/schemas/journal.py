@@ -64,7 +64,9 @@ class JournalEntryResponse(BaseSchema):
 
     id: uuid.UUID = Field(description="Entry ID")
     title: str | None = Field(description="Optional title")
-    is_processed: bool = Field(description="Whether the nightly pipeline has processed this entry")
+    is_processed: bool = Field(
+        description="Whether the profile-update pipeline has processed this entry"
+    )
     processed_at: datetime | None = Field(
         description="When the entry was last processed by the pipeline"
     )

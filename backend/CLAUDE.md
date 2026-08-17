@@ -16,7 +16,7 @@ backend/
     services/       — Business logic + LLM integration
       llm/          — OpenRouter client, Langfuse tracing, structured output models
     prompts/        — Version-controlled LLM prompt constants
-    pipelines/      — Batch pipeline orchestrators (nightly/weekly)
+    pipelines/      — Batch pipeline orchestrators (user-triggered)
   migrations/       — Alembic async migrations
   tests/            — pytest-asyncio test suite
 ```

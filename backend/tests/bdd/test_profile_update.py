@@ -50,7 +50,7 @@ def given_unprocessed_entry(bdd_db, ctx):
     ctx["entry"] = entry
 
 
-@when("the nightly profile update pipeline runs")
+@when("the profile update pipeline runs")
 def when_profile_update(bdd_db, ctx):
     from backend.app.pipelines.profile_update import run_profile_update
 

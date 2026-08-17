@@ -1,7 +1,7 @@
 # Scripts — AI Coding Instructions
 
 ## Purpose
-Standalone utility scripts and batch tooling that live outside the main application server.  These are run manually or via cron — never imported by `backend.app`.
+Standalone utility scripts and batch tooling that live outside the main application server.  These are run by hand when needed — never imported by `backend.app`.
 
 ## Directory layout
 ```

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "DevLog+",
-    "description": "Single-user developer journal for technical learning and skill maintenance.\n\nDevLog+ has two engines:\n\n- **Learning engine** — builds a Knowledge Profile from journal entries, quizzes, and feedback. Understands what you know, where you're weak, and what to explore next.\n- **Practice engine** — generates weekly Go micro-projects calibrated to your practical level.\n\n## Core workflow\n\n1. **Journal** — write technical entries (typed or dictated) about what you learn.\n2. **Profile** — the system builds and maintains a Knowledge Profile nightly.\n3. **Quiz** — weekly free-text quizzes probe your understanding.\n4. **Readings** — curated reading recommendations from your allowlisted domains.\n5. **Projects** — weekly Go micro-projects with bugs, features, and refactors.\n6. **Feedback** — thumbs-up/down reactions and feedforward notes steer future content.\n7. **Triage** — items the system can't resolve are surfaced for your clarification.\n",
+    "description": "Single-user developer journal for technical learning and skill maintenance.\n\nDevLog+ has two engines:\n\n- **Learning engine** — builds a Knowledge Profile from journal entries, quizzes, and feedback. Understands what you know, where you're weak, and what to explore next.\n- **Practice engine** — generates Go micro-projects calibrated to your practical level.\n\nNothing runs on a schedule: every generation and profile refresh happens because someone called a `/pipelines/*/run` endpoint.\n\n## Core workflow\n\n1. **Journal** — write technical entries (typed or dictated) about what you learn.\n2. **Profile** — run the profile pipeline to fold new entries into the Knowledge Profile.\n3. **Quiz** — free-text quizzes probe your understanding.\n4. **Readings** — curated reading recommendations from your allowlisted domains.\n5. **Projects** — Go micro-projects with bugs, features, and refactors.\n6. **Feedback** — thumbs-up/down reactions and feedforward notes steer future content.\n7. **Triage** — items the system can't resolve are surfaced for your clarification.\n",
     "license": {
       "name": "Private — single-user local application"
     },
@@ -15,7 +15,7 @@
           "journal"
         ],
         "summary": "Create journal entry",
-        "description": "Create a new technical journal entry.\n\nThe entry content can be typed text or dictated via the browser Web Speech\nAPI.  An initial version is created automatically.  The entry will be\nprocessed by the nightly profile-update pipeline.",
+        "description": "Create a new technical journal entry.\n\nThe entry content can be typed text or dictated via the browser Web Speech\nAPI.  An initial version is created automatically.  The entry stays\nunprocessed until someone runs the profile-update pipeline.",
         "operationId": "create_entry_api_v1_journal_entries_post",
         "requestBody": {
           "required": true,
@@ -256,7 +256,7 @@
           "profile"
         ],
         "summary": "Get Knowledge Profile",
-        "description": "Return the current Knowledge Profile.\n\nThe profile is an AI-derived, read-only view of the user's technical\nknowledge.  Topics are organized into:\n\n- **strengths** — topics with strong evidence\n- **weak_spots** — topics with limited evidence\n- **current_frontier** — topics actively being learned\n- **next_frontier** — adjacent topics recommended for exploration\n- **recurring_themes** — frequently mentioned topics\n- **unresolved** — topics pending triage\n\nUpdated nightly by the profile-update pipeline.",
+        "description": "Return the current Knowledge Profile.\n\nThe profile is an AI-derived, read-only view of the user's technical\nknowledge.  Topics are organized into:\n\n- **strengths** — topics with strong evidence\n- **weak_spots** — topics with limited evidence\n- **current_frontier** — topics actively being learned\n- **next_frontier** — adjacent topics recommended for exploration\n- **recurring_themes** — frequently mentioned topics\n- **unresolved** — topics pending triage\n\nUpdated whenever the profile-update pipeline is run.",
         "operationId": "get_profile_api_v1_profile_get",
         "responses": {
           "200": {
@@ -1172,7 +1172,7 @@
           "triage"
         ],
         "summary": "Check for blocking triage items",
-        "description": "Check whether unresolved high or critical triage items exist.\n\nWhen blocking items are present, the nightly profile-update pipeline\nwill not run until they are resolved.  The frontend should surface a\nprominent warning in this case.",
+        "description": "Check whether unresolved high or critical triage items exist.\n\nWhen blocking items are present, the profile-update pipeline will\nrefuse to run until they are resolved.  The frontend should surface a\nprominent warning in this case.",
         "operationId": "check_blocking_triage_api_v1_triage_blocking_get",
         "responses": {
           "200": {
@@ -1607,7 +1607,7 @@
           "onboarding"
         ],
         "summary": "Complete onboarding",
-        "description": "Complete the first-run onboarding flow (~10–15 min).\n\nCollects:\n- **Self-assessment** — technical background, languages, experience\n- **Go experience level** — none / beginner / intermediate / advanced\n- **Topic interests** — optional list of topics to prioritise\n\nThis establishes baseline context before the normal nightly/weekly\nprocessing cycles begin.",
+        "description": "Complete the first-run onboarding flow (~10–15 min).\n\nCollects:\n- **Self-assessment** — technical background, languages, experience\n- **Go experience level** — none / beginner / intermediate / advanced\n- **Topic interests** — optional list of topics to prioritise\n\nThis establishes baseline context before the first generation or\nprofile-update run.",
         "operationId": "complete_onboarding_api_v1_onboarding_complete_post",
         "requestBody": {
           "content": {
@@ -1741,8 +1741,8 @@
         "tags": [
           "pipelines"
         ],
-        "summary": "Manually trigger the profile-update pipeline",
-        "description": "Runs the nightly profile-update pipeline on demand. Normally this runs automatically at 2:00 AM via cron; use this endpoint when you don't want to wait.\n\nThe pipeline runs in the background — the response returns immediately with status=queued. Poll `GET /pipelines/runs` to observe progress.\n\nReturns 409 if a profile-update run is already in flight.",
+        "summary": "Trigger the profile-update pipeline",
+        "description": "Processes new journal entries and refreshes the Knowledge Profile. Nothing runs this on a schedule, so call it whenever you want the profile brought up to date.\n\nThe pipeline runs in the background — the response returns immediately with status=queued. Poll `GET /pipelines/runs` to observe progress.\n\nReturns 409 if a profile-update run is already in flight.",
         "operationId": "run_profile_update_api_v1_pipelines_profile_update_run_post",
         "responses": {
           "202": {
@@ -1766,8 +1766,8 @@
         "tags": [
           "pipelines"
         ],
-        "summary": "Manually trigger the quiz-generation pipeline",
-        "description": "Generates a new weekly quiz session immediately rather than waiting for the Monday 3:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.\n\nReturns 409 if a quiz-generation run is already in flight.",
+        "summary": "Trigger the quiz-generation pipeline",
+        "description": "Generates a new quiz session from the current Knowledge Profile. Runs in the background; poll `GET /pipelines/runs` for progress.\n\nReturns 409 if a quiz-generation run is already in flight.",
         "operationId": "run_quiz_generation_api_v1_pipelines_quiz_run_post",
         "responses": {
           "202": {
@@ -1835,8 +1835,8 @@
         "tags": [
           "pipelines"
         ],
-        "summary": "Manually trigger the reading-generation pipeline",
-        "description": "Generates a new weekly batch of reading recommendations immediately rather than waiting for the Monday 3:30 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.\n\nReturns 409 if a reading-generation run is already in flight.",
+        "summary": "Trigger the reading-generation pipeline",
+        "description": "Generates a new batch of reading recommendations. Runs in the background; poll `GET /pipelines/runs` for progress.\n\nReturns 409 if a reading-generation run is already in flight.",
         "operationId": "run_reading_generation_api_v1_pipelines_readings_run_post",
         "responses": {
           "202": {
@@ -1860,8 +1860,8 @@
         "tags": [
           "pipelines"
         ],
-        "summary": "Manually trigger the project-generation pipeline",
-        "description": "Generates a new weekly Go micro-project immediately rather than waiting for the Monday 4:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress. Note: generates files under `workspace/projects/<date>/`.\n\nReturns 409 if a project-generation run is already in flight.",
+        "summary": "Trigger the project-generation pipeline",
+        "description": "Generates a new Go micro-project. Runs in the background; poll `GET /pipelines/runs` for progress. Note: generates files under `workspace/projects/<date>/`.\n\nReturns 409 if a project-generation run is already in flight.",
         "operationId": "run_project_generation_api_v1_pipelines_project_run_post",
         "responses": {
           "202": {
@@ -1930,7 +1930,7 @@
           "pipelines"
         ],
         "summary": "List recent pipeline runs",
-        "description": "Returns the most recent entries from the processing log, newest first. Useful for displaying the status of manually-triggered or scheduled pipeline runs in the UI.",
+        "description": "Returns the most recent entries from the processing log, newest first. Useful for displaying the status of pipeline runs in the UI.",
         "operationId": "list_runs_api_v1_pipelines_runs_get",
         "parameters": [
           {
@@ -2600,7 +2600,7 @@
           "is_processed": {
             "type": "boolean",
             "title": "Is Processed",
-            "description": "Whether the nightly pipeline has processed this entry"
+            "description": "Whether the profile-update pipeline has processed this entry"
           },
           "processed_at": {
             "anyOf": [
@@ -2740,7 +2740,7 @@
           "is_processed": {
             "type": "boolean",
             "title": "Is Processed",
-            "description": "Whether the nightly pipeline has processed this entry"
+            "description": "Whether the profile-update pipeline has processed this entry"
           },
           "processed_at": {
             "anyOf": [
@@ -2982,7 +2982,7 @@
               }
             ],
             "title": "Last Updated",
-            "description": "When the profile was last updated by the nightly pipeline"
+            "description": "When the profile was last updated by the profile-update pipeline"
           }
         },
         "type": "object",
@@ -3646,7 +3646,7 @@
           "trigger": {
             "type": "string",
             "title": "Trigger",
-            "description": "What triggered this snapshot (e.g. 'nightly_update')"
+            "description": "What triggered this snapshot (e.g. 'profile_update')"
           },
           "created_at": {
             "type": "string",
@@ -5569,11 +5569,11 @@
   "tags": [
     {
       "name": "journal",
-      "description": "CRUD operations for technical journal entries. Entries are text-only (typed or dictated via browser Web Speech API). Edits are versioned — the most recent version is the source of truth. New entries are processed nightly by the profile-update pipeline."
+      "description": "CRUD operations for technical journal entries. Entries are text-only (typed or dictated via browser Web Speech API). Edits are versioned — the most recent version is the source of truth. New entries stay unprocessed until the profile-update pipeline is run."
     },
     {
       "name": "profile",
-      "description": "Read-only view of the AI-derived Knowledge Profile. The profile organizes topics by evidence strength (strong / developing / limited), surfaces the current frontier (topics actively being learned) and the next frontier (recommended adjacent topics). Updated nightly."
+      "description": "Read-only view of the AI-derived Knowledge Profile. The profile organizes topics by evidence strength (strong / developing / limited), surfaces the current frontier (topics actively being learned) and the next frontier (recommended adjacent topics). Updated whenever the profile-update pipeline is run."
     },
     {
       "name": "quizzes",
@@ -5597,7 +5597,7 @@
     },
     {
       "name": "settings",
-      "description": "User-configurable application settings stored as key-value pairs. Includes model selection, quiz question count, cron schedules, and other tunables."
+      "description": "User-configurable application settings stored as key-value pairs. Includes model selection, quiz question count, and other tunables."
     },
     {
       "name": "onboarding",
@@ -5609,7 +5609,7 @@
     },
     {
       "name": "pipelines",
-      "description": "Manual, user-initiated triggers for the pipelines that normally run on a cron schedule (profile update, quiz, reading, and project generation). Intended as an opt-in escape hatch exposed in the Settings page — not part of the normal daily flow. Each trigger returns 202 Accepted immediately and runs the pipeline in the background; use `GET /pipelines/runs` to observe progress."
+      "description": "User-initiated triggers for the batch pipelines (profile update, quiz, reading, and project generation). Nothing runs these on a schedule, so these endpoints — surfaced as buttons in the Settings page — are the only way they run. Each trigger returns 202 Accepted immediately and runs the pipeline in the background; use `GET /pipelines/runs` to observe progress."
     }
   ]
 }

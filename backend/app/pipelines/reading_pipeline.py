@@ -1,9 +1,10 @@
-"""Weekly reading recommendation pipeline.
+"""Reading recommendation pipeline.
 
 Generates curated reading recommendations from trusted (allowlisted) sources,
 calibrated to the user's Knowledge Profile and feedforward signals.
 
-Run via cron weekly or manually via CLI.
+Runs only when a user asks for it, via ``POST /pipelines/readings/run``.
+There is no schedule and no CLI entrypoint.
 """
 
 import logging

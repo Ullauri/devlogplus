@@ -54,7 +54,7 @@ class ProfileSnapshot(Base, UUIDMixin):
     __tablename__ = "profile_snapshots"
 
     snapshot_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    trigger: Mapped[str] = mapped_column(Text, nullable=False, default="nightly_update")
+    trigger: Mapped[str] = mapped_column(Text, nullable=False, default="profile_update")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -36,8 +36,8 @@ async def create_entry(
     """Create a new technical journal entry.
 
     The entry content can be typed text or dictated via the browser Web Speech
-    API.  An initial version is created automatically.  The entry will be
-    processed by the nightly profile-update pipeline.
+    API.  An initial version is created automatically.  The entry stays
+    unprocessed until someone runs the profile-update pipeline.
     """
     entry = await journal_svc.create_entry(db, data)
     return journal_svc.entry_to_response(entry)

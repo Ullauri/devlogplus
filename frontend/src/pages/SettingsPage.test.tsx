@@ -55,10 +55,10 @@ describe("SettingsPage — page shell", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders General, Scheduling, and About sections", () => {
+  it("renders General, Pipeline runs, and About sections", () => {
     renderWithRouter(<SettingsPage />);
     expect(screen.getByText("General")).toBeInTheDocument();
-    expect(screen.getByText("Scheduling")).toBeInTheDocument();
+    expect(screen.getByText("Pipeline runs")).toBeInTheDocument();
     expect(screen.getByText("About")).toBeInTheDocument();
   });
 
@@ -69,14 +69,13 @@ describe("SettingsPage — page shell", () => {
     ).toBeInTheDocument();
   });
 
-  it("lists each cron-scheduled pipeline with its time", () => {
+  it("promises no pipeline runs on its own", () => {
+    // Nothing in DevLog+ is scheduled; the Settings page is where a run
+    // starts, so the page must not imply anything happens unattended.
     renderWithRouter(<SettingsPage />);
-    // The pipeline descriptions below also mention the same times, so
-    // assert presence via getAllByText length > 0 for the shared ones.
-    expect(screen.getAllByText(/2:00 AM/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Monday 3:00 AM/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Monday 3:30 AM/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Monday 4:00 AM/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Nothing runs on its own/)).toBeInTheDocument();
+    expect(screen.queryByText(/cron/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\d:\d\d\s*(AM|PM)/)).not.toBeInTheDocument();
   });
 });
 
@@ -360,7 +359,7 @@ describe("SettingsPage — Data transfer", () => {
   });
 });
 
-describe("SettingsPage — Manual pipeline runs", () => {
+describe("SettingsPage — Pipeline runs", () => {
   it("renders one Run now button per pipeline", () => {
     renderWithRouter(<SettingsPage />);
     expect(screen.getAllByRole("button", { name: /Run now/i })).toHaveLength(4);
