@@ -104,6 +104,50 @@ class Settings(BaseSettings):
         le=30.0,
         description="Per-URL timeout (seconds) for reading URL reachability checks.",
     )
+    reading_use_feed_candidates: bool = Field(
+        default=True,
+        description=(
+            "If true, the reading pipeline reads each allowlisted domain's RSS/Atom feed "
+            "and asks the LLM to pick from those real articles instead of recalling URLs "
+            "from memory. Disable for offline dev; the pipeline then falls back to "
+            "model-supplied URLs, which are frequently invented."
+        ),
+    )
+    reading_feed_items_per_domain: int = Field(
+        default=6,
+        ge=1,
+        le=50,
+        description=(
+            "Most recent articles taken from any single domain's feed. Caps the loud "
+            "publishers: unbounded, redis.io/docs alone offers 2145 entries and snyk.io "
+            "1662, which would crowd every other source out of the pool."
+        ),
+    )
+    reading_candidate_pool_size: int = Field(
+        default=200,
+        ge=10,
+        le=1000,
+        description=(
+            "Maximum candidate articles placed in the prompt, filled round-robin across "
+            "domains so the cap trims breadth-last rather than dropping whole sources."
+        ),
+    )
+    reading_feed_timeout: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=60.0,
+        description="Per-request timeout (seconds) for feed discovery and feed fetches.",
+    )
+    reading_feed_recheck_days: int = Field(
+        default=7,
+        ge=0,
+        le=365,
+        description=(
+            "How long a feed-discovery result is trusted before the domain is probed "
+            "again. Applies to failures too — without it the ~20 allowlisted domains "
+            "that publish no feed would be re-probed on every run."
+        ),
+    )
     app_env: str = Field(default="development")
     log_level: str = Field(default="INFO")
 

@@ -152,10 +152,20 @@ async def _call_reading_generation(
     recommendation_count: int,
 ) -> dict[str, Any]:
     """Stage 5: Generate reading recommendations."""
+    # Signal blocks and the candidate pool are pipeline context this flow does
+    # not build, but the template requires every placeholder — omitting them
+    # raised KeyError. An empty pool selects the recall instructions.
     prompt = reading_gen_prompts.USER_PROMPT_TEMPLATE.format(
         profile_summary=profile_summary,
         allowlist_domains=allowlist_domains,
         feedforward_signals=feedforward_signals,
+        avoid_urls="None",
+        downranked_domains="None",
+        liked_directions="None",
+        candidate_articles="None available",
+        selection_instructions=reading_gen_prompts.RECALL_INSTRUCTIONS.format(
+            recommendation_count=recommendation_count
+        ),
         recommendation_count=recommendation_count,
     )
     raw = await llm_client.chat_completion_json(

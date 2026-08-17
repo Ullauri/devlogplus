@@ -2,8 +2,10 @@
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from backend.app.config import settings
 from backend.app.services.reading import LinkCheck
 from backend.tests.bdd.conftest import (
     create_allowlist_entries,
@@ -20,6 +22,21 @@ from backend.tests.bdd.conftest import (
 # ---------------------------------------------------------------------------
 
 scenarios("reading_generation.feature")
+
+
+@pytest.fixture(autouse=True)
+def _no_feed_candidates(monkeypatch):
+    """Pin these scenarios to the recall path (LLM supplies its own URLs).
+
+    Every scenario here exercises a *filter* — disliked, duplicate, off-allowlist,
+    bad link, duplicate topic — using a stubbed LLM response that carries a URL.
+    Left on, feed sourcing would reach the real network during the test run and,
+    worse, put the pipeline in selection mode where a response with no
+    ``candidate_id`` is correctly discarded and every scenario stores nothing.
+
+    Selection mode is covered separately in ``test_reading_candidates.py``.
+    """
+    monkeypatch.setattr(settings, "reading_use_feed_candidates", False)
 
 
 # ---------------------------------------------------------------------------

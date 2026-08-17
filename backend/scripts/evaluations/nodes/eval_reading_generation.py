@@ -26,11 +26,27 @@ from backend.scripts.evaluations.harness import EvalHarness, load_fixture, run_a
 # ---------------------------------------------------------------------------
 async def call_reading_generation(input_data: dict[str, Any]) -> dict[str, Any]:
     """Invoke the reading_generation node and return parsed output."""
+    # The signal blocks and the candidate pool are pipeline context, not part of
+    # what this node evaluates, so they are pinned to their empty forms. They
+    # must still be supplied: the template requires every placeholder, and
+    # omitting them raised KeyError before the reading pipeline had any of them.
+    #
+    # No pool means recall instructions, which is the right mode here — this
+    # node scores the model's own judgement about sources, and selection mode
+    # would be scoring the pool builder instead.
+    count = input_data["recommendation_count"]
     prompt = reading_generation.USER_PROMPT_TEMPLATE.format(
         profile_summary=input_data["profile_summary"],
         allowlist_domains=input_data["allowlist_domains"],
         feedforward_signals=input_data["feedforward_signals"],
-        recommendation_count=input_data["recommendation_count"],
+        avoid_urls="None",
+        downranked_domains="None",
+        liked_directions="None",
+        candidate_articles="None available",
+        selection_instructions=reading_generation.RECALL_INSTRUCTIONS.format(
+            recommendation_count=count
+        ),
+        recommendation_count=count,
     )
 
     raw = await llm_client.chat_completion_json(
