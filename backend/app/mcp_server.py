@@ -11,7 +11,7 @@ import uuid
 
 from mcp.server.fastmcp import FastMCP
 
-from backend.app.database import async_session_factory
+from backend.app.database import session_scope
 from backend.app.models.base import TriageStatus
 from backend.app.schemas.journal import JournalEntryCreate
 from backend.app.schemas.triage import TriageResolveRequest
@@ -59,7 +59,7 @@ def reroute_stdout_logging() -> None:
 @mcp.resource("devlog://profile")
 async def get_profile() -> str:
     """Current Knowledge Profile — topics grouped by category."""
-    async with async_session_factory() as session:
+    async with session_scope() as session:
         profile = await profile_svc.get_knowledge_profile(session)
         return profile.model_dump_json(indent=2)
 
@@ -67,7 +67,7 @@ async def get_profile() -> str:
 @mcp.resource("devlog://journal")
 async def get_journal() -> str:
     """Recent journal entries (last 10, most recent first)."""
-    async with async_session_factory() as session:
+    async with session_scope() as session:
         entries = await journal_svc.list_entries(session, limit=10)
         responses = [journal_svc.entry_to_response(e) for e in entries]
         data = [r.model_dump(mode="json") for r in responses]
@@ -77,7 +77,7 @@ async def get_journal() -> str:
 @mcp.resource("devlog://triage")
 async def get_triage() -> str:
     """Pending triage items awaiting user review (critical/high first)."""
-    async with async_session_factory() as session:
+    async with session_scope() as session:
         items = await triage_svc.list_triage_items(session, status=TriageStatus.PENDING, limit=50)
         data = [
             {
@@ -97,7 +97,7 @@ async def get_triage() -> str:
 @mcp.resource("devlog://projects/current")
 async def get_current_project() -> str:
     """Current active weekly Go project with its tasks."""
-    async with async_session_factory() as session:
+    async with session_scope() as session:
         project = await project_svc.get_current_project(session)
         if project is None:
             return json.dumps({"message": "No active project found."})
@@ -136,7 +136,7 @@ async def create_journal_entry(content: str, title: str | None = None) -> str:
         title: Optional short title (e.g. "Learning Go channels").
     """
     data = JournalEntryCreate(title=title, content=content)
-    async with async_session_factory() as session:
+    async with session_scope() as session:
         entry = await journal_svc.create_entry(session, data)
         await session.commit()
         response = journal_svc.entry_to_response(entry)
@@ -154,7 +154,7 @@ async def trigger_profile_update() -> str:
     """
     from backend.app.pipelines.profile_update import run_profile_update
 
-    async with async_session_factory() as session:
+    async with session_scope() as session:
         result = await run_profile_update(session)
         await session.commit()
         return json.dumps(result, indent=2, default=str)
@@ -185,7 +185,7 @@ async def resolve_triage(item_id: str, action: str, resolution_text: str | None 
         return f"Invalid action {action!r}. Choose from: {', '.join(valid_actions)}"
 
     data = TriageResolveRequest(action=status, resolution_text=resolution_text)
-    async with async_session_factory() as session:
+    async with session_scope() as session:
         item = await triage_svc.resolve_triage_item(session, uid, data)
         await session.commit()
         if item is None:

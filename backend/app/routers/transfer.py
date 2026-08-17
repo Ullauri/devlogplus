@@ -9,7 +9,13 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import get_db
-from backend.app.schemas.transfer import DataExportBundle, ExportMetadata, ImportResult
+from backend.app.schemas.transfer import (
+    CURRENT_FORMAT_VERSION,
+    SUPPORTED_FORMAT_VERSIONS,
+    DataExportBundle,
+    ExportMetadata,
+    ImportResult,
+)
 from backend.app.services import transfer as transfer_service
 
 logger = logging.getLogger(__name__)
@@ -25,10 +31,14 @@ router = APIRouter(
     response_model=DataExportBundle,
     summary="Export all application data",
     description=(
-        "Downloads a JSON bundle containing every table's data. "
-        "Use this to move your DevLog+ data to another machine. "
-        "Embeddings and processing logs are excluded — they will be "
-        "regenerated automatically on the new machine."
+        "Downloads a JSON bundle of your data. "
+        "Use this to move your DevLog+ data to another machine.\n\n"
+        "Excluded: embeddings and processing logs, which regenerate on "
+        "the new machine; and **weekly projects**, whose Go code lives in "
+        "`workspace/projects/` on disk and does not travel inside a JSON "
+        "file. Feedback and triage items about a project are left out for "
+        "the same reason. Copy `workspace/projects/` yourself if you want "
+        "the code."
     ),
 )
 async def export_data(db: AsyncSession = Depends(get_db)) -> DataExportBundle:
@@ -45,7 +55,11 @@ async def export_data(db: AsyncSession = Depends(get_db)) -> DataExportBundle:
         "Upload a JSON export file produced by the /export endpoint. "
         "**This is destructive** — all existing data will be replaced "
         "with the contents of the uploaded file. Intended for migrating "
-        "your DevLog+ instance to a new machine."
+        "your DevLog+ instance to a new machine.\n\n"
+        "Weekly projects are cleared and not restored, including from an "
+        "older format_version 1 bundle that still carries them: the code "
+        "they point at is not in the file, so importing the rows would "
+        "leave projects with nothing behind them."
     ),
 )
 async def import_data(
@@ -86,10 +100,14 @@ async def import_data(
             f"First error: {exc.errors()[0]['msg']}",
         ) from exc
 
-    if bundle.format_version != 1:
+    if bundle.format_version not in SUPPORTED_FORMAT_VERSIONS:
+        supported = ", ".join(str(v) for v in sorted(SUPPORTED_FORMAT_VERSIONS))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Unsupported format_version {bundle.format_version}. This server supports version 1.",  # noqa: E501
+            detail=(
+                f"Unsupported format_version {bundle.format_version}. "
+                f"This server supports version(s) {supported}."
+            ),
         )
 
     try:
@@ -116,7 +134,7 @@ async def export_metadata(db: AsyncSession = Depends(get_db)) -> ExportMetadata:
 
     table_counts = await transfer_service.count_tables(db)
     return ExportMetadata(
-        format_version=1,
+        format_version=CURRENT_FORMAT_VERSION,
         exported_at=datetime.now(UTC),
         app_version=transfer_service.APP_VERSION,
         table_counts=table_counts,

@@ -718,7 +718,9 @@ export interface paths {
         };
         /**
          * Export all application data
-         * @description Downloads a JSON bundle containing every table's data. Use this to move your DevLog+ data to another machine. Embeddings and processing logs are excluded — they will be regenerated automatically on the new machine.
+         * @description Downloads a JSON bundle of your data. Use this to move your DevLog+ data to another machine.
+         *
+         *     Excluded: embeddings and processing logs, which regenerate on the new machine; and **weekly projects**, whose Go code lives in `workspace/projects/` on disk and does not travel inside a JSON file. Feedback and triage items about a project are left out for the same reason. Copy `workspace/projects/` yourself if you want the code.
          */
         get: operations["export_data_api_v1_transfer_export_get"];
         put?: never;
@@ -741,6 +743,8 @@ export interface paths {
         /**
          * Import application data from an export bundle
          * @description Upload a JSON export file produced by the /export endpoint. **This is destructive** — all existing data will be replaced with the contents of the uploaded file. Intended for migrating your DevLog+ instance to a new machine.
+         *
+         *     Weekly projects are cleared and not restored, including from an older format_version 1 bundle that still carries them: the code they point at is not in the file, so importing the rows would leave projects with nothing behind them.
          */
         post: operations["import_data_api_v1_transfer_import_post"];
         delete?: never;
@@ -1012,13 +1016,25 @@ export interface components {
         };
         /**
          * DataExportBundle
-         * @description Complete application data bundle for device-to-device transfer.
+         * @description Application data bundle for device-to-device transfer.
+         *
+         *     Deliberately not *complete*: weekly projects are excluded. A project row is
+         *     mostly a pointer — ``project_path`` names a directory under
+         *     ``workspace/projects/`` holding the Go code the whole record is about — and
+         *     that directory does not travel inside a JSON file. Carrying the rows alone
+         *     would land a project on the new machine whose code is missing, whose
+         *     "Submit for Evaluation" button reads files that are not there, and whose
+         *     evaluation scores describe a checkout nobody can open.
+         *
+         *     A ``format_version`` 1 bundle written by an older server still lists them.
+         *     They are read (so the import can report how many it dropped) and never
+         *     inserted — see the project fields below.
          */
         DataExportBundle: {
             /**
              * Format Version
              * @description Schema version for forward-compatible migrations
-             * @default 1
+             * @default 2
              */
             format_version: number;
             /**
@@ -1087,21 +1103,6 @@ export interface components {
              * @default []
              */
             reading_allowlist: components["schemas"]["ReadingAllowlistExport"][];
-            /**
-             * Weekly Projects
-             * @default []
-             */
-            weekly_projects: components["schemas"]["WeeklyProjectExport"][];
-            /**
-             * Project Tasks
-             * @default []
-             */
-            project_tasks: components["schemas"]["ProjectTaskExport"][];
-            /**
-             * Project Evaluations
-             * @default []
-             */
-            project_evaluations: components["schemas"]["ProjectEvaluationExport"][];
             /**
              * Feedback
              * @default []
@@ -1898,42 +1899,6 @@ export interface components {
              */
             created_at: string;
         };
-        /** ProjectEvaluationExport */
-        ProjectEvaluationExport: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Project Id
-             * Format: uuid
-             */
-            project_id: string;
-            /** Code Quality Score */
-            code_quality_score: number;
-            /** Task Completion */
-            task_completion: {
-                [key: string]: unknown;
-            };
-            /** Test Results */
-            test_results: {
-                [key: string]: unknown;
-            } | null;
-            /** Overall Assessment */
-            overall_assessment: string;
-            /** Confidence */
-            confidence: number;
-            /** Raw Llm Output */
-            raw_llm_output: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
         /**
          * ProjectEvaluationResponse
          * @description AI-generated evaluation of a submitted project.
@@ -2003,32 +1968,6 @@ export interface components {
              * @example Focused on the refactor task first; ran out of time on the optimization.
              */
             notes?: string | null;
-        };
-        /** ProjectTaskExport */
-        ProjectTaskExport: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Project Id
-             * Format: uuid
-             */
-            project_id: string;
-            /** Title */
-            title: string;
-            /** Description */
-            description: string;
-            /** Task Type */
-            task_type: string;
-            /** Order Index */
-            order_index: number;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
         };
         /**
          * ProjectTaskResponse
@@ -2973,45 +2912,6 @@ export interface components {
             metadata_?: {
                 [key: string]: unknown;
             } | null;
-        };
-        /** WeeklyProjectExport */
-        WeeklyProjectExport: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Title */
-            title: string;
-            /** Description */
-            description: string;
-            /** Difficulty Level */
-            difficulty_level: number;
-            /** Project Path */
-            project_path: string;
-            /** Status */
-            status: string;
-            /**
-             * Issued At
-             * Format: date-time
-             */
-            issued_at: string;
-            /** Submitted At */
-            submitted_at: string | null;
-            /** Metadata */
-            metadata_?: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
         };
         /**
          * WeeklyProjectResponse

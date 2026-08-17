@@ -6,7 +6,7 @@ Feature: Data Transfer (Export / Import)
   Scenario: Export an empty database
     When I export all data
     Then the export should succeed
-    And the export bundle should have format version 1
+    And the export bundle should have format version 2
     And the export bundle should contain 0 journal entries
 
   Scenario: Export a populated database

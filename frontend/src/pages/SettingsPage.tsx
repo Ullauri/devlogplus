@@ -877,9 +877,16 @@ export default function SettingsPage() {
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-lg font-semibold">Data Transfer</h2>
           <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-            Export all your DevLog+ data to a JSON file and import it on another
+            Export your DevLog+ data to a JSON file and import it on another
             machine. This lets you move your journal, knowledge profile,
-            quizzes, projects, and settings between devices.
+            quizzes, readings, and settings between devices.
+          </p>
+          <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+            Weekly projects are <strong>not</strong> included. Their Go code
+            lives in <code className="font-mono">workspace/projects/</code> on
+            disk, not in the database, so the rows alone would arrive without
+            the files they describe. Copy that folder across yourself if you
+            want to keep the code.
           </p>
 
           {/* Export */}
