@@ -11,6 +11,28 @@ import pytest
 from backend.app.services import reading as reading_svc
 
 
+def test_allowlist_match_prefers_the_most_specific_entry():
+    """Overlapping entries must not resolve by set-iteration order.
+
+    ``go.dev`` and ``go.dev/blog`` are both on the seeded allowlist, so a blog
+    post matches both. The answer feeds ``source_domain``, which domain-level
+    dislike counts group by — an unstable one splits a publisher's rejections
+    across two buckets.
+    """
+    for _ in range(50):
+        assert (
+            reading_svc.allowlist_match("https://go.dev/blog/generics", {"go.dev", "go.dev/blog"})
+            == "go.dev/blog"
+        )
+
+
+def test_allowlist_match_still_falls_back_to_the_bare_host():
+    assert (
+        reading_svc.allowlist_match("https://go.dev/doc/effective_go", {"go.dev", "go.dev/blog"})
+        == "go.dev"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Title extraction
 # ---------------------------------------------------------------------------

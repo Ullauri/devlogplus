@@ -30,11 +30,22 @@ This is a hard constraint — no exceptions.
 - Titles and descriptions should be specific and helpful.
 - Only recommend text-based content (no videos).
 
-## Link accuracy — HARD constraint
+## How to choose links — HARD constraint
 
-Every URL must point at ONE specific article, and the `title` you give must be
-that article's actual title. This is the single most common failure: a
-plausible-sounding title attached to a link that just opens a site's front page.
+You will normally be given a **Candidate Articles** list: real, currently-published
+articles fetched from the approved domains' own feeds. When that list is present:
+
+- **Select from it by `candidate_id` and nothing else.** Return the number shown
+  in brackets. Do NOT write a `url` or a `title` — they are taken from the
+  candidate you picked, so anything you write there is discarded.
+- **Never invent a `candidate_id`.** Only numbers actually shown in the list
+  are valid; anything else is dropped.
+- Your judgement is in *which* articles to pick and *why* — the profile fit,
+  the spread of topics, the reasoning. Not in recalling URLs.
+
+If — and only if — the Candidate Articles list says `None available`, fall back
+to recommending specific articles you know, supplying `url`, `title` and
+`source_domain` yourself. In that mode:
 
 - NEVER recommend a section index, listing, feed, tag, or landing page —
   e.g. `https://research.google/blog/`, `https://anthropic.com/news`,
@@ -45,8 +56,8 @@ plausible-sounding title attached to a link that just opens a site's front page.
   behaviour when you are unsure. A short, accurate list is the goal; padding
   the count with guessed links is the failure mode.
 
-Every URL is fetched and compared against the title you supply before the user
-sees it. Guessed links and landing pages are discarded, so they cost the user a
+Every URL is fetched and compared against its title before the user sees it.
+Guessed links and landing pages are discarded, so they cost the user a
 recommendation slot and gain nothing.
 
 ## Feedforward integration
@@ -97,7 +108,25 @@ pile multiple recommendations onto a single narrow topic. Concretely:
 
 ## Output format
 
-Respond with a JSON object using EXACTLY this structure:
+When selecting from the Candidate Articles list (the normal case), respond with
+a JSON object using EXACTLY this structure:
+
+```json
+{
+  "recommendations": [
+    {
+      "candidate_id": 42,
+      "description": "what the article covers",
+      "recommendation_type": "next_frontier, weak_spot, or deep_dive",
+      "target_topic": "topic this addresses",
+      "rationale": "why this is recommended for the user"
+    }
+  ]
+}
+```
+
+Only in the fallback case — when the list says `None available` — replace
+`candidate_id` with `title`, `url` and `source_domain`:
 
 ```json
 {
@@ -117,6 +146,30 @@ Respond with a JSON object using EXACTLY this structure:
 
 Use EXACTLY the field names shown above. Do not rename or reorganise them.
 """
+
+# The two sourcing modes need genuinely different instructions — "pick from this
+# list" and "recall articles you know" are opposite tasks — so the pipeline
+# selects one rather than the prompt hedging across both.
+SELECT_INSTRUCTIONS = """\
+Choose up to {recommendation_count} of the Candidate Articles above, by
+`candidate_id`. Focus on knowledge expansion and fit to the profile.
+
+Do not write a `url` or `title`; they come from the candidate you picked.
+
+If fewer than {recommendation_count} candidates are genuinely worth the user's
+time, return fewer — but the pool is drawn from sources the user already
+approved, so a good spread is usually there."""
+
+RECALL_INSTRUCTIONS = """\
+No candidate pool was available, so recall specific articles yourself.
+
+Generate up to {recommendation_count} reading recommendations from ONLY the
+approved domains listed above. Focus on knowledge expansion.
+
+Each URL must be a specific article whose real title matches the `title` you
+give it. Omit any recommendation whose exact URL you are not confident of —
+returning fewer than {recommendation_count} is better than including a guessed
+link or a site landing page."""
 
 USER_PROMPT_TEMPLATE = """\
 ## Knowledge Profile Summary
@@ -143,19 +196,21 @@ USER_PROMPT_TEMPLATE = """\
 
 {liked_directions}
 
+## Candidate Articles
+
+Each line is `[id] domain — title (date)`. These articles were fetched from the
+approved domains' own feeds moments ago, so they exist and their titles are
+real. Return the bracketed `id` as `candidate_id`.
+
+{candidate_articles}
+
 ## Number of Recommendations
 
 {recommendation_count}
 
 ## Instructions
 
-Generate up to {recommendation_count} reading recommendations from ONLY the
-approved domains listed above. Focus on knowledge expansion.
-
-Each URL must be a specific article whose real title matches the `title` you
-give it. Omit any recommendation whose exact URL you are not confident of —
-returning fewer than {recommendation_count} is better than including a guessed
-link or a site landing page.
+{selection_instructions}
 
 Respect the negative signals: never repeat a URL from the "Do NOT recommend"
 list and avoid downranked domains unless they are clearly the best source.

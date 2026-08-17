@@ -79,6 +79,18 @@ class ReadingAllowlist(Base, UUIDMixin):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Where this domain publishes its RSS/Atom feed, and when we last went
+    # looking. Discovery costs up to a dozen requests per domain, so the answer
+    # is cached here rather than re-derived on every weekly run.
+    #
+    # ``feed_checked_at`` set with ``feed_url`` NULL is a real, meaningful
+    # state: this domain was probed and has no discoverable feed (20 of the 69
+    # seeded domains, mostly reference docs). Without the timestamp those 20
+    # would be re-probed forever; with it they are retried only after
+    # ``reading_feed_recheck_days``.
+    feed_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feed_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=now(),

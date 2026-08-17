@@ -4,11 +4,13 @@ import asyncio
 import logging
 import re
 import uuid
+import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from sqlalchemy import or_, select
@@ -61,6 +63,15 @@ def allowlist_match(url: str, allowed_domains: set[str]) -> str | None:
 
     Subdomains do not inherit their parent's entry: ``anthropic.com/news`` does
     not authorise ``docs.anthropic.com``. A ``www.`` prefix is ignored.
+
+    When several entries match, the **most specific** one wins. The seeded
+    allowlist holds both ``go.dev`` and ``go.dev/blog``, so ``go.dev/blog/generics``
+    matches twice; returning the first hit meant iterating a *set* and
+    attributing the article to whichever entry that process's hash order
+    happened to yield. ``source_domain`` is stored from this result and
+    domain-level dislike counts are grouped by it, so an unstable answer split
+    one publisher's rejections across two buckets and neither reached the
+    downrank threshold.
     """
     parts = urlsplit(url.strip())
     host = (parts.hostname or "").lower().removeprefix("www.")
@@ -68,6 +79,8 @@ def allowlist_match(url: str, allowed_domains: set[str]) -> str | None:
         return None
     path = parts.path or "/"
 
+    best: str | None = None
+    best_length = -1
     for entry in allowed_domains:
         candidate = entry.strip().lower().removeprefix("www.").rstrip("/")
         if not candidate:
@@ -75,11 +88,18 @@ def allowlist_match(url: str, allowed_domains: set[str]) -> str | None:
         if "/" in candidate:
             entry_host, entry_path = candidate.split("/", 1)
             entry_path = "/" + entry_path
-            if host == entry_host and (path == entry_path or path.startswith(entry_path + "/")):
-                return entry
-        elif host == candidate:
-            return entry
-    return None
+            matched = host == entry_host and (
+                path == entry_path or path.startswith(entry_path + "/")
+            )
+        else:
+            matched = host == candidate
+        # Longest wins; ties broken alphabetically so the answer never depends
+        # on set ordering.
+        if matched and (
+            len(candidate) > best_length or (len(candidate) == best_length and entry < best)
+        ):
+            best, best_length = entry, len(candidate)
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +431,392 @@ async def check_links(
         results = await asyncio.gather(*(_bounded(u) for u in unique))
 
     return {check.url: check for check in results}
+
+
+# ---------------------------------------------------------------------------
+# Candidate sourcing — real articles from allowlisted domains' feeds
+# ---------------------------------------------------------------------------
+# The model has no web access, so asking it to *recall* article URLs produces
+# invented slugs: of the 19 recommendations rejected on 2026-08-15/16, 14 were
+# plain HTTP 404s and two batches in a row stored nothing at all. No amount of
+# prompt sternness fixes that — the URLs are simply not in the weights.
+#
+# So the pipeline stops asking. These helpers read each allowlisted domain's
+# RSS/Atom feed and build a pool of articles that provably exist, which the
+# model then selects from by index. A recommendation can no longer carry a URL
+# the model made up, because it no longer supplies the URL at all.
+
+# Feed paths to try when a domain advertises no <link rel="alternate">.
+# Ordered by observed hit rate across the 69 seeded domains.
+_FEED_PROBE_PATHS = (
+    "/rss.xml",
+    "/feed.xml",
+    "/atom.xml",
+    "/index.xml",
+    "/rss",
+    "/feed",
+    "/feed/",
+)
+
+# Feeds are XML from third parties. ElementTree does not resolve external
+# entities, so XXE is not the exposure here — unbounded internal entity
+# expansion is. A hard size cap is the mitigation, and it doubles as protection
+# against a multi-megabyte archive feed: redis.io/docs ships 2145 entries.
+_FEED_SIZE_LIMIT = 5_000_000
+
+# Only the head of a landing page is parsed for feed <link> tags; they live in
+# <head> and some of these pages are megabytes of prose.
+_FEED_LINK_PARSE_LIMIT = 200_000
+
+_FEED_UA = "Mozilla/5.0 (compatible; DevLogPlus-FeedReader/1.0; +https://github.com/)"
+
+
+@dataclass(frozen=True)
+class FeedItem:
+    """One entry read out of an RSS or Atom feed."""
+
+    title: str
+    url: str
+    published: datetime | None = None
+    summary: str | None = None
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """A real article offered to the LLM for selection.
+
+    ``index`` is the handle the model returns. Nothing else about the article
+    crosses the prompt boundary in a form the model could corrupt: title and
+    URL are read back out of this record, not out of the response.
+    """
+
+    index: int
+    title: str
+    url: str
+    domain: str
+    published: datetime | None = None
+    summary: str | None = None
+
+
+class _FeedLinkParser(HTMLParser):
+    """Collect ``<link rel="alternate" type="application/rss+xml">`` hrefs."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "link":
+            return
+        attr = dict(attrs)
+        type_ = (attr.get("type") or "").lower()
+        rel = (attr.get("rel") or "").lower()
+        href = attr.get("href")
+        if href and "alternate" in rel and ("rss+xml" in type_ or "atom+xml" in type_):
+            self.hrefs.append(href)
+
+
+def find_feed_links(html: str, base_url: str) -> list[str]:
+    """Return absolute feed URLs advertised by a page's ``<head>``."""
+    parser = _FeedLinkParser()
+    try:
+        parser.feed(html[:_FEED_LINK_PARSE_LIMIT])
+    except Exception:  # noqa: BLE001 — malformed markup must not fail discovery
+        logger.debug("Feed link extraction failed for %s", base_url, exc_info=True)
+    return [urljoin(base_url, href) for href in parser.hrefs]
+
+
+def _parse_feed_datetime(value: str) -> datetime | None:
+    """Read an RSS (RFC 822) or Atom (ISO 8601) timestamp, or give up quietly."""
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        parsed = None
+    if parsed is None:
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    # Naive timestamps do occur in the wild. Assume UTC rather than discard the
+    # item, so it can still be ordered against the rest.
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed
+
+
+def _looks_like_feed(payload: bytes) -> bool:
+    head = payload[:512].lstrip().lower()
+    return head.startswith(b"<?xml") or b"<rss" in head or b"<feed" in head
+
+
+def parse_feed(payload: bytes) -> list[FeedItem]:
+    """Read the entries out of an RSS 2.0 or Atom document.
+
+    Pure and network-free so every branch is directly testable. Namespaces are
+    stripped rather than matched, because the same logical element arrives as
+    ``{http://www.w3.org/2005/Atom}entry`` from one publisher and bare ``item``
+    from the next, and both are the thing we want.
+
+    Returns ``[]`` for anything unparseable — one publisher serving broken XML
+    must not take down the whole batch.
+    """
+    if len(payload) > _FEED_SIZE_LIMIT:
+        logger.warning("Feed exceeds %d bytes; refusing to parse", _FEED_SIZE_LIMIT)
+        return []
+    try:
+        root = ET.fromstring(payload)  # noqa: S314 — size-capped, no entity resolution
+    except ET.ParseError:
+        logger.debug("Feed is not well-formed XML", exc_info=True)
+        return []
+
+    items: list[FeedItem] = []
+    for node in root.iter():
+        if node.tag.rpartition("}")[2] not in ("item", "entry"):
+            continue
+        title: str | None = None
+        link: str | None = None
+        published: datetime | None = None
+        summary: str | None = None
+        for child in node:
+            name = child.tag.rpartition("}")[2]
+            if name == "title" and title is None:
+                title = " ".join("".join(child.itertext()).split()) or None
+            elif name == "link" and link is None:
+                # Atom puts the URL in @href; RSS puts it in the element text.
+                # An Atom <link rel="replies"> is not the article, so only
+                # alternate/unspecified rels count.
+                if child.get("rel") in (None, "alternate"):
+                    link = (child.get("href") or (child.text or "")).strip() or None
+            elif name in ("pubDate", "published", "updated") and published is None:
+                published = _parse_feed_datetime(child.text or "")
+            elif name in ("description", "summary") and summary is None:
+                text = " ".join("".join(child.itertext()).split())
+                summary = text or None
+        if title and link:
+            items.append(FeedItem(title=title, url=link, published=published, summary=summary))
+    return items
+
+
+async def _fetch_feed(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    timeout: float,  # noqa: ASYNC109 — passed to httpx, not asyncio.timeout
+) -> list[FeedItem] | None:
+    """Fetch and parse one feed URL. ``None`` means "not a feed"; never raises."""
+    try:
+        resp = await client.get(
+            url, follow_redirects=True, timeout=timeout, headers={"User-Agent": _FEED_UA}
+        )
+    except httpx.HTTPError:
+        logger.debug("Feed fetch failed: %s", url, exc_info=True)
+        return None
+    if resp.status_code != 200 or not _looks_like_feed(resp.content):
+        return None
+    return parse_feed(resp.content)
+
+
+async def discover_feed(
+    client: httpx.AsyncClient,
+    domain: str,
+    *,
+    timeout: float,  # noqa: ASYNC109 — passed to httpx, not asyncio.timeout
+) -> tuple[str, list[FeedItem]] | None:
+    """Find the feed for an allowlist domain, returning its URL and entries.
+
+    Tries the domain's own ``<link rel="alternate">`` advertisement first — it
+    is authoritative and correct far more often than guessing — then falls back
+    to well-known paths. Probed against the 69 seeded domains: 49 resolve, 31
+    of them by advertisement.
+
+    An allowlist entry may carry a path (``go.dev/blog``), so both that page and
+    the bare host are consulted; publishers put the tag in either place.
+    """
+    trimmed = domain.strip().strip("/")
+    if not trimmed:
+        return None
+    root = f"https://{trimmed.split('/')[0]}"
+    scoped = f"https://{trimmed}"
+    pages = [scoped, root] if scoped != root else [root]
+
+    for page in pages:
+        try:
+            resp = await client.get(
+                page, follow_redirects=True, timeout=timeout, headers={"User-Agent": _FEED_UA}
+            )
+        except httpx.HTTPError:
+            continue
+        if resp.status_code != 200:
+            continue
+        for href in find_feed_links(resp.text, str(resp.url)):
+            items = await _fetch_feed(client, href, timeout=timeout)
+            if items:
+                return href, items
+
+    for stem in pages:
+        for path in _FEED_PROBE_PATHS:
+            candidate = stem.rstrip("/") + path
+            items = await _fetch_feed(client, candidate, timeout=timeout)
+            if items:
+                return candidate, items
+    return None
+
+
+def select_candidates(
+    per_domain_items: dict[str, list[FeedItem]],
+    *,
+    allowed_domains: set[str],
+    exclude_urls: set[str],
+    per_domain: int,
+    limit: int,
+) -> list[Candidate]:
+    """Turn raw feed entries into the numbered pool the prompt offers.
+
+    Pure, so the selection rules are testable without a network. Three things
+    happen here and the order matters:
+
+    1. **Every entry is re-checked against the allowlist.** A feed is not
+       self-certifying: ``kubernetes.io/docs`` advertises ``kubernetes.io/feed.xml``,
+       which publishes ``/blog/`` posts, and ``wired.com/tag/backchannel``
+       advertises the whole-site firehose. Those entries are off-allowlist and
+       are dropped here — the allowlist says docs, not blog.
+    2. **Each domain is capped at ``per_domain``, newest first.** Left
+       unbounded, redis.io/docs (2145 entries) and snyk.io (1662) crowd out
+       every other source.
+    3. **The total cap is filled round-robin across domains**, so trimming
+       costs depth rather than deleting whole publishers — the pool stays as
+       broad as the batch diversity rule needs it to be.
+    """
+    ranked: dict[str, list[Candidate]] = {}
+    for domain, items in sorted(per_domain_items.items()):
+        rows: list[tuple[datetime, FeedItem, str]] = []
+        seen: set[str] = set()
+        for item in items:
+            matched = allowlist_match(item.url, allowed_domains)
+            if matched is None or is_index_url(item.url):
+                continue
+            norm = normalize_url(item.url)
+            if norm in exclude_urls or norm in seen:
+                continue
+            seen.add(norm)
+            # Undated entries sort last rather than being dropped: several
+            # publishers omit the field entirely and their articles are fine.
+            rows.append((item.published or datetime.min.replace(tzinfo=UTC), item, matched))
+        rows.sort(key=lambda r: r[0], reverse=True)
+        picked = [
+            Candidate(
+                index=0,
+                title=item.title,
+                url=item.url,
+                domain=matched,
+                published=item.published,
+                summary=item.summary,
+            )
+            for _, item, matched in rows[:per_domain]
+        ]
+        if picked:
+            ranked[domain] = picked
+
+    pool: list[Candidate] = []
+    for depth in range(per_domain):
+        if len(pool) >= limit:
+            break
+        for domain in sorted(ranked):
+            if depth < len(ranked[domain]):
+                pool.append(ranked[domain][depth])
+                if len(pool) >= limit:
+                    break
+
+    # Number only once the pool is final, so the index the model returns is an
+    # offset into the list it was actually shown.
+    return [
+        Candidate(
+            index=i + 1,
+            title=c.title,
+            url=c.url,
+            domain=c.domain,
+            published=c.published,
+            summary=c.summary,
+        )
+        for i, c in enumerate(pool)
+    ]
+
+
+async def gather_candidates(
+    db: AsyncSession,
+    *,
+    allowed_domains: set[str],
+    exclude_urls: set[str] | None = None,
+    per_domain: int = 6,
+    limit: int = 200,
+    timeout: float = 10.0,  # noqa: ASYNC109 — passed to httpx, not asyncio.timeout
+    recheck_days: int = 7,
+    concurrency: int = 8,
+) -> list[Candidate]:
+    """Build the candidate pool from every allowlisted domain's feed.
+
+    Feed discovery is cached on the allowlist row, including negative results —
+    roughly 20 of the seeded domains publish nothing, and re-probing them costs
+    a dozen requests each per run. ``recheck_days`` bounds how long either
+    answer is trusted.
+
+    Never raises: a domain that fails simply contributes nothing.
+    """
+    entries = await list_allowlist(db)
+    if not entries:
+        return []
+
+    now = datetime.now(UTC)
+    stale_before = now - timedelta(days=recheck_days)
+    sem = asyncio.Semaphore(concurrency)
+    per_domain_items: dict[str, list[FeedItem]] = {}
+
+    async with httpx.AsyncClient() as client:
+
+        async def _one(entry: ReadingAllowlist) -> None:
+            async with sem:
+                checked = entry.feed_checked_at
+                fresh = checked is not None and checked >= stale_before
+                if fresh and entry.feed_url:
+                    items = await _fetch_feed(client, entry.feed_url, timeout=timeout)
+                    if items:
+                        per_domain_items[entry.domain] = items
+                        return
+                    # A cached feed that has stopped working earns a rediscovery
+                    # now rather than at the next recheck window; publishers do
+                    # move these.
+                elif fresh:
+                    # Known feedless and still within the recheck window.
+                    return
+
+                found = await discover_feed(client, entry.domain, timeout=timeout)
+                entry.feed_checked_at = now
+                if found is None:
+                    entry.feed_url = None
+                    logger.debug("No feed discovered for %s", entry.domain)
+                    return
+                entry.feed_url, items = found
+                per_domain_items[entry.domain] = items
+
+        await asyncio.gather(*(_one(e) for e in entries))
+
+    await db.flush()
+
+    pool = select_candidates(
+        per_domain_items,
+        allowed_domains=allowed_domains,
+        exclude_urls=exclude_urls or set(),
+        per_domain=per_domain,
+        limit=limit,
+    )
+    logger.info(
+        "Candidate pool: %d articles from %d of %d allowlisted domains",
+        len(pool),
+        len({c.domain for c in pool}),
+        len(entries),
+    )
+    return pool
 
 
 # ---------------------------------------------------------------------------

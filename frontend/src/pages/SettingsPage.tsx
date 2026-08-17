@@ -13,6 +13,55 @@ type PipelineKey =
   | "reading_generation"
   | "project_generation";
 
+/**
+ * Condense a run's metadata into the one line the Details column has room for.
+ *
+ * This used to be `Object.entries(...).slice(0, 3)`, which is how a reading run
+ * that stored nothing came to read `stored=0, generated=5, batch_date=...` —
+ * three keys in insertion order, none of which said why. The pipeline had
+ * recorded the reason all along (four dead links); the table just never showed
+ * it. So: lead with the headline counts, then surface every *non-zero* skip
+ * reason, which is precisely the set of facts that explains an empty batch.
+ */
+export function summarizeRunMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string {
+  if (!metadata) return "";
+
+  const parts: string[] = [];
+  const push = (key: string) => {
+    const value = metadata[key];
+    if (value !== null && value !== undefined)
+      parts.push(`${key}=${String(value)}`);
+  };
+
+  for (const key of ["stored", "generated"]) push(key);
+
+  // Zero skips are the normal case and say nothing; listing them buries the
+  // one counter that is non-zero.
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!key.startsWith("skipped_")) continue;
+    const count = Array.isArray(value) ? value.length : value;
+    if (typeof count === "number" && count > 0) parts.push(`${key}=${count}`);
+  }
+
+  // Distinguishes "no articles to choose from" (a feed problem) from "chose
+  // nothing" (a selection problem) without opening the database.
+  if (metadata.source_mode === "recall") parts.push("source=recall");
+  if (typeof metadata.candidate_pool_size === "number") {
+    parts.push(`pool=${metadata.candidate_pool_size}`);
+  }
+
+  if (parts.length === 0) {
+    return Object.entries(metadata)
+      .filter(([, v]) => v !== null && v !== undefined)
+      .slice(0, 3)
+      .map(([k, v]) => `${k}=${String(v)}`)
+      .join(", ");
+  }
+  return parts.join(", ");
+}
+
 // ---- General settings ----
 // Editable DB-backed settings. Values are stored as JSON objects in the
 // backend; by convention scalars live under a "value" key (matches the
@@ -1119,14 +1168,7 @@ export default function SettingsPage() {
                             ? "text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20"
                             : "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20";
                       const detail =
-                        r.error ??
-                        (r.metadata
-                          ? Object.entries(r.metadata)
-                              .filter(([, v]) => v !== null && v !== undefined)
-                              .slice(0, 3)
-                              .map(([k, v]) => `${k}=${String(v)}`)
-                              .join(", ")
-                          : "");
+                        r.error ?? summarizeRunMetadata(r.metadata);
                       return (
                         <tr key={r.id}>
                           <td className="px-3 py-2 font-mono text-[11px] text-gray-800 dark:text-gray-100">
