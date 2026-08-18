@@ -144,13 +144,13 @@ The profile should also surface high-level summaries: overall strengths, key gap
 
 ### Update cadence
 
-The Knowledge Profile updates on a **daily** schedule:
+The Knowledge Profile updates **on demand**. Running the profile-update pipeline processes everything outstanding in one pass:
 
-* **Journal entries**: processed nightly; the system checks for new unprocessed entries each day
-* **Quiz outcomes**: processed the night after the quiz is taken
-* **Project outcomes**: processed the night a new project is issued (evaluating the prior project)
+* **Journal entries**: every entry not yet processed
+* **Quiz outcomes**: every completed quiz not yet reflected in the profile
+* **Project outcomes**: every evaluated project not yet reflected in the profile
 
-Profile updates are not real-time. This keeps LLM costs predictable and avoids noisy mid-day profile churn.
+Profile updates are deliberately not real-time. Batching the work behind an explicit trigger keeps LLM costs visible and predictable — the user decides when to spend, and nothing accrues cost while they are not looking.
 
 ---
 
@@ -227,7 +227,7 @@ Free-text responses reveal the user's actual understanding, reasoning, and menta
 
 ### Cadence
 
-Quizzes are issued **weekly**, with a default of **10 questions** per quiz.
+A quiz is issued whenever the user asks for one, with a default of **10 questions** per quiz. Weekly is the intended rhythm, not an enforced one — nothing generates a quiz unprompted.
 
 The question count is user-configurable. The system should allow the user to set their preferred number of questions per quiz through application settings.
 
@@ -264,7 +264,7 @@ For MVP, reading recommendations should be text-based only. No video sources.
 
 ### Cadence
 
-Reading recommendations are generated **weekly**, alongside quizzes. Each batch should include a small, focused set of recommendations (e.g., 3–5 links) rather than an overwhelming list. The count is not user-configurable for MVP but should remain a sensible, curated selection.
+Reading recommendations are generated on request, independently of quizzes. Each batch should include a small, focused set of recommendations (e.g., 3–5 links) rather than an overwhelming list. The count is not user-configurable for MVP but should remain a sensible, curated selection.
 
 ### Allowlist mechanics
 
@@ -339,7 +339,7 @@ That keeps the first version focused and tractable. Later versions can expand to
 
 ### Project generation
 
-Projects are **generated from scratch by the LLM** each week. Each generated project is a small, self-contained Go codebase that includes:
+Projects are **generated from scratch by the LLM** on request. Each generated project is a small, self-contained Go codebase that includes:
 
 * Go source files with existing functionality
 * Test files with existing test coverage
@@ -358,7 +358,7 @@ The application maintains a dedicated, git-ignored directory within the project 
 
 The user drives the project lifecycle:
 
-1. A new project is issued weekly
+1. The user asks for a new project when they want one
 2. The user works on it in the project directory
 3. Before the next project is generated, the user submits their completed work along with optional feedback
 4. The system evaluates the submission (code quality, task completion, test results) using an LLM judge
@@ -587,7 +587,7 @@ OpenRouter provides access to multiple models through one integration point. The
 
 * different tasks can use different models (e.g., a smaller model for classification, a larger model for project generation)
 * model selection is configurable, not hardcoded
-* API costs are predictable due to the batch-oriented update cadence (nightly processing, weekly quizzes/projects)
+* API costs are predictable because every expensive batch is user-triggered — nothing spends money unattended
 
 ### LLM observability
 
@@ -613,18 +613,13 @@ The standard way to run the application is via Docker Compose, which manages:
 
 This eliminates environment setup friction — the user needs only Docker installed to run the full stack.
 
-### Scheduling
+### Running the batch pipelines
 
-Scheduled tasks (nightly profile updates, weekly quiz/reading generation, weekly project issuance) are managed via **system cron jobs**.
+There is **no scheduler**. Profile updates, quiz generation, reading generation and project issuance run only when the user asks for them, via `POST /pipelines/<name>/run` — surfaced as "Run now" buttons on the Settings page and in the empty state of each tab.
 
-During project initialization, the setup process should:
+Each trigger returns `202 Accepted` immediately and executes in the background, recording progress in `processing_logs` so the UI can show what is in flight. A second trigger for a pipeline already running is rejected with `409`.
 
-* check whether cron is available on the host system
-* warn the user if cron is not found or not accessible
-* offer to install the required crontab entries automatically
-* document the expected cron schedule so the user can configure it manually if preferred
-
-This keeps scheduling simple, transparent, and native to the host OS rather than requiring the application to implement its own scheduler or stay running as a daemon.
+This keeps the deployment to a single container with no cron, no daemon and no host-level setup step, and it keeps LLM spend under the user's direct control: nothing costs money unless someone pressed a button. The cost is that a profile only reflects what the user has asked it to process — which the UI makes visible rather than hiding behind an assumed nightly run.
 
 ### Project directory
 

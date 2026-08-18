@@ -98,7 +98,7 @@ class KnowledgeProfileResponse(BaseSchema):
     )
     total_topics: int = Field(0, description="Total number of topics in the profile")
     last_updated: datetime | None = Field(
-        None, description="When the profile was last updated by the nightly pipeline"
+        None, description="When the profile was last updated by the profile-update pipeline"
     )
 
 
@@ -109,5 +109,5 @@ class ProfileSnapshotResponse(BaseSchema):
     snapshot_data: dict = Field(
         description="Full profile state serialised as JSON at snapshot time"
     )
-    trigger: str = Field(description="What triggered this snapshot (e.g. 'nightly_update')")
+    trigger: str = Field(description="What triggered this snapshot (e.g. 'profile_update')")
     created_at: datetime = Field(description="When the snapshot was taken")

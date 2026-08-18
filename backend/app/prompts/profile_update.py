@@ -1,4 +1,4 @@
-"""Prompts for the nightly Knowledge Profile update pipeline.
+"""Prompts for the Knowledge Profile update pipeline.
 
 After extracting topics from new journal entries, this pipeline reconciles
 them with the existing profile — merging duplicates, updating evidence

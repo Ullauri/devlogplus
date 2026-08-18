@@ -1,9 +1,8 @@
-"""Schemas for manually triggering and inspecting pipeline runs.
+"""Schemas for triggering and inspecting pipeline runs.
 
-These endpoints expose a *user-initiated* escape hatch for running the
-normally-scheduled pipelines (profile update, quiz/reading/project
-generation) on demand — e.g. when the user doesn't want to wait for the
-next cron invocation.
+The batch pipelines (profile update, quiz/reading/project generation)
+run only when a user asks for them, and these endpoints are how they
+are asked.
 """
 
 from __future__ import annotations

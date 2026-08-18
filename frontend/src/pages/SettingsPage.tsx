@@ -416,7 +416,7 @@ export default function SettingsPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ---- Manual pipeline triggers (advanced / Settings-only) ----
+  // ---- Pipeline triggers (Settings-only) ----
   const [pipelineStatus, setPipelineStatus] = useState<
     Record<PipelineKey, PipelineStatus>
   >({
@@ -493,28 +493,25 @@ export default function SettingsPage() {
       key: "profile_update",
       label: "Profile update",
       description:
-        "Process new journal entries and refresh the Knowledge Profile. Normally runs nightly at 2:00 AM.",
+        "Process new journal entries and refresh the Knowledge Profile.",
       run: () => api.pipelines.runProfileUpdate(),
     },
     {
       key: "quiz_generation",
       label: "Generate quiz",
-      description:
-        "Create a new weekly quiz session from your profile. Normally runs Monday 3:00 AM.",
+      description: "Create a new quiz session from your profile.",
       run: () => api.pipelines.runQuizGeneration(),
     },
     {
       key: "reading_generation",
       label: "Generate readings",
-      description:
-        "Produce a new batch of reading recommendations. Normally runs Monday 3:30 AM.",
+      description: "Produce a new batch of reading recommendations.",
       run: () => api.pipelines.runReadingGeneration(),
     },
     {
       key: "project_generation",
       label: "Generate project",
-      description:
-        "Generate a new weekly Go micro-project. Normally runs Monday 4:00 AM.",
+      description: "Generate a new Go micro-project.",
       run: () => api.pipelines.runProjectGeneration(),
     },
   ];
@@ -895,33 +892,6 @@ export default function SettingsPage() {
           )}
         </div>
 
-        <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-          <h2 className="mb-3 text-lg font-semibold">Scheduling</h2>
-          <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-            <p>
-              📅 <strong>Nightly</strong>: Profile update — processes new
-              journal entries (2:00 AM)
-            </p>
-            <p>
-              📅 <strong>Weekly</strong>: Quiz generation (Monday 3:00 AM)
-            </p>
-            <p>
-              📅 <strong>Weekly</strong>: Reading recommendations (Monday 3:30
-              AM)
-            </p>
-            <p>
-              📅 <strong>Weekly</strong>: Project generation (Monday 4:00 AM)
-            </p>
-          </div>
-          <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-            Run{" "}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
-              scripts/setup_cron.sh
-            </code>{" "}
-            to install crontab entries.
-          </p>
-        </div>
-
         {/* ---- Data Transfer ---- */}
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-3 text-lg font-semibold">Data Transfer</h2>
@@ -1056,22 +1026,16 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* ---- Manual Pipeline Runs (Advanced) ---- */}
+        {/* ---- Pipeline Runs ---- */}
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <div className="mb-3 flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold">
-                Manual pipeline runs{" "}
-                <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 align-middle text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
-                  Advanced
-                </span>
-              </h2>
+              <h2 className="text-lg font-semibold">Pipeline runs</h2>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                These pipelines run automatically on a cron schedule (see the
-                section above). Trigger them here only if you don’t want to wait
-                — for example, after importing data or finishing a burst of
-                journal entries. Each run executes in the background; progress
-                appears in the table below.
+                Nothing runs on its own — start a pipeline here whenever you
+                want fresh output, for example after importing data or finishing
+                a burst of journal entries. Each run executes in the background;
+                progress appears in the table below.
               </p>
             </div>
           </div>

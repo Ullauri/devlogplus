@@ -27,8 +27,8 @@ export interface paths {
          * @description Create a new technical journal entry.
          *
          *     The entry content can be typed text or dictated via the browser Web Speech
-         *     API.  An initial version is created automatically.  The entry will be
-         *     processed by the nightly profile-update pipeline.
+         *     API.  An initial version is created automatically.  The entry stays
+         *     unprocessed until someone runs the profile-update pipeline.
          */
         post: operations["create_entry_api_v1_journal_entries_post"];
         delete?: never;
@@ -92,7 +92,7 @@ export interface paths {
          *     - **recurring_themes** — frequently mentioned topics
          *     - **unresolved** — topics pending triage
          *
-         *     Updated nightly by the profile-update pipeline.
+         *     Updated whenever the profile-update pipeline is run.
          */
         get: operations["get_profile_api_v1_profile_get"];
         put?: never;
@@ -481,8 +481,8 @@ export interface paths {
          * Check for blocking triage items
          * @description Check whether unresolved high or critical triage items exist.
          *
-         *     When blocking items are present, the nightly profile-update pipeline
-         *     will not run until they are resolved.  The frontend should surface a
+         *     When blocking items are present, the profile-update pipeline will
+         *     refuse to run until they are resolved.  The frontend should surface a
          *     prominent warning in this case.
          */
         get: operations["check_blocking_triage_api_v1_triage_blocking_get"];
@@ -699,8 +699,8 @@ export interface paths {
          *     - **Go experience level** — none / beginner / intermediate / advanced
          *     - **Topic interests** — optional list of topics to prioritise
          *
-         *     This establishes baseline context before the normal nightly/weekly
-         *     processing cycles begin.
+         *     This establishes baseline context before the first generation or
+         *     profile-update run.
          */
         post: operations["complete_onboarding_api_v1_onboarding_complete_post"];
         delete?: never;
@@ -783,8 +783,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Manually trigger the profile-update pipeline
-         * @description Runs the nightly profile-update pipeline on demand. Normally this runs automatically at 2:00 AM via cron; use this endpoint when you don't want to wait.
+         * Trigger the profile-update pipeline
+         * @description Processes new journal entries and refreshes the Knowledge Profile. Nothing runs this on a schedule, so call it whenever you want the profile brought up to date.
          *
          *     The pipeline runs in the background — the response returns immediately with status=queued. Poll `GET /pipelines/runs` to observe progress.
          *
@@ -807,8 +807,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Manually trigger the quiz-generation pipeline
-         * @description Generates a new weekly quiz session immediately rather than waiting for the Monday 3:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.
+         * Trigger the quiz-generation pipeline
+         * @description Generates a new quiz session from the current Knowledge Profile. Runs in the background; poll `GET /pipelines/runs` for progress.
          *
          *     Returns 409 if a quiz-generation run is already in flight.
          */
@@ -849,8 +849,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Manually trigger the reading-generation pipeline
-         * @description Generates a new weekly batch of reading recommendations immediately rather than waiting for the Monday 3:30 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress.
+         * Trigger the reading-generation pipeline
+         * @description Generates a new batch of reading recommendations. Runs in the background; poll `GET /pipelines/runs` for progress.
          *
          *     Returns 409 if a reading-generation run is already in flight.
          */
@@ -871,8 +871,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Manually trigger the project-generation pipeline
-         * @description Generates a new weekly Go micro-project immediately rather than waiting for the Monday 4:00 AM cron. Runs in the background; poll `GET /pipelines/runs` for progress. Note: generates files under `workspace/projects/<date>/`.
+         * Trigger the project-generation pipeline
+         * @description Generates a new Go micro-project. Runs in the background; poll `GET /pipelines/runs` for progress. Note: generates files under `workspace/projects/<date>/`.
          *
          *     Returns 409 if a project-generation run is already in flight.
          */
@@ -912,7 +912,7 @@ export interface paths {
         };
         /**
          * List recent pipeline runs
-         * @description Returns the most recent entries from the processing log, newest first. Useful for displaying the status of manually-triggered or scheduled pipeline runs in the UI.
+         * @description Returns the most recent entries from the processing log, newest first. Useful for displaying the status of pipeline runs in the UI.
          */
         get: operations["list_runs_api_v1_pipelines_runs_get"];
         put?: never;
@@ -1298,7 +1298,7 @@ export interface components {
             title: string | null;
             /**
              * Is Processed
-             * @description Whether the nightly pipeline has processed this entry
+             * @description Whether the profile-update pipeline has processed this entry
              */
             is_processed: boolean;
             /**
@@ -1372,7 +1372,7 @@ export interface components {
             title: string | null;
             /**
              * Is Processed
-             * @description Whether the nightly pipeline has processed this entry
+             * @description Whether the profile-update pipeline has processed this entry
              */
             is_processed: boolean;
             /**
@@ -1527,7 +1527,7 @@ export interface components {
             total_topics: number;
             /**
              * Last Updated
-             * @description When the profile was last updated by the nightly pipeline
+             * @description When the profile was last updated by the profile-update pipeline
              */
             last_updated?: string | null;
         };
@@ -1889,7 +1889,7 @@ export interface components {
             };
             /**
              * Trigger
-             * @description What triggered this snapshot (e.g. 'nightly_update')
+             * @description What triggered this snapshot (e.g. 'profile_update')
              */
             trigger: string;
             /**

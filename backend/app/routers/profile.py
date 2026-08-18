@@ -34,7 +34,7 @@ async def get_profile(
     - **recurring_themes** — frequently mentioned topics
     - **unresolved** — topics pending triage
 
-    Updated nightly by the profile-update pipeline.
+    Updated whenever the profile-update pipeline is run.
     """
     return await profile_svc.get_knowledge_profile(db)
 

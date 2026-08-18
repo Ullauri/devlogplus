@@ -12,8 +12,8 @@ const STRENGTH_COLOR: Record<string, string> = {
   limited: "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400",
 };
 
-// Profile snapshots are refreshed by the profile_update pipeline (run
-// manually or on a user-configured schedule — see the Settings tab).
+// Profile snapshots are refreshed by the profile_update pipeline, which
+// only ever runs because someone asked for it — see the Settings tab.
 // We deliberately do NOT include topic_extraction here: it runs on every
 // journal save and would make the banner flap "Generating your profile…"
 // even though the visible profile snapshot only changes per profile_update run.

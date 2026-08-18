@@ -1,9 +1,10 @@
-"""Weekly project generation and evaluation pipeline.
+"""Project generation and evaluation pipeline.
 
 Generates self-contained Go micro-projects and evaluates submissions.
 Projects are written to workspace/projects/<date>/.
 
-Run via cron weekly or manually via CLI.
+Runs only when a user asks for it, via ``POST /pipelines/project/run``.
+There is no schedule and no CLI entrypoint.
 """
 
 import asyncio

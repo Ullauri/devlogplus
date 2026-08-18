@@ -1,9 +1,10 @@
-"""Weekly quiz generation and evaluation pipeline.
+"""Quiz generation and evaluation pipeline.
 
 Generates a set of free-text quiz questions based on the Knowledge Profile,
 and evaluates completed quiz answers using an LLM judge.
 
-Run via cron weekly or manually via CLI.
+Runs only when a user asks for it, via ``POST /pipelines/quiz/run``. There
+is no schedule and no CLI entrypoint.
 """
 
 import logging

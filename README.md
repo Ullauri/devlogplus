@@ -1,24 +1,25 @@
 # DevLog+
 
-A single-user, self-hosted developer journal for technical learning and skill maintenance. DevLog+ combines an AI-powered **Learning Engine** that builds a visible knowledge profile from your journal entries with a **Practice Engine** that generates weekly micro-projects to keep your hands-on skills sharp.
+A single-user, self-hosted developer journal for technical learning and skill maintenance. DevLog+ combines an AI-powered **Learning Engine** that builds a visible knowledge profile from your journal entries with a **Practice Engine** that generates Go micro-projects to keep your hands-on skills sharp. Nothing runs on a schedule — you trigger generation when you want it.
 
 ## Features
 
 ### Learn
 - **Technical journal** — capture reflections via text or browser speech-to-text; edits are versioned automatically
-- **Knowledge Profile** — AI-derived map of your strengths, weak spots, current frontier, and next frontier, updated nightly
+- **Knowledge Profile** — AI-derived map of your strengths, weak spots, current frontier, and next frontier, refreshed whenever you run the profile-update pipeline
 - **Reading recommendations** — curated from your allowlisted domains, targeted to gaps and growth areas
 
 ### Practice
-- **Weekly quizzes** — free-text questions that probe understanding; answers evaluated by LLM for correctness, depth, and confidence
-- **Weekly micro-projects** — generated Go projects with starter code, tests, and tasks (bugs, features, refactors); submit for automated evaluation
+- **Quizzes** — free-text questions that probe understanding; answers evaluated by LLM for correctness, depth, and confidence
+- **Micro-projects** — generated Go projects with starter code, tests, and tasks (bugs, features, refactors); submit for automated evaluation
 
 ### Manage
 - **Feedback & feedforward** — thumbs-up/down reactions correct the system; free-text notes shape what it generates next
 - **Triage queue** — surfaces items the system can't confidently resolve for your review, with severity levels
 - **Data transfer** — export all data to a single JSON file and import it on another machine to pick up where you left off
 - **Onboarding** — guided first-run experience (~10–15 min) that establishes your baseline before the learning cycle begins
-- **Settings** — configure models, schedules, and allowlisted domains from the UI or environment variables
+- **On-demand runs** — no cron, no daemon; start the profile, quiz, reading, or project pipeline from Settings whenever you want fresh output
+- **Settings** — configure models and allowlisted domains from the UI or environment variables
 
 ## Tech Stack
 
@@ -238,7 +239,7 @@ Run `make help` to see all available targets.
 │   └── openapi.json           # Generated OpenAPI spec
 ├── workspace/
 │   └── projects/              # Generated project files
-├── scripts/                   # Utility scripts (backup, cron)
+├── scripts/                   # Utility scripts (backup, OpenAPI export)
 ├── docker-compose.yml         # Dev Docker setup (app + pgvector)
 ├── Dockerfile                 # Multi-stage build (dev & prod)
 ├── Makefile                   # All dev/build/test commands

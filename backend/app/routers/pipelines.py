@@ -1,9 +1,9 @@
-"""Manual pipeline triggers.
+"""Pipeline triggers.
 
-Expose an opt-in escape hatch for users who don't want to wait for the
-scheduled cron invocations. Each endpoint queues the corresponding
-pipeline to run in the background (after the HTTP response is returned)
-and records its progress in the ``processing_logs`` table, which is
+Nothing in DevLog+ runs on a schedule, so these endpoints are the only
+way a pipeline runs at all. Each one queues the corresponding pipeline
+to run in the background (after the HTTP response is returned) and
+records its progress in the ``processing_logs`` table, which is
 available via :py:func:`list_runs`.
 
 Note on layering: this is the one place routers legitimately depend on
@@ -113,11 +113,11 @@ async def _reject_if_running(db: AsyncSession, pipeline: PipelineType, human: st
     "/profile-update/run",
     response_model=PipelineRunAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Manually trigger the profile-update pipeline",
+    summary="Trigger the profile-update pipeline",
     description=(
-        "Runs the nightly profile-update pipeline on demand. Normally this "
-        "runs automatically at 2:00 AM via cron; use this endpoint when you "
-        "don't want to wait.\n\n"
+        "Processes new journal entries and refreshes the Knowledge Profile. "
+        "Nothing runs this on a schedule, so call it whenever you want the "
+        "profile brought up to date.\n\n"
         "The pipeline runs in the background — the response returns "
         "immediately with status=queued. Poll `GET /pipelines/runs` to "
         "observe progress.\n\n"
@@ -144,10 +144,10 @@ async def run_profile_update(
     "/quiz/run",
     response_model=PipelineRunAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Manually trigger the quiz-generation pipeline",
+    summary="Trigger the quiz-generation pipeline",
     description=(
-        "Generates a new weekly quiz session immediately rather than waiting "
-        "for the Monday 3:00 AM cron. Runs in the background; poll "
+        "Generates a new quiz session from the current Knowledge Profile. "
+        "Runs in the background; poll "
         "`GET /pipelines/runs` for progress.\n\n"
         "Returns 409 if a quiz-generation run is already in flight."
     ),
@@ -202,10 +202,9 @@ async def run_quiz_evaluation(
     "/readings/run",
     response_model=PipelineRunAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Manually trigger the reading-generation pipeline",
+    summary="Trigger the reading-generation pipeline",
     description=(
-        "Generates a new weekly batch of reading recommendations immediately "
-        "rather than waiting for the Monday 3:30 AM cron. Runs in the "
+        "Generates a new batch of reading recommendations. Runs in the "
         "background; poll `GET /pipelines/runs` for progress.\n\n"
         "Returns 409 if a reading-generation run is already in flight."
     ),
@@ -230,10 +229,9 @@ async def run_reading_generation(
     "/project/run",
     response_model=PipelineRunAccepted,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Manually trigger the project-generation pipeline",
+    summary="Trigger the project-generation pipeline",
     description=(
-        "Generates a new weekly Go micro-project immediately rather than "
-        "waiting for the Monday 4:00 AM cron. Runs in the background; poll "
+        "Generates a new Go micro-project. Runs in the background; poll "
         "`GET /pipelines/runs` for progress. Note: generates files under "
         "`workspace/projects/<date>/`.\n\n"
         "Returns 409 if a project-generation run is already in flight."
@@ -295,8 +293,7 @@ async def run_project_evaluation(
     summary="List recent pipeline runs",
     description=(
         "Returns the most recent entries from the processing log, newest "
-        "first. Useful for displaying the status of manually-triggered or "
-        "scheduled pipeline runs in the UI."
+        "first. Useful for displaying the status of pipeline runs in the UI."
     ),
 )
 async def list_runs(

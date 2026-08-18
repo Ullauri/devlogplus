@@ -1,7 +1,7 @@
 # Pipelines — AI Coding Instructions
 
 ## Purpose
-Batch orchestrators for scheduled processing.  Pipelines coordinate service calls, LLM interactions, and data flow for the nightly/weekly cycles.
+Batch orchestrators.  Pipelines coordinate service calls, LLM interactions, and data flow for the long-running generation and evaluation cycles.  Nothing schedules them — a pipeline runs because a user pressed a button.
 
 ## Conventions
 - Each pipeline file has a top-level `async def run_*()` function.
@@ -9,16 +9,16 @@ Batch orchestrators for scheduled processing.  Pipelines coordinate service call
 - Blocking triage check: `profile_update` aborts if high/critical triage items are unresolved.
 - LLM calls use `llm_client` + `trace_llm_call` for observability.
 - Pipelines commit their own DB changes (they own the session lifecycle).
-- Each pipeline exposes a top-level `async def run_*()` coroutine; callers `await` it directly. Pipelines run on schedule via cron — there is no admin API or CLI entrypoint.
+- Each pipeline exposes a top-level `async def run_*()` coroutine; callers `await` it directly. The only caller is `routers.pipelines`, which queues it as a FastAPI background task — there is no scheduler and no CLI entrypoint.
 
 ## Pipeline files
-- `profile_update.py` — nightly: topic extraction + profile update
-- `quiz_pipeline.py` — nightly: quiz generation + evaluation
-- `reading_pipeline.py` — weekly: reading recommendation generation
-- `project_pipeline.py` — weekly: Go practice project generation + evaluation
+- `profile_update.py` — topic extraction + profile update
+- `quiz_pipeline.py` — quiz generation + evaluation
+- `reading_pipeline.py` — reading recommendation generation
+- `project_pipeline.py` — Go practice project generation + evaluation
 
 ## Error handling
-Pipelines catch exceptions, record them in `ProcessingLog.error`, and set status to `failed`.  They do **not** re-raise — callers (cron) should check logs.
+Pipelines catch exceptions, record them in `ProcessingLog.error`, and set status to `failed`.  They do **not** re-raise — a run is queued as a background task after the HTTP response has already gone out, so the log is the only place a failure surfaces.
 
 ## Gotchas
 - `project_pipeline.py` validates that the generated Go code compiles (`go build`). On failure it retries generation (up to a fixed limit) before recording a failed log.

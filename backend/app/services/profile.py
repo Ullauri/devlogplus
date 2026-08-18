@@ -41,7 +41,7 @@ async def get_knowledge_profile(db: AsyncSession) -> KnowledgeProfileResponse:
 
 
 async def create_snapshot(
-    db: AsyncSession, profile: KnowledgeProfileResponse, trigger: str = "nightly_update"
+    db: AsyncSession, profile: KnowledgeProfileResponse, trigger: str = "profile_update"
 ) -> ProfileSnapshot:
     """Persist a point-in-time snapshot of the Knowledge Profile."""
     snapshot = ProfileSnapshot(

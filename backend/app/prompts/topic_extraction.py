@@ -1,6 +1,6 @@
 """Prompts for extracting topics from journal entries.
 
-These prompts are used by the nightly profile update pipeline to identify
+These prompts are used by the profile update pipeline to identify
 topics, their categories, evidence strength, and relationships from new
 journal entries.
 """
