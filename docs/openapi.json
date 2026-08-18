@@ -1964,6 +1964,36 @@
               "title": "Pipeline"
             },
             "description": "Optional filter — return only runs of a given pipeline."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PipelineStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional filter — return only runs in a given state.",
+              "title": "Status"
+            },
+            "description": "Optional filter — return only runs in a given state."
+          },
+          {
+            "name": "include_dismissed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Whether to include runs the user has dismissed. Defaults to true, so run history shows everything; the Triage attention list passes false.",
+              "default": true,
+              "title": "Include Dismissed"
+            },
+            "description": "Whether to include runs the user has dismissed. Defaults to true, so run history shows everything; the Triage attention list passes false."
           }
         ],
         "responses": {
@@ -1980,6 +2010,75 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/runs/dismiss-failed": {
+      "post": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "Dismiss every failed pipeline run",
+        "description": "Marks all currently-failed runs as acknowledged in one call, so a backlog of failures can be cleared without dismissing each one. Runs that are still in flight or that completed successfully are left alone. Returns the number newly dismissed — already-dismissed runs are not counted again.",
+        "operationId": "dismiss_failed_runs_api_v1_pipelines_runs_dismiss_failed_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRunsDismissed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pipelines/runs/{run_id}/dismiss": {
+      "post": {
+        "tags": [
+          "pipelines"
+        ],
+        "summary": "Dismiss a pipeline run",
+        "description": "Marks one run as acknowledged. The run stays in the processing log and in the run history — dismissal only removes it from the list of things needing attention. Idempotent: dismissing a run twice keeps the first timestamp.",
+        "operationId": "dismiss_run_api_v1_pipelines_runs__run_id__dismiss_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRunInfo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such pipeline run"
           },
           "422": {
             "description": "Validation Error",
@@ -3552,6 +3651,19 @@
             ],
             "title": "Error"
           },
+          "dismissed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed At",
+            "description": "When this run was dismissed, or null if it has not been. A dismissed run is hidden from the Triage attention list but still appears in the run history."
+          },
           "metadata": {
             "anyOf": [
               {
@@ -3575,6 +3687,24 @@
         ],
         "title": "PipelineRunInfo",
         "description": "A single row from the processing_logs table, exposed for UI progress display."
+      },
+      "PipelineRunsDismissed": {
+        "properties": {
+          "dismissed": {
+            "type": "integer",
+            "title": "Dismissed",
+            "description": "Number of runs that were newly dismissed by this call.",
+            "examples": [
+              10
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "dismissed"
+        ],
+        "title": "PipelineRunsDismissed",
+        "description": "Result of dismissing every failed run in one call."
       },
       "PipelineStatus": {
         "type": "string",

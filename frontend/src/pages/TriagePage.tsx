@@ -4,6 +4,12 @@ import { api, TriageItem, type PipelineRunInfo } from "../api/client";
 
 type ResolveAction = components["schemas"]["TriageStatus"];
 
+// How many failed runs to render. The fetch window is deliberately wider so
+// the heading can state how many failures there really are, but a backlog of
+// them must not push the triage queue itself off the bottom of the page.
+const FAILED_RUN_FETCH_LIMIT = 50;
+const FAILED_RUNS_VISIBLE = 10;
+
 const SEVERITY_COLOR: Record<string, string> = {
   critical:
     "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border-red-300 dark:border-red-800",
@@ -18,25 +24,68 @@ export default function TriagePage() {
   const [failedRuns, setFailedRuns] = useState<PipelineRunInfo[]>([]);
   const [resolving, setResolving] = useState<string | null>(null);
   const [resolutionText, setResolutionText] = useState("");
+  const [dismissError, setDismissError] = useState<string | null>(null);
+
+  const loadFailedRuns = useCallback(
+    () =>
+      api.pipelines
+        .listRuns(FAILED_RUN_FETCH_LIMIT, undefined, {
+          status: "failed",
+          includeDismissed: false,
+        })
+        .then(setFailedRuns)
+        .catch(() => setFailedRuns([])),
+    [],
+  );
 
   const load = useCallback(() => {
     api.triage
       .list()
       .then(setItems)
       .catch(() => {});
-    // Pull a generous window of recent runs and filter client-side so we
-    // also capture failures from older pipelines without extra endpoints.
-    api.pipelines
-      .listRuns(50)
-      .then((runs) =>
-        setFailedRuns(runs.filter((r) => r.status === "failed").slice(0, 10)),
-      )
-      .catch(() => setFailedRuns([]));
-  }, []);
+    void loadFailedRuns();
+  }, [loadFailedRuns]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Dismissing is an acknowledgement, not a delete — the run stays in the
+  // Settings run history. The list updates before the round trip so clearing
+  // a backlog does not stall on a request per click; on failure the server is
+  // re-read rather than a captured list restored, since clearing a backlog
+  // means several of these can be in flight at once and any snapshot one of
+  // them took is already out of date.
+  const withDismissedList = async (
+    optimistic: (runs: PipelineRunInfo[]) => PipelineRunInfo[],
+    write: () => Promise<unknown>,
+    failureMessage: string,
+  ) => {
+    setDismissError(null);
+    setFailedRuns(optimistic);
+    try {
+      await write();
+    } catch (err) {
+      setDismissError(err instanceof Error ? err.message : failureMessage);
+    }
+    // Either way the server is now the only thing that knows what is left:
+    // "dismiss all" may have cleared failures older than the fetch window.
+    await loadFailedRuns();
+  };
+
+  const dismissRun = (runId: string) =>
+    withDismissedList(
+      (runs) => runs.filter((r) => r.id !== runId),
+      () => api.pipelines.dismissRun(runId),
+      "Failed to dismiss run",
+    );
+
+  const dismissAllFailedRuns = () =>
+    withDismissedList(
+      () => [],
+      () => api.pipelines.dismissFailedRuns(),
+      "Failed to dismiss runs",
+    );
 
   const resolve = async (id: string, action: ResolveAction) => {
     await api.triage.resolve(id, {
@@ -62,19 +111,32 @@ export default function TriagePage() {
 
       {failedRuns.length > 0 && (
         <div className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold">
-            Failed pipeline runs{" "}
-            <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
-              ({failedRuns.length})
-            </span>
-          </h2>
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-lg font-semibold">
+              Failed pipeline runs{" "}
+              <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+                ({failedRuns.length})
+              </span>
+            </h2>
+            <button
+              onClick={() => void dismissAllFailedRuns()}
+              className="text-sm text-gray-500 hover:underline dark:text-gray-400"
+            >
+              Dismiss all
+            </button>
+          </div>
+          {dismissError && (
+            <p className="mb-2 text-sm text-red-700 dark:text-red-300">
+              {dismissError}
+            </p>
+          )}
           <div className="space-y-2">
-            {failedRuns.map((run) => (
+            {failedRuns.slice(0, FAILED_RUNS_VISIBLE).map((run) => (
               <div
                 key={run.id}
                 className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm dark:border-red-800 dark:bg-red-900/20"
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <span className="font-medium text-red-900 dark:text-red-100">
                     {run.pipeline}
                   </span>
@@ -89,12 +151,27 @@ export default function TriagePage() {
                       : run.error}
                   </p>
                 )}
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Retry from the Settings page.
-                </p>
+                <div className="mt-1 flex items-baseline justify-between gap-3">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Retry from the Settings page.
+                  </p>
+                  <button
+                    onClick={() => void dismissRun(run.id)}
+                    aria-label={`Dismiss failed ${run.pipeline} run`}
+                    className="text-xs text-red-700 hover:underline dark:text-red-300"
+                  >
+                    Dismiss
+                  </button>
+                </div>
               </div>
             ))}
           </div>
+          {failedRuns.length > FAILED_RUNS_VISIBLE && (
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {failedRuns.length - FAILED_RUNS_VISIBLE} more not shown. Dismiss
+              all clears every failed run, including these.
+            </p>
+          )}
         </div>
       )}
 

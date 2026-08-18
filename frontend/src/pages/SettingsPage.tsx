@@ -1153,6 +1153,13 @@ export default function SettingsPage() {
                             >
                               {r.status}
                             </span>
+                            {/* Dismissed runs are hidden from Triage, so this
+                                is the only place they remain visible. */}
+                            {r.dismissed_at && (
+                              <span className="ml-1 inline-block rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                                dismissed
+                              </span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-gray-600 dark:text-gray-400">
                             {started.toLocaleString()}

@@ -228,11 +228,34 @@ export const api = {
       post<PipelineRunAccepted>(
         `/pipelines/project-evaluation/run/${projectId}`,
       ),
-    listRuns: (limit = 20, pipeline?: Schemas["PipelineType"]) => {
+    /**
+     * Recent runs, newest first. Every filter is applied server-side before
+     * `limit`, so asking for failures gets the newest failures rather than
+     * the failures among the newest runs.
+     */
+    listRuns: (
+      limit = 20,
+      pipeline?: Schemas["PipelineType"],
+      opts?: {
+        status?: Schemas["PipelineStatus"];
+        includeDismissed?: boolean;
+      },
+    ) => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (pipeline) params.set("pipeline", pipeline);
+      if (opts?.status) params.set("status", opts.status);
+      if (opts?.includeDismissed === false)
+        params.set("include_dismissed", "false");
       return get<PipelineRunInfo[]>(`/pipelines/runs?${params.toString()}`);
     },
+
+    /** Acknowledge one run, removing it from the Triage attention list. */
+    dismissRun: (runId: string) =>
+      post<PipelineRunInfo>(`/pipelines/runs/${runId}/dismiss`),
+
+    /** Acknowledge every failed run at once. */
+    dismissFailedRuns: () =>
+      post<Schemas["PipelineRunsDismissed"]>("/pipelines/runs/dismiss-failed"),
   },
 
   transfer: {
