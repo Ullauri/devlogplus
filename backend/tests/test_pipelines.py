@@ -784,6 +784,147 @@ async def test_every_generation_trigger_is_guarded(
     assert response.status_code == 409
 
 
+# ---------------------------------------------------------------------------
+# Dismissing runs.
+#
+# The Triage page lists failed runs as things needing attention. Without a way
+# to acknowledge one, that list only ever grows and stops being read. Dismissal
+# is an acknowledgement, not a delete: the processing log stays complete, and
+# only the attention list filters on it.
+# ---------------------------------------------------------------------------
+class TestListRunFilters:
+    async def test_status_filter_applies_before_the_limit(self, db_session: AsyncSession):
+        """The point of filtering server-side.
+
+        Asking for one failure must return the failure, not the newest run
+        that happened to succeed.
+        """
+        await _add_run(
+            db_session,
+            PipelineType.QUIZ_GENERATION,
+            PipelineStatus.FAILED,
+            age=timedelta(minutes=5),
+        )
+        await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.COMPLETED)
+
+        runs = await pipelines_svc.list_recent_runs(
+            db_session, limit=1, run_status=PipelineStatus.FAILED
+        )
+
+        assert [r.status for r in runs] == [PipelineStatus.FAILED]
+
+    async def test_include_dismissed_false_drops_dismissed_runs(self, db_session: AsyncSession):
+        kept = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+        dismissed = await _add_run(db_session, PipelineType.PROFILE_UPDATE, PipelineStatus.FAILED)
+        await pipelines_svc.dismiss_run(db_session, dismissed.id)
+
+        runs = await pipelines_svc.list_recent_runs(db_session, include_dismissed=False)
+
+        assert [r.id for r in runs] == [kept.id]
+
+    async def test_dismissed_runs_are_still_in_the_history(self, db_session: AsyncSession):
+        run = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+        await pipelines_svc.dismiss_run(db_session, run.id)
+
+        runs = await pipelines_svc.list_recent_runs(db_session)
+
+        assert [r.id for r in runs] == [run.id]
+
+
+class TestDismissRun:
+    async def test_sets_dismissed_at(self, db_session: AsyncSession):
+        run = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+
+        dismissed = await pipelines_svc.dismiss_run(db_session, run.id)
+
+        assert dismissed is not None
+        assert dismissed.dismissed_at is not None
+
+    async def test_is_idempotent(self, db_session: AsyncSession):
+        """A double-click must not rewrite when the user actually looked."""
+        run = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+        first = await pipelines_svc.dismiss_run(db_session, run.id)
+        assert first is not None
+        original = first.dismissed_at
+
+        second = await pipelines_svc.dismiss_run(
+            db_session, run.id, now=datetime.now(UTC) + timedelta(hours=1)
+        )
+
+        assert second is not None
+        assert second.dismissed_at == original
+
+    async def test_unknown_id_returns_none(self, db_session: AsyncSession):
+        assert await pipelines_svc.dismiss_run(db_session, uuid.uuid4()) is None
+
+    async def test_does_not_change_status(self, db_session: AsyncSession):
+        """Dismissal is an acknowledgement — the run still failed."""
+        run = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+
+        dismissed = await pipelines_svc.dismiss_run(db_session, run.id)
+
+        assert dismissed is not None
+        assert dismissed.status == PipelineStatus.FAILED
+
+
+class TestDismissFailedRuns:
+    async def test_dismisses_only_failed_runs(self, db_session: AsyncSession):
+        """A started run may still be live and a completed one was never in the
+        attention list, so neither has anything to acknowledge."""
+        failed = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+        started = await _add_run(db_session, PipelineType.PROFILE_UPDATE, PipelineStatus.STARTED)
+        completed = await _add_run(
+            db_session, PipelineType.READING_GENERATION, PipelineStatus.COMPLETED
+        )
+
+        count = await pipelines_svc.dismiss_failed_runs(db_session)
+
+        assert count == 1
+        assert failed.dismissed_at is not None
+        assert started.dismissed_at is None
+        assert completed.dismissed_at is None
+
+    async def test_counts_only_newly_dismissed(self, db_session: AsyncSession):
+        await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+        await pipelines_svc.dismiss_failed_runs(db_session)
+
+        assert await pipelines_svc.dismiss_failed_runs(db_session) == 0
+
+
+async def test_dismiss_run_endpoint(client: AsyncClient, db_session: AsyncSession):
+    run = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+    await db_session.commit()
+
+    response = await client.post(f"/api/v1/pipelines/runs/{run.id}/dismiss")
+
+    assert response.status_code == 200
+    assert response.json()["dismissed_at"] is not None
+
+    listed = await client.get("/api/v1/pipelines/runs?status=failed&include_dismissed=false")
+    assert listed.json() == []
+
+
+async def test_dismiss_run_endpoint_404s_on_unknown_id(client: AsyncClient):
+    response = await client.post(f"/api/v1/pipelines/runs/{uuid.uuid4()}/dismiss")
+
+    assert response.status_code == 404
+
+
+async def test_dismiss_failed_runs_endpoint(client: AsyncClient, db_session: AsyncSession):
+    """The literal path must not be captured by the `{run_id}` route."""
+    await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.FAILED)
+    await _add_run(db_session, PipelineType.PROFILE_UPDATE, PipelineStatus.FAILED)
+    await db_session.commit()
+
+    response = await client.post("/api/v1/pipelines/runs/dismiss-failed")
+
+    assert response.status_code == 200
+    assert response.json() == {"dismissed": 2}
+
+    listed = await client.get("/api/v1/pipelines/runs?status=failed&include_dismissed=false")
+    assert listed.json() == []
+
+
 async def test_lifespan_closes_llm_client():
     """The FastAPI lifespan must call llm_client.close() on shutdown.
 

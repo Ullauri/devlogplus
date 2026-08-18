@@ -923,6 +923,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/pipelines/runs/dismiss-failed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss every failed pipeline run
+         * @description Marks all currently-failed runs as acknowledged in one call, so a backlog of failures can be cleared without dismissing each one. Runs that are still in flight or that completed successfully are left alone. Returns the number newly dismissed — already-dismissed runs are not counted again.
+         */
+        post: operations["dismiss_failed_runs_api_v1_pipelines_runs_dismiss_failed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pipelines/runs/{run_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss a pipeline run
+         * @description Marks one run as acknowledged. The run stays in the processing log and in the run history — dismissal only removes it from the list of things needing attention. Idempotent: dismissing a run twice keeps the first timestamp.
+         */
+        post: operations["dismiss_run_api_v1_pipelines_runs__run_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1833,12 +1873,29 @@ export interface components {
             /** Error */
             error?: string | null;
             /**
+             * Dismissed At
+             * @description When this run was dismissed, or null if it has not been. A dismissed run is hidden from the Triage attention list but still appears in the run history.
+             */
+            dismissed_at?: string | null;
+            /**
              * Metadata
              * @description Pipeline-specific summary metadata (counts, ids, etc.)
              */
             metadata?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * PipelineRunsDismissed
+         * @description Result of dismissing every failed run in one call.
+         */
+        PipelineRunsDismissed: {
+            /**
+             * Dismissed
+             * @description Number of runs that were newly dismissed by this call.
+             * @example 10
+             */
+            dismissed: number;
         };
         /**
          * PipelineStatus
@@ -4373,6 +4430,10 @@ export interface operations {
                 limit?: number;
                 /** @description Optional filter — return only runs of a given pipeline. */
                 pipeline?: components["schemas"]["PipelineType"] | null;
+                /** @description Optional filter — return only runs in a given state. */
+                status?: components["schemas"]["PipelineStatus"] | null;
+                /** @description Whether to include runs the user has dismissed. Defaults to true, so run history shows everything; the Triage attention list passes false. */
+                include_dismissed?: boolean;
             };
             header?: never;
             path?: never;
@@ -4388,6 +4449,64 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PipelineRunInfo"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_failed_runs_api_v1_pipelines_runs_dismiss_failed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineRunsDismissed"];
+                };
+            };
+        };
+    };
+    dismiss_run_api_v1_pipelines_runs__run_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PipelineRunInfo"];
+                };
+            };
+            /** @description No such pipeline run */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

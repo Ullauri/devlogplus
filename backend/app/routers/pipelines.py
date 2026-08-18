@@ -21,7 +21,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.database import get_db, session_scope
-from backend.app.models.base import PipelineType
+from backend.app.models.base import PipelineStatus, PipelineType
 from backend.app.pipelines import (
     profile_update as profile_update_pipeline,
 )
@@ -34,6 +34,7 @@ from backend.app.schemas.pipelines import (
     ManualPipelineName,
     PipelineRunAccepted,
     PipelineRunInfo,
+    PipelineRunsDismissed,
 )
 from backend.app.services import pipelines as pipelines_svc
 
@@ -307,7 +308,75 @@ async def list_runs(
         None,
         description="Optional filter — return only runs of a given pipeline.",
     ),
+    run_status: PipelineStatus | None = Query(
+        None,
+        alias="status",
+        description="Optional filter — return only runs in a given state.",
+    ),
+    include_dismissed: bool = Query(
+        True,
+        description=(
+            "Whether to include runs the user has dismissed. Defaults to "
+            "true, so run history shows everything; the Triage attention "
+            "list passes false."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> list[PipelineRunInfo]:
-    logs = await pipelines_svc.list_recent_runs(db, limit=limit, pipeline=pipeline)
+    logs = await pipelines_svc.list_recent_runs(
+        db,
+        limit=limit,
+        pipeline=pipeline,
+        run_status=run_status,
+        include_dismissed=include_dismissed,
+    )
     return [PipelineRunInfo.model_validate(log) for log in logs]
+
+
+# ---------------------------------------------------------------------------
+# Dismissal — acknowledging a run so it leaves the Triage attention list.
+# Nothing here changes a run's status or deletes it; the processing log stays
+# a complete record of what ran.
+# ---------------------------------------------------------------------------
+@router.post(
+    "/runs/dismiss-failed",
+    response_model=PipelineRunsDismissed,
+    summary="Dismiss every failed pipeline run",
+    description=(
+        "Marks all currently-failed runs as acknowledged in one call, so a "
+        "backlog of failures can be cleared without dismissing each one. "
+        "Runs that are still in flight or that completed successfully are "
+        "left alone. Returns the number newly dismissed — already-dismissed "
+        "runs are not counted again."
+    ),
+)
+async def dismiss_failed_runs(
+    db: AsyncSession = Depends(get_db),
+) -> PipelineRunsDismissed:
+    count = await pipelines_svc.dismiss_failed_runs(db)
+    return PipelineRunsDismissed(dismissed=count)
+
+
+@router.post(
+    "/runs/{run_id}/dismiss",
+    response_model=PipelineRunInfo,
+    summary="Dismiss a pipeline run",
+    description=(
+        "Marks one run as acknowledged. The run stays in the processing log "
+        "and in the run history — dismissal only removes it from the list of "
+        "things needing attention. Idempotent: dismissing a run twice keeps "
+        "the first timestamp."
+    ),
+    responses={status.HTTP_404_NOT_FOUND: {"description": "No such pipeline run"}},
+)
+async def dismiss_run(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> PipelineRunInfo:
+    run = await pipelines_svc.dismiss_run(db, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pipeline run not found",
+        )
+    return PipelineRunInfo.model_validate(run)

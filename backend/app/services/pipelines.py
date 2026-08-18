@@ -79,15 +79,75 @@ async def list_recent_runs(
     *,
     limit: int = 20,
     pipeline: PipelineType | None = None,
+    run_status: PipelineStatus | None = None,
+    include_dismissed: bool = True,
 ) -> list[ProcessingLog]:
-    """Return the most recent processing-log rows, newest first."""
-    stmt = select(ProcessingLog).order_by(ProcessingLog.started_at.desc()).limit(limit)
+    """Return the most recent processing-log rows, newest first.
+
+    Every filter is applied before ``limit``, which is the point of having
+    them: the Triage page wants the newest *undismissed failures*, and
+    fetching the newest N rows to filter client-side would hide an older
+    failure behind a wall of successful runs.
+
+    Args:
+        db: Async session.
+        limit: Maximum rows to return.
+        pipeline: Only runs of this pipeline.
+        run_status: Only runs in this state.
+        include_dismissed: When False, drop runs the user has acknowledged.
+    """
+    stmt = select(ProcessingLog)
     if pipeline is not None:
-        stmt = (
-            select(ProcessingLog)
-            .where(ProcessingLog.pipeline == pipeline)
-            .order_by(ProcessingLog.started_at.desc())
-            .limit(limit)
-        )
+        stmt = stmt.where(ProcessingLog.pipeline == pipeline)
+    if run_status is not None:
+        stmt = stmt.where(ProcessingLog.status == run_status)
+    if not include_dismissed:
+        stmt = stmt.where(ProcessingLog.dismissed_at.is_(None))
+    stmt = stmt.order_by(ProcessingLog.started_at.desc()).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def dismiss_run(
+    db: AsyncSession,
+    run_id: uuid.UUID,
+    *,
+    now: datetime | None = None,
+) -> ProcessingLog | None:
+    """Mark one run as acknowledged, or return ``None`` if no such run.
+
+    Idempotent: dismissing an already-dismissed run leaves the original
+    timestamp alone, so a double-click does not rewrite when the user
+    actually looked at it.
+    """
+    run = await db.get(ProcessingLog, run_id)
+    if run is None:
+        return None
+    if run.dismissed_at is None:
+        run.dismissed_at = now or datetime.now(UTC)
+        await db.flush()
+    return run
+
+
+async def dismiss_failed_runs(
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Dismiss every failed run not already dismissed; return how many.
+
+    Only ``failed`` rows are touched. A ``started`` row may still be a live
+    pipeline and a ``completed`` one was never in the attention list, so
+    neither has anything to acknowledge.
+    """
+    stmt = select(ProcessingLog).where(
+        ProcessingLog.status == PipelineStatus.FAILED,
+        ProcessingLog.dismissed_at.is_(None),
+    )
+    result = await db.execute(stmt)
+    runs = list(result.scalars().all())
+    timestamp = now or datetime.now(UTC)
+    for run in runs:
+        run.dismissed_at = timestamp
+    await db.flush()
+    return len(runs)

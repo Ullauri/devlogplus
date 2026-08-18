@@ -69,8 +69,25 @@ class PipelineRunInfo(BaseSchema):
     started_at: datetime
     completed_at: datetime | None = None
     error: str | None = None
+    dismissed_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When this run was dismissed, or null if it has not been. A "
+            "dismissed run is hidden from the Triage attention list but "
+            "still appears in the run history."
+        ),
+    )
     metadata: dict | None = Field(
         default=None,
         validation_alias="metadata_",
         description="Pipeline-specific summary metadata (counts, ids, etc.)",
+    )
+
+
+class PipelineRunsDismissed(BaseModel):
+    """Result of dismissing every failed run in one call."""
+
+    dismissed: int = Field(
+        description="Number of runs that were newly dismissed by this call.",
+        examples=[10],
     )
