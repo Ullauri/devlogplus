@@ -19,12 +19,22 @@ const SEVERITY_COLOR: Record<string, string> = {
   low: "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700",
 };
 
+const STATUS_COLOR: Record<string, string> = {
+  accepted:
+    "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200",
+  rejected: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200",
+  edited:
+    "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200",
+  deferred: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+};
+
 export default function TriagePage() {
   const [items, setItems] = useState<TriageItem[]>([]);
   const [failedRuns, setFailedRuns] = useState<PipelineRunInfo[]>([]);
   const [resolving, setResolving] = useState<string | null>(null);
   const [resolutionText, setResolutionText] = useState("");
   const [dismissError, setDismissError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const loadFailedRuns = useCallback(
     () =>
@@ -98,7 +108,15 @@ export default function TriagePage() {
   };
 
   const pending = items.filter((i) => i.status === "pending");
-  const resolved = items.filter((i) => i.status !== "pending");
+  // Most recently resolved first. The API serializes these as uniform
+  // ISO-8601 strings, so plain string comparison orders them by time.
+  const resolved = items
+    .filter((i) => i.status !== "pending")
+    .sort((a, b) => {
+      const ta = a.resolved_at ?? a.created_at;
+      const tb = b.resolved_at ?? b.created_at;
+      return tb < ta ? -1 : tb > ta ? 1 : 0;
+    });
 
   return (
     <div>
@@ -278,22 +296,115 @@ export default function TriagePage() {
                 </span>
               </h2>
               <div className="space-y-2">
-                {resolved.map((item) => (
-                  <div
-                    key={item.id}
-                    className="rounded border border-gray-200 bg-white p-3 text-sm opacity-75 dark:border-gray-800 dark:bg-gray-900"
-                  >
-                    <span className="font-medium">{item.title}</span>
-                    <span className="ml-2 text-gray-500 dark:text-gray-400">
-                      — {item.status}
-                    </span>
-                    {item.resolution_text && (
-                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {item.resolution_text}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                {resolved.map((item) => {
+                  const isOpen = expandedId === item.id;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`rounded border border-gray-200 bg-white text-sm dark:border-gray-800 dark:bg-gray-900 ${isOpen ? "" : "opacity-75"}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(isOpen ? null : item.id)}
+                        aria-expanded={isOpen}
+                        aria-controls={`triage-detail-${item.id}`}
+                        className="flex w-full items-center gap-2 p-3 text-left"
+                      >
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold uppercase ${SEVERITY_COLOR[item.severity] ?? "bg-gray-100 dark:bg-gray-800"}`}
+                        >
+                          {item.severity}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          <span className="font-medium">{item.title}</span>
+                          {!isOpen && item.description && (
+                            <span className="ml-2 text-gray-500 dark:text-gray-400">
+                              {item.description}
+                            </span>
+                          )}
+                        </span>
+                        <span className="hidden shrink-0 text-xs text-gray-500 dark:text-gray-400 sm:inline">
+                          from {item.source}
+                        </span>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[item.status] ?? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}
+                        >
+                          {item.status}
+                        </span>
+                        {item.resolved_at && (
+                          <span className="hidden shrink-0 text-xs text-gray-400 dark:text-gray-500 sm:inline">
+                            {new Date(item.resolved_at).toLocaleDateString()}
+                          </span>
+                        )}
+                        <span
+                          aria-hidden="true"
+                          className="shrink-0 text-xs text-gray-400 dark:text-gray-500"
+                        >
+                          {isOpen ? "▾" : "▸"}
+                        </span>
+                      </button>
+                      {isOpen && (
+                        <div
+                          id={`triage-detail-${item.id}`}
+                          className="space-y-3 border-t border-gray-200 p-3 dark:border-gray-800"
+                        >
+                          {item.description && (
+                            <p className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                              {item.description}
+                            </p>
+                          )}
+                          {item.resolution_text && (
+                            <div>
+                              <h4 className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                                Resolution
+                              </h4>
+                              <p className="mt-0.5 whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                                {item.resolution_text}
+                              </p>
+                            </div>
+                          )}
+                          <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-xs text-gray-500 dark:text-gray-400 sm:grid-cols-2">
+                            <div className="flex gap-2">
+                              <dt className="font-semibold">Origin</dt>
+                              <dd>{item.source}</dd>
+                            </div>
+                            {item.source_id && (
+                              <div className="flex gap-2">
+                                <dt className="font-semibold">Source ID</dt>
+                                <dd className="break-all">{item.source_id}</dd>
+                              </div>
+                            )}
+                            <div className="flex gap-2">
+                              <dt className="font-semibold">Created</dt>
+                              <dd>
+                                {new Date(item.created_at).toLocaleString()}
+                              </dd>
+                            </div>
+                            {item.resolved_at && (
+                              <div className="flex gap-2">
+                                <dt className="font-semibold">Resolved</dt>
+                                <dd>
+                                  {new Date(item.resolved_at).toLocaleString()}
+                                </dd>
+                              </div>
+                            )}
+                          </dl>
+                          {item.context &&
+                            Object.keys(item.context).length > 0 && (
+                              <div>
+                                <h4 className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                                  Pipeline context
+                                </h4>
+                                <pre className="mt-1 overflow-x-auto rounded bg-gray-50 p-2 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                                  {JSON.stringify(item.context, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
