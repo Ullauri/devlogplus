@@ -63,6 +63,29 @@ jobs:
       - name: Install TrueCourse
         run: npm install -g "truecourse@${TRUECOURSE_VERSION}"
 
+      - name: Drop the committed baseline so the scan is cold
+        # Chosen mechanism (see the 2026-08-25 amendment to ADR 0008): remove
+        # `.truecourse/LATEST.json` before analyzing. `truecourse analyze`
+        # (0.7.4) has no full-scan flag -- checked against `analyze --help` --
+        # and with a baseline present it scans ONLY the files named by
+        # `git diff <baseline commit>..HEAD`. What the output then says about
+        # every file it skipped depends on state this runner does not have:
+        # previous findings are carried forward from the baseline only when the
+        # branch recorded in it matches the checkout's branch, and are dropped
+        # otherwise. Both outcomes corrupt a committed baseline: the first run
+        # after the rollout dropped 913 of 922 findings (c8e9654, baseline
+        # recorded on a feature branch), and the main-to-main runs after it
+        # carried findings forward without ever re-scanning untouched files,
+        # accreting stale entries for code that had since been fixed. A
+        # baseline is a full-repo claim, so the run that produces it must see
+        # the full repo: no anchor, cold scan, every time. A cold scan costs
+        # ~8s of pipeline time, so there is nothing to save by diffing.
+        #
+        # If the analyze step ever fails to recreate LATEST.json, the summary
+        # step below fails the job reading it, so the commit step cannot land
+        # the deletion.
+        run: rm .truecourse/LATEST.json
+
       - name: Analyze
         # --no-llm      deterministic rules only. The LLM rules need either a
         #               `claude` binary signed in or a provider API key; CI has

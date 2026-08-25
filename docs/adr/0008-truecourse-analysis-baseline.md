@@ -23,7 +23,9 @@ and whether it can fail a build.
 
 ## Decision
 
-**Run it on `main` only, after the merge.** `.github/workflows/truecourse.yml`
+**Run it on `main` only, after the merge.** *(Amended 2026-08-25: the
+analyze step is preceded by deleting the committed baseline so every refresh
+is a cold, full scan — see the amendment at the end.)* `.github/workflows/truecourse.yml`
 triggers on `push` to `main` (plus `workflow_dispatch`), runs
 `truecourse analyze --no-llm --no-stash --no-skills`, and commits the refreshed
 `.truecourse/LATEST.json` back to `main` with the `GITHUB_TOKEN`.
@@ -135,3 +137,60 @@ deliberately, with a look at the diff.
   print that as their last line.
 - **−** The `spec`/`guard` business-logic-drift track is not set up. It needs a
   curated spec corpus on top of the LLM transport, and is a separate decision.
+
+## Amendment (2026-08-25) — the refresh must be a cold scan
+
+The Decision above claims the workflow keeps `LATEST.json` "the materialised
+current-state view of the repo's code findings". As originally written, it did
+not. The first CI refresh (`c8e9654`) shrank the baseline from 922 active
+findings to 9 for code that had not changed, erasing all 90 high and the 1
+critical. Subsequent refreshes then re-grew it merge by merge (9 → 233 → 565 →
+794 → 1011 → 1021) without ever making it true again: by `0b886d5` the
+committed file held 1021 findings where a cold scan of the same commit finds
+968 (1 critical, 93 high) — at rule+file granularity, 97 committed entries
+described code that had since been fixed, and 253 real ones (including the
+critical and 24 high) were missing. Four high-severity rules existed only as
+phantoms, and the knowledgebase sweep was about to file tasks for them.
+
+**Why.** `truecourse analyze` (0.7.4) is incremental when `.truecourse/`
+carries a baseline: it scans only the files named by
+`git diff <baseline's analysis.commitHash>..HEAD` (plus the architecture
+pass, which always runs whole). For every file it skips, the output depends
+on state the CI runner does not have. Locally, `history.json` and `analyses/`
+carry skipped findings forward — that is why the loss never reproduced on a
+developer machine. In CI, only `LATEST.json` survives the checkout, and the
+tool carries a previous finding forward from it **only when the branch
+recorded in the baseline matches the branch checked out** (previous
+violations are filtered on `analysis.branch === <current branch>`). So the
+first run — baseline recorded on `agent/truecourse-pipeline`, runner on
+`main` — dropped everything it did not re-scan, and every main-to-main run
+after it carried findings forward verbatim, never re-examining untouched
+files, accreting entries for code that no longer had the problem.
+
+Committing `LATEST.json` alone is therefore not sufficient state for a
+stateless runner to run an *incremental* analysis: the file is enough to
+decide which files to skip, but not enough to say anything true about them.
+Either all the per-checkout state moves into git, or the runner must not
+skip. This holds for any consumer that regenerates the baseline from a fresh
+checkout, not just GitHub Actions.
+
+**The fix.** The workflow deletes `.truecourse/LATEST.json` immediately
+before the analyze step, so the run has no anchor and every refresh is a
+cold, full scan. Mechanisms considered:
+
+- **A full-scan flag** — `analyze --help` on 0.7.4 documents none.
+- **Committing `history.json` / `analyses/` too** — would let CI run
+  genuinely incrementally, but reverses this ADR's explicit decision to
+  track only `LATEST.json`, and moves megabytes of per-checkout state into
+  git for the ~8 seconds a cold scan of this repo costs. If the repo grows
+  until cold scans hurt, that trade-off is its own decision — filed then,
+  not smuggled in here.
+- **Deleting the baseline before analyzing** — chosen. A baseline is a
+  full-repo claim, so the run that produces it sees the full repo. The
+  incremental path keeps working where it belongs: locally, where the state
+  it needs actually exists, and on branches via `analyze --diff` against the
+  committed (now truthful) baseline.
+
+The first refresh after this amendment restores the erased findings, so the
+baseline's counts jump back up (~968 at `0b886d5`'s tree). That jump is the
+repair, not a regression.
