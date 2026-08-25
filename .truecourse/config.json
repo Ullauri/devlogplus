@@ -1,0 +1,5 @@
+{
+  "disabledRules": [
+    "bugs/deterministic/undefined-name"
+  ]
+}
