@@ -122,6 +122,15 @@ jobs:
           node -e '
             const fs = require("node:fs");
             const latest = JSON.parse(fs.readFileSync(".truecourse/LATEST.json", "utf8"));
+            // The baseline must describe the commit this run analyzed. If a
+            // future tool version reintroduces an anchor source this workflow
+            // does not delete (a cache, git show), the scan goes warm again —
+            // this assertion is the tripwire that fails the job loudly
+            // instead of committing a stale-anchored file as truth.
+            if (latest.analysis.commitHash !== process.env.GITHUB_SHA) {
+              console.error(`Baseline describes ${latest.analysis.commitHash}, expected ${process.env.GITHUB_SHA} — the scan was not cold. Refusing.`);
+              process.exit(1);
+            }
             const bySeverity = {};
             for (const v of latest.violations) {
               bySeverity[v.severity] = (bySeverity[v.severity] ?? 0) + 1;
@@ -151,15 +160,21 @@ jobs:
           # deletion and push a main with no baseline. The summary step also
           # fails on a missing file, but this step owns the invariant.
           test -s .truecourse/LATEST.json
-          # Only LATEST.json is tracked. analyses/, history.json, logs/ and the
-          # rest are per-checkout and already covered by .truecourse/.gitignore.
-          if git diff --quiet -- .truecourse/LATEST.json; then
+          # Stage first, then gate on the *staged* diff: a plain `git diff`
+          # cannot see an untracked file, so a baseline recreated after a
+          # committed deletion (the repair-dispatch case the drop step
+          # supports) would read as "unchanged" and never land, with the run
+          # green. The staged comparison catches modified and recreated
+          # alike. Only LATEST.json is tracked; analyses/, history.json,
+          # logs/ and the rest are per-checkout and covered by
+          # .truecourse/.gitignore.
+          git add .truecourse/LATEST.json
+          if git diff --cached --quiet -- .truecourse/LATEST.json; then
             echo "Baseline unchanged — nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .truecourse/LATEST.json
           git commit -m "chore(truecourse): refresh analysis baseline for ${GITHUB_SHA:0:7}"
           # A push authenticated with GITHUB_TOKEN does not trigger workflows,
           # so this cannot loop back into another run of this job.
