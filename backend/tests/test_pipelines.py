@@ -29,6 +29,7 @@ from backend.app.models.journal import JournalEntry, JournalEntryVersion
 from backend.app.models.project import ProjectEvaluation, WeeklyProject
 from backend.app.models.quiz import QuizQuestion, QuizSession
 from backend.app.models.settings import ProcessingLog
+from backend.app.models.topic import Topic
 from backend.app.pipelines import profile_update as profile_update_pipeline
 from backend.app.pipelines import quiz_pipeline, reading_pipeline
 from backend.app.pipelines.project_pipeline import _determine_difficulty, _format_avoid_titles
@@ -80,6 +81,50 @@ async def test_pipeline_records_failed_status_on_llm_error(db_session: AsyncSess
 
     assert log.status == PipelineStatus.FAILED
     assert "simulated LLM failure" in (log.error or "")
+
+
+async def test_profile_update_reconciles_duplicate_new_topics_within_a_batch(
+    db_session: AsyncSession,
+):
+    """Two entries in one batch proposing the same NEW topic must yield one row.
+
+    Regression: the reconciliation pool only held topics that existed before
+    the run, so a topic first seen in this batch was invisible to later
+    entries — the second occurrence took the insert branch and violated
+    topics_name_key, aborting the entire run (first observed bootstrapping a
+    9-entry backlog, where same-theme entries make collisions the norm).
+    """
+    await _create_unprocessed_entry(db_session)
+    await _create_unprocessed_entry(db_session)
+
+    extraction = {
+        "topics": [
+            {
+                "name": "API gateway design",
+                "description": "Designing external API gateways.",
+                "category": "demonstrated_strength",
+                "evidence_strength": "strong",
+                "confidence": 0.9,
+                "reasoning": "Mentioned building a gateway.",
+            }
+        ],
+        "relationships": [],
+    }
+
+    with patch(
+        "backend.app.pipelines.profile_update.llm_client.chat_completion_json",
+        new=AsyncMock(return_value=extraction),
+    ):
+        summary = await profile_update_pipeline.run_profile_update(db_session)
+
+    await db_session.commit()
+
+    assert summary["status"] == "completed"
+    assert summary["topics_created"] == 1
+    assert summary["topics_updated"] == 1
+
+    topic_result = await db_session.execute(select(Topic).where(Topic.name == "API gateway design"))
+    assert len(topic_result.scalars().all()) == 1
 
 
 # ---------------------------------------------------------------------------

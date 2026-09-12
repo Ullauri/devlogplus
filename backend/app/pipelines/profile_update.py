@@ -177,6 +177,11 @@ async def run_profile_update(
                         evidence_summary={"reasoning": et.reasoning},
                     )
                     db.add(new_topic)
+                    # Must also join the reconciliation pool: when two entries
+                    # in the same batch propose the same new topic, the second
+                    # has to land in the update branch above — a second insert
+                    # violates topics_name_key and aborts the whole run.
+                    existing_topics.append(new_topic)
                     topics_created += 1
                 except ValueError:
                     logger.warning("Invalid enum value for topic %s — creating triage", et.name)
