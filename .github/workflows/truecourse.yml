@@ -168,6 +168,12 @@ jobs:
           # alike. Only LATEST.json is tracked; analyses/, history.json,
           # logs/ and the rest are per-checkout and covered by
           # .truecourse/.gitignore.
+          #
+          # In practice the "unchanged" branch below will almost never fire:
+          # the cold scan re-mints every id, firstSeenAt and status (see the
+          # drop step), so LATEST.json differs byte-for-byte on every run even
+          # when no finding changed, and every merge to main produces a
+          # baseline commit. That is expected, not churn to be fixed here.
           git add .truecourse/LATEST.json
           if git diff --cached --quiet -- .truecourse/LATEST.json; then
             echo "Baseline unchanged — nothing to commit."
