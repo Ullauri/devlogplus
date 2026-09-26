@@ -43,13 +43,22 @@ jobs:
   baseline:
     name: Refresh analysis baseline
     runs-on: ubuntu-latest
+    # Only a main checkout may produce the baseline. Without this, a
+    # workflow_dispatch on any other ref would (a) record that ref's branch in
+    # the baseline, re-arming the branch-mismatch drop this workflow was fixed
+    # to avoid, and (b) `git push HEAD:main` that ref's commits onto main,
+    # outside review, whenever the push fast-forwards.
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
         with:
-          # TrueCourse baselines are commit-anchored: it reads git to record the
-          # branch and commit the analysis describes. A shallow clone is enough
-          # for HEAD, but full history keeps `analyze --diff` usable from a
-          # workflow_dispatch run on an older ref.
+          # The cold scan below uses no git history: the baseline is deleted
+          # before analyzing, so nothing diffs against an earlier commit.
+          # TrueCourse only reads git to record the branch and commit the
+          # analysis describes, which a shallow clone satisfies. Full history
+          # is kept because it is cheap here and switching to fetch-depth: 1
+          # has not been tested against the analyzer; if you test it, it can
+          # likely go.
           fetch-depth: 0
 
       - name: Set up Node.js
@@ -63,12 +72,48 @@ jobs:
       - name: Install TrueCourse
         run: npm install -g "truecourse@${TRUECOURSE_VERSION}"
 
+      - name: Drop the committed baseline so the scan is cold
+        # Chosen mechanism (see the 2026-08-25 amendment to ADR 0008): remove
+        # `.truecourse/LATEST.json` before analyzing. `truecourse analyze`
+        # (0.7.4) has no full-scan flag -- checked against `analyze --help` --
+        # and with a baseline present it scans ONLY the files named by
+        # `git diff <baseline commit>..HEAD` (plus the architecture pass,
+        # which always runs whole). What the output then says about
+        # every file it skipped depends on state this runner does not have:
+        # previous findings are carried forward from the baseline only when the
+        # branch recorded in it matches the checkout's branch, and are dropped
+        # otherwise. Both outcomes corrupt a committed baseline: the first run
+        # after the rollout dropped 913 of 922 findings (c8e9654, baseline
+        # recorded on a feature branch), and the main-to-main runs after it
+        # carried findings forward without ever re-scanning untouched files,
+        # accreting stale entries for code that had since been fixed. A
+        # baseline is a full-repo claim, so the run that produces it must see
+        # the full repo: no anchor, cold scan, every time. A cold scan costs
+        # ~8s of pipeline time, so there is nothing to save by diffing.
+        #
+        # Knowingly abandoned by going cold: finding continuity. A cold scan
+        # re-mints every violation's id, firstSeenAt and status on every run,
+        # so LATEST.json rewrites wholesale each refresh and no consumer may
+        # read identity or age out of those fields — continuity across
+        # refreshes lives in the git history of this file, keyed by rule.
+        #
+        # -f so an absent baseline (a repair dispatch after it was deleted)
+        # does not deadlock the only job that can recreate it. If analyze ever
+        # fails to recreate LATEST.json, the summary step fails the job
+        # reading it, and the commit step independently refuses to commit a
+        # missing baseline.
+        run: rm -f .truecourse/LATEST.json
+
       - name: Analyze
-        # --no-llm      deterministic rules only. The LLM rules need either a
-        #               `claude` binary signed in or a provider API key; CI has
-        #               neither, and a baseline whose contents depend on whether
-        #               a secret happened to be present is not a baseline.
-        # --no-stash    a fresh checkout is clean; never let it touch the tree.
+        # --no-llm      deterministic rules only, on every merge. The reasons
+        #               are ADR 0008's (cost per merge, LLM flap in a baseline,
+        #               source egress) — not tooling availability; see the ADR
+        #               before wiring an API key in here.
+        # --no-stash    load-bearing for the cold scan: the tree deliberately
+        #               carries a deleted tracked file (the baseline, removed
+        #               above). Stashing would restore it and hand the run an
+        #               anchor again — the exact corruption the removal exists
+        #               to prevent.
         # --no-skills   suppress the Claude Code skills install prompt.
         run: truecourse analyze --no-llm --no-stash --no-skills
 
@@ -77,6 +122,15 @@ jobs:
           node -e '
             const fs = require("node:fs");
             const latest = JSON.parse(fs.readFileSync(".truecourse/LATEST.json", "utf8"));
+            // The baseline must describe the commit this run analyzed. If a
+            // future tool version reintroduces an anchor source this workflow
+            // does not delete (a cache, git show), the scan goes warm again —
+            // this assertion is the tripwire that fails the job loudly
+            // instead of committing a stale-anchored file as truth.
+            if (latest.analysis.commitHash !== process.env.GITHUB_SHA) {
+              console.error(`Baseline describes ${latest.analysis.commitHash}, expected ${process.env.GITHUB_SHA} — the scan was not cold. Refusing.`);
+              process.exit(1);
+            }
             const bySeverity = {};
             for (const v of latest.violations) {
               bySeverity[v.severity] = (bySeverity[v.severity] ?? 0) + 1;
@@ -101,15 +155,32 @@ jobs:
       - name: Commit the refreshed baseline
         run: |
           set -euo pipefail
-          # Only LATEST.json is tracked. analyses/, history.json, logs/ and the
-          # rest are per-checkout and already covered by .truecourse/.gitignore.
-          if git diff --quiet -- .truecourse/LATEST.json; then
+          # Never commit an absent or empty baseline: if analyze exited 0
+          # without recreating LATEST.json, `git add` below would stage the
+          # deletion and push a main with no baseline. The summary step also
+          # fails on a missing file, but this step owns the invariant.
+          test -s .truecourse/LATEST.json
+          # Stage first, then gate on the *staged* diff: a plain `git diff`
+          # cannot see an untracked file, so a baseline recreated after a
+          # committed deletion (the repair-dispatch case the drop step
+          # supports) would read as "unchanged" and never land, with the run
+          # green. The staged comparison catches modified and recreated
+          # alike. Only LATEST.json is tracked; analyses/, history.json,
+          # logs/ and the rest are per-checkout and covered by
+          # .truecourse/.gitignore.
+          #
+          # In practice the "unchanged" branch below will almost never fire:
+          # the cold scan re-mints every id, firstSeenAt and status (see the
+          # drop step), so LATEST.json differs byte-for-byte on every run even
+          # when no finding changed, and every merge to main produces a
+          # baseline commit. That is expected, not churn to be fixed here.
+          git add .truecourse/LATEST.json
+          if git diff --cached --quiet -- .truecourse/LATEST.json; then
             echo "Baseline unchanged — nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .truecourse/LATEST.json
           git commit -m "chore(truecourse): refresh analysis baseline for ${GITHUB_SHA:0:7}"
           # A push authenticated with GITHUB_TOKEN does not trigger workflows,
           # so this cannot loop back into another run of this job.

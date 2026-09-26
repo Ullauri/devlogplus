@@ -23,7 +23,9 @@ and whether it can fail a build.
 
 ## Decision
 
-**Run it on `main` only, after the merge.** `.github/workflows/truecourse.yml`
+**Run it on `main` only, after the merge.** *(Amended 2026-08-25: the
+analyze step is preceded by deleting the committed baseline so every refresh
+is a cold, full scan — see the amendment at the end.)* `.github/workflows/truecourse.yml`
 triggers on `push` to `main` (plus `workflow_dispatch`), runs
 `truecourse analyze --no-llm --no-stash --no-skills`, and commits the refreshed
 `.truecourse/LATEST.json` back to `main` with the `GITHUB_TOKEN`.
@@ -135,3 +137,81 @@ deliberately, with a look at the diff.
   print that as their last line.
 - **−** The `spec`/`guard` business-logic-drift track is not set up. It needs a
   curated spec corpus on top of the LLM transport, and is a separate decision.
+
+## Amendment (2026-08-25) — the refresh must be a cold scan
+
+The Decision above claims the workflow keeps `LATEST.json` "the materialised
+current-state view of the repo's code findings". As originally written, it did
+not. The first CI refresh (`c8e9654`) shrank the baseline from 922 active
+findings to 9 for code that had not changed, erasing all 90 high and the 1
+critical. Subsequent refreshes then re-grew it merge by merge (9 → 233 → 565 →
+794 → 1011 → 1021) without ever making it true again: by `0b886d5` the
+committed file held 1021 findings (1 critical, 68 high) where a cold scan of
+the same commit finds 968 (1 critical, 93 high) — at rule+file granularity, 97
+committed entries described code a cold scan no longer flags, and 253 real
+ones, carrying 32 high-severity findings, were missing. (The lone critical
+survived in both; run 1 had erased it, and a later merge's rescan of its file
+brought it back.) Four high-severity rules existed only as phantoms, and the
+knowledgebase sweep was about to file tasks for them.
+
+**Why.** `truecourse analyze` (0.7.4) is incremental when `.truecourse/`
+carries a baseline: it scans only the files named by
+`git diff <baseline's analysis.commitHash>..HEAD` (plus the architecture
+pass, which always runs whole). For every file it skips, the output is the
+carry-forward from the present `LATEST.json` — and only that file: the 0.7.4
+carry path never reads `history.json` or `analyses/`, so those per-checkout
+files are irrelevant to it. The carry is gated on **the branch recorded in
+the baseline matching the branch checked out** (previous violations are
+filtered on `analysis.branch === <current branch>`); a mismatch silently
+drops everything unscanned, on any machine — a fresh clone on a feature
+branch reproduces the collapse locally. So the first run — baseline recorded
+on `agent/truecourse-pipeline`, runner on `main` — dropped everything it did
+not re-scan, and every main-to-main run after it carried findings forward
+verbatim, never re-examining untouched files, accreting entries for code
+that no longer had the problem. Developer machines looked immune only
+because the recorded branch usually matches the branch being worked.
+
+Committing `LATEST.json` is therefore not sufficient state for an
+*incremental* refresh: the file is enough to decide which files to skip, and
+what it says about them is only trusted under a branch match that a refresh
+context cannot guarantee. On 0.7.4 there is no state that fixes this — the
+carry path reads nothing else — so the runner must not skip. This holds for
+any context that regenerates the baseline, not just GitHub Actions: a local
+`make truecourse` in a fresh clone on a feature branch corrupts the tracked
+file in the working tree the same way (mitigated today by
+`make truecourse-restore` and the only-the-workflow-writes rule; a guard on
+the make target is filed as its own task).
+
+**The fix.** The workflow deletes `.truecourse/LATEST.json` immediately
+before the analyze step, so the run has no anchor and every refresh is a
+cold, full scan. Mechanisms considered:
+
+- **A full-scan flag** — `analyze --help` on 0.7.4 documents none.
+- **Committing `history.json` / `analyses/` too** — rejected as *not
+  viable*, not merely undesirable: the 0.7.4 carry-forward path never reads
+  them, so tracking them would move megabytes of per-checkout state into git
+  and change nothing about the refresh. (An upstream full-scan flag or a
+  carry path that uses this state would be a tool change, not a workflow
+  change.)
+- **Deleting the baseline before analyzing** — chosen. A baseline is a
+  full-repo claim, so the run that produces it sees the full repo, at the
+  cost of a cold scan (~8s here).
+
+Two consequences are accepted knowingly:
+
+- **`analyze --diff` on branches is only as truthful as the last refresh.**
+  Until the first cold refresh after this amendment lands, `--diff` reports
+  the erasure's accumulated fallout as if the branch introduced it (hundreds
+  of phantom "new" findings against today's baseline). After that refresh it
+  compares against a truthful file — with the caveat that `--diff` itself
+  was not re-validated end-to-end here.
+- **Finding continuity across refreshes is gone.** A cold scan re-mints
+  every violation's `id`, `firstSeenAt` and `status` on each run, so the
+  committed file rewrites wholesale every refresh and its "unchanged —
+  nothing to commit" short-circuit is theoretical. No consumer may read
+  identity or age out of those fields; continuity lives in
+  `git log -- .truecourse/LATEST.json`, keyed by rule.
+
+The first refresh after this amendment restores the erased findings, so the
+baseline's counts jump back up (~968 at `0b886d5`'s tree). That jump is the
+repair, not a regression.
