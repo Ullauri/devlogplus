@@ -13,6 +13,7 @@ documented exception.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
@@ -60,26 +61,33 @@ async def _run_in_background(
     evaluation triggers, which reserve nothing.
     """
     logger.info("Starting manual pipeline run: %s (run_id=%s)", label, run_id)
-    async with session_scope() as session:
-        try:
+    # Pipelines catch their own errors and record status=failed, so an
+    # exception reaching here means that record never committed: the session
+    # rolls back as it closes, taking the outcome with it. The cleanup runs
+    # after the session has closed, so a dead connection that fails the
+    # rollback cannot skip it.
+    try:
+        async with session_scope() as session:
             await fn(session, run_id=run_id)
             await session.commit()
-            logger.info("Manual pipeline run finished: %s (run_id=%s)", label, run_id)
-        except Exception as exc:
-            # The pipeline itself writes its own ProcessingLog entry with
-            # status=failed and error=..., so the UI can surface it.
-            await session.rollback()
-            logger.exception("Manual pipeline run failed: %s (run_id=%s)", label, run_id)
-            await _fail_abandoned_run(run_id, f"Run ended without recording an outcome: {exc!r}")
+    except asyncio.CancelledError:
+        # A worker reload or shutdown cancels the task mid-run.
+        logger.warning("Manual pipeline run cancelled: %s (run_id=%s)", label, run_id)
+        await _fail_abandoned_run(run_id, "Run was cancelled before recording an outcome")
+        raise
+    except Exception as exc:
+        logger.exception("Manual pipeline run failed: %s (run_id=%s)", label, run_id)
+        await _fail_abandoned_run(run_id, f"Run ended without recording an outcome: {exc!r}")
+    else:
+        logger.info("Manual pipeline run finished: %s (run_id=%s)", label, run_id)
 
 
 async def _fail_abandoned_run(run_id: uuid.UUID, error: str) -> None:
     """Record a failure the pipeline could not, so its reserved row stops blocking.
 
-    The rollback above discards whatever outcome the pipeline wrote, which
-    leaves the row the trigger reserved at ``started`` — and the trigger's
-    guard refusing every new run until it goes stale. A fresh session, since
-    the old one's connection may be why we are here.
+    Otherwise the row the trigger reserved stays ``started``, and the
+    trigger's guard refuses every new run until it goes stale. Runs nobody
+    reserved have no committed row to mark, and are left as they were.
     """
     try:
         async with session_scope() as session:

@@ -33,7 +33,6 @@ from backend.app.models.project import (
     ProjectTask,
     WeeklyProject,
 )
-from backend.app.models.settings import ProcessingLog
 from backend.app.models.triage import TriageItem
 from backend.app.prompts import project_evaluation, project_generation
 from backend.app.services import feedback as feedback_svc
@@ -618,15 +617,7 @@ async def evaluate_project(
     4. Store evaluation results
     5. Create triage items if needed
     """
-    log_kwargs: dict = {
-        "pipeline": PipelineType.PROJECT_EVALUATION,
-        "status": PipelineStatus.STARTED,
-    }
-    if run_id is not None:
-        log_kwargs["id"] = run_id
-    log = ProcessingLog(**log_kwargs)
-    db.add(log)
-    await db.flush()
+    log = await pipelines_svc.open_run_log(db, PipelineType.PROJECT_EVALUATION, run_id)
 
     try:
         project = await project_svc.get_project(db, project_id)

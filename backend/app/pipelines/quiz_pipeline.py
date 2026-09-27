@@ -31,7 +31,6 @@ from backend.app.models.base import (
     TriageSource,
 )
 from backend.app.models.quiz import QuizEvaluation, QuizQuestion, QuizSession
-from backend.app.models.settings import ProcessingLog
 from backend.app.models.topic import Topic
 from backend.app.models.triage import TriageItem
 from backend.app.prompts import quiz_evaluation, quiz_generation
@@ -545,15 +544,7 @@ async def evaluate_quiz(
     """
     from backend.app.services import quiz as quiz_svc
 
-    log_kwargs: dict = {
-        "pipeline": PipelineType.QUIZ_EVALUATION,
-        "status": PipelineStatus.STARTED,
-    }
-    if run_id is not None:
-        log_kwargs["id"] = run_id
-    log = ProcessingLog(**log_kwargs)
-    db.add(log)
-    await db.flush()
+    log = await pipelines_svc.open_run_log(db, PipelineType.QUIZ_EVALUATION, run_id)
 
     try:
         session = await quiz_svc.get_session(db, session_id)

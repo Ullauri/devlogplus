@@ -126,10 +126,20 @@ async def open_run_log(
     the pipeline adopts it. Runs nobody reserved — the evaluation endpoints,
     the MCP server, direct calls — get a fresh ``started`` row, under
     *run_id* when one was given.
+
+    Raises:
+        ValueError: *run_id* names a row that is not a ``started`` run of
+            *pipeline*.
     """
     if run_id is not None:
         reserved = await db.get(ProcessingLog, run_id)
         if reserved is not None:
+            if reserved.pipeline != pipeline or reserved.status != PipelineStatus.STARTED:
+                # Adopting it would overwrite another run's recorded history.
+                raise ValueError(
+                    f"run {run_id} is a {reserved.status} {reserved.pipeline} run, "
+                    f"not a reservation for {pipeline}"
+                )
             return reserved
     log_kwargs: dict = {"pipeline": pipeline, "status": PipelineStatus.STARTED}
     if run_id is not None:

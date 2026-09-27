@@ -939,6 +939,30 @@ async def test_fail_abandoned_run_leaves_a_recorded_outcome_alone(db_session: As
     assert done.status == PipelineStatus.COMPLETED
 
 
+async def test_cancelled_reservation_is_marked_failed(db_session: AsyncSession):
+    """A worker reload cancels the task; the reservation must not outlive it."""
+    run = await pipelines_svc.reserve_run(db_session, PipelineType.QUIZ_GENERATION)
+    await db_session.commit()
+
+    async def cancelled(db: AsyncSession, *, run_id: uuid.UUID) -> None:
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await pipelines_router._run_in_background(cancelled, "quiz_generation", run.id)
+
+    [failed] = await _quiz_runs(db_session)
+    assert failed.status == PipelineStatus.FAILED
+    assert "cancelled" in (failed.error or "")
+
+
+async def test_open_run_log_refuses_a_row_that_is_not_a_reservation(db_session: AsyncSession):
+    """Adopting a finished run would overwrite its recorded history."""
+    done = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.COMPLETED)
+
+    with pytest.raises(ValueError):
+        await pipelines_svc.open_run_log(db_session, PipelineType.QUIZ_GENERATION, done.id)
+
+
 # ---------------------------------------------------------------------------
 # Dismissing runs.
 #
