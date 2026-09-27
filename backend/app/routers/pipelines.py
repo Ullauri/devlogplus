@@ -89,16 +89,26 @@ async def _run_in_background(
         logger.info("Manual pipeline run finished: %s (run_id=%s)", label, run_id)
 
 
+# Cleanup tasks outlive a second cancellation of the run that started them;
+# the event loop holds tasks only weakly, so something here has to hold them.
+_pending_cleanups: set[asyncio.Task[None]] = set()
+
+
 async def _cancelled(pipeline: PipelineType, run_id: uuid.UUID) -> None:
     """Fail a run a worker reload or shutdown cancelled mid-flight.
 
-    Shielded, so a second cancellation cannot interrupt the cleanup and
-    leave the reservation holding the guard shut.
+    Shielded, so a second cancellation of this run does not interrupt the
+    cleanup while the loop keeps running. It cannot survive the loop itself
+    being torn down: then the row stays ``started`` until
+    :data:`~backend.app.services.pipelines.STALE_RUN_AFTER`, as after a crash.
     """
     logger.warning("Manual pipeline run cancelled: %s (run_id=%s)", pipeline, run_id)
-    await asyncio.shield(
+    cleanup = asyncio.ensure_future(
         _fail_abandoned_run(pipeline, run_id, "Run was cancelled before recording an outcome")
     )
+    _pending_cleanups.add(cleanup)
+    cleanup.add_done_callback(_pending_cleanups.discard)
+    await asyncio.shield(cleanup)
 
 
 async def _fail_abandoned_run(pipeline: PipelineType, run_id: uuid.UUID, error: str) -> None:
