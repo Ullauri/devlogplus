@@ -54,9 +54,10 @@ async def _run_in_background(
 ) -> None:
     """Invoke *fn* with a fresh AsyncSession, committing on success.
 
-    The pre-generated ``run_id`` is forwarded so the pipeline's
-    ``ProcessingLog`` row carries the same id that was already returned to
-    the HTTP client.
+    The ``run_id`` already returned to the HTTP client is forwarded so the
+    pipeline records its outcome on that ``ProcessingLog`` row — adopting
+    the row the trigger reserved, or creating it under that id for the
+    evaluation triggers, which reserve nothing.
     """
     logger.info("Starting manual pipeline run: %s (run_id=%s)", label, run_id)
     async with session_scope() as session:
@@ -64,11 +65,28 @@ async def _run_in_background(
             await fn(session, run_id=run_id)
             await session.commit()
             logger.info("Manual pipeline run finished: %s (run_id=%s)", label, run_id)
-        except Exception:
+        except Exception as exc:
             # The pipeline itself writes its own ProcessingLog entry with
             # status=failed and error=..., so the UI can surface it.
             await session.rollback()
             logger.exception("Manual pipeline run failed: %s (run_id=%s)", label, run_id)
+            await _fail_abandoned_run(run_id, f"Run ended without recording an outcome: {exc!r}")
+
+
+async def _fail_abandoned_run(run_id: uuid.UUID, error: str) -> None:
+    """Record a failure the pipeline could not, so its reserved row stops blocking.
+
+    The rollback above discards whatever outcome the pipeline wrote, which
+    leaves the row the trigger reserved at ``started`` — and the trigger's
+    guard refusing every new run until it goes stale. A fresh session, since
+    the old one's connection may be why we are here.
+    """
+    try:
+        async with session_scope() as session:
+            if await pipelines_svc.fail_abandoned_run(session, run_id, error):
+                await session.commit()
+    except Exception:
+        logger.exception("Could not mark abandoned run %s failed", run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -89,25 +107,30 @@ _CONFLICT_RESPONSE = {
 }
 
 
-async def _reject_if_running(db: AsyncSession, pipeline: PipelineType, human: str) -> None:
-    """Refuse a manual trigger while the same pipeline is already in flight.
+async def _reserve_run(db: AsyncSession, pipeline: PipelineType, human: str) -> uuid.UUID:
+    """Reserve a manual run of *pipeline* and return its id, or refuse with 409.
 
     These runs are minutes-long LLM calls. Firing a second one concurrently
     doubles the token spend and races two pipelines to write competing
     sessions, so a duplicate trigger is always a mistake rather than a
     legitimate request.
     """
-    active = await pipelines_svc.get_active_run(db, pipeline)
-    if active is None:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail=(
-            f"{human} is already running (started "
-            f"{active.started_at.isoformat()}). Wait for it to finish, or check "
-            f"run history if it looks stuck."
-        ),
-    )
+    try:
+        run = await pipelines_svc.reserve_run(db, pipeline)
+    except pipelines_svc.PipelineAlreadyRunningError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{human} is already running (started "
+                f"{exc.active.started_at.isoformat()}). Wait for it to finish, or "
+                f"check run history if it looks stuck."
+            ),
+        ) from exc
+    # Commit here, not in get_db's teardown. The background run adopts this
+    # row from its own session, and a concurrent trigger is waiting on the
+    # reservation's lock; both need the row committed before this returns.
+    await db.commit()
+    return run.id
 
 
 @router.post(
@@ -130,8 +153,7 @@ async def run_profile_update(
     bg: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> PipelineRunAccepted:
-    await _reject_if_running(db, PipelineType.PROFILE_UPDATE, "Profile update")
-    run_id = pipelines_svc.new_run_id()
+    run_id = await _reserve_run(db, PipelineType.PROFILE_UPDATE, "Profile update")
     bg.add_task(
         _run_in_background,
         profile_update_pipeline.run_profile_update,
@@ -158,8 +180,7 @@ async def run_quiz_generation(
     bg: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> PipelineRunAccepted:
-    await _reject_if_running(db, PipelineType.QUIZ_GENERATION, "Quiz generation")
-    run_id = pipelines_svc.new_run_id()
+    run_id = await _reserve_run(db, PipelineType.QUIZ_GENERATION, "Quiz generation")
     bg.add_task(
         _run_in_background,
         quiz_pipeline.generate_quiz,
@@ -215,8 +236,7 @@ async def run_reading_generation(
     bg: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> PipelineRunAccepted:
-    await _reject_if_running(db, PipelineType.READING_GENERATION, "Reading generation")
-    run_id = pipelines_svc.new_run_id()
+    run_id = await _reserve_run(db, PipelineType.READING_GENERATION, "Reading generation")
     bg.add_task(
         _run_in_background,
         reading_pipeline.generate_readings,
@@ -243,8 +263,7 @@ async def run_project_generation(
     bg: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> PipelineRunAccepted:
-    await _reject_if_running(db, PipelineType.PROJECT_GENERATION, "Project generation")
-    run_id = pipelines_svc.new_run_id()
+    run_id = await _reserve_run(db, PipelineType.PROJECT_GENERATION, "Project generation")
     bg.add_task(
         _run_in_background,
         project_pipeline.generate_project,

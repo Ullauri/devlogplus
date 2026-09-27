@@ -27,10 +27,10 @@ from backend.app.models.base import (
     ReadingRecommendationType,
 )
 from backend.app.models.reading import ReadingRecommendation
-from backend.app.models.settings import ProcessingLog
 from backend.app.prompts import reading_generation
 from backend.app.services import feedback as feedback_svc
 from backend.app.services import onboarding as onboarding_svc
+from backend.app.services import pipelines as pipelines_svc
 from backend.app.services import profile as profile_svc
 from backend.app.services import reading as reading_svc
 from backend.app.services.llm.client import llm_client
@@ -149,15 +149,7 @@ async def generate_readings(
     5. Validate URLs against allowlist
     6. Store recommendations
     """
-    log_kwargs: dict = {
-        "pipeline": PipelineType.READING_GENERATION,
-        "status": PipelineStatus.STARTED,
-    }
-    if run_id is not None:
-        log_kwargs["id"] = run_id
-    log = ProcessingLog(**log_kwargs)
-    db.add(log)
-    await db.flush()
+    log = await pipelines_svc.open_run_log(db, PipelineType.READING_GENERATION, run_id)
 
     try:
         # Build context

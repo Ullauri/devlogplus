@@ -5,6 +5,7 @@ failed ProcessingLog entry. If they do, the background runner's rollback will
 discard the status=failed write, leaving the log stuck at status=started.
 """
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from string import Formatter
@@ -34,6 +35,7 @@ from backend.app.pipelines import profile_update as profile_update_pipeline
 from backend.app.pipelines import quiz_pipeline, reading_pipeline
 from backend.app.pipelines.project_pipeline import _determine_difficulty, _format_avoid_titles
 from backend.app.prompts import project_generation, quiz_generation
+from backend.app.routers import pipelines as pipelines_router
 from backend.app.schemas.feedback import FeedbackCreate
 from backend.app.services import feedback as feedback_svc
 from backend.app.services import onboarding as onboarding_svc
@@ -827,6 +829,114 @@ async def test_every_generation_trigger_is_guarded(
     response = await client.post(path)
 
     assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Reserving the run row up front.
+#
+# Every manual trigger observed in the dev database fired twice, ~100ms apart,
+# because the guard checked in the handler while the row that would mark the
+# run active was only written later, by the background pipeline. The trigger
+# now reserves that row itself, under a lock, before returning 202.
+# ---------------------------------------------------------------------------
+
+
+async def _quiz_runs(db: AsyncSession) -> list[ProcessingLog]:
+    # Background runs write from their own session; drop anything cached here.
+    db.expire_all()
+    stmt = select(ProcessingLog).where(ProcessingLog.pipeline == PipelineType.QUIZ_GENERATION)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def test_concurrent_reservations_admit_exactly_one(test_session_factory, db_session):
+    """Two triggers racing from separate sessions must yield one run, not two."""
+
+    async def attempt() -> uuid.UUID | None:
+        async with test_session_factory() as session:
+            try:
+                run = await pipelines_svc.reserve_run(session, PipelineType.QUIZ_GENERATION)
+            except pipelines_svc.PipelineAlreadyRunningError:
+                await session.rollback()
+                return None
+            # Hold the reservation uncommitted, so an unlocked check-then-insert
+            # would let the other attempt through as well.
+            await asyncio.sleep(0.2)
+            await session.commit()
+            return run.id
+
+    results = await asyncio.gather(attempt(), attempt())
+
+    winners = [r for r in results if r is not None]
+    assert len(winners) == 1
+    assert [run.id for run in await _quiz_runs(db_session)] == winners
+
+
+async def test_reservation_refused_while_running(db_session: AsyncSession):
+    await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.STARTED)
+
+    with pytest.raises(pipelines_svc.PipelineAlreadyRunningError):
+        await pipelines_svc.reserve_run(db_session, PipelineType.QUIZ_GENERATION)
+
+
+async def test_reservation_not_blocked_by_a_stale_run(db_session: AsyncSession):
+    await _add_run(
+        db_session,
+        PipelineType.QUIZ_GENERATION,
+        PipelineStatus.STARTED,
+        age=pipelines_svc.STALE_RUN_AFTER + timedelta(minutes=5),
+    )
+
+    run = await pipelines_svc.reserve_run(db_session, PipelineType.QUIZ_GENERATION)
+
+    assert run.status == PipelineStatus.STARTED
+
+
+async def test_trigger_records_the_outcome_on_the_reserved_row(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """The background run adopts the reservation: one row, under the 202's id."""
+    with patch(
+        "backend.app.pipelines.quiz_pipeline.llm_client.chat_completion_json",
+        new=AsyncMock(return_value={"questions": []}),
+    ):
+        response = await client.post("/api/v1/pipelines/quiz/run")
+
+    assert response.status_code == 202
+    runs = await _quiz_runs(db_session)
+    assert [str(run.id) for run in runs] == [response.json()["run_id"]]
+    assert runs[0].status == PipelineStatus.COMPLETED
+
+
+async def test_open_run_log_creates_a_row_nobody_reserved(db_session: AsyncSession):
+    run_id = uuid.uuid4()
+
+    log = await pipelines_svc.open_run_log(db_session, PipelineType.QUIZ_EVALUATION, run_id)
+
+    assert log.id == run_id
+    assert log.status == PipelineStatus.STARTED
+
+
+async def test_abandoned_reservation_is_marked_failed(db_session: AsyncSession):
+    """A run that dies before recording an outcome must not hold the guard shut."""
+    run = await pipelines_svc.reserve_run(db_session, PipelineType.QUIZ_GENERATION)
+    await db_session.commit()
+
+    async def dies(db: AsyncSession, *, run_id: uuid.UUID) -> None:
+        raise RuntimeError("connection lost")
+
+    await pipelines_router._run_in_background(dies, "quiz_generation", run.id)
+
+    [failed] = await _quiz_runs(db_session)
+    assert failed.status == PipelineStatus.FAILED
+    assert "connection lost" in (failed.error or "")
+    assert await pipelines_svc.get_active_run(db_session, PipelineType.QUIZ_GENERATION) is None
+
+
+async def test_fail_abandoned_run_leaves_a_recorded_outcome_alone(db_session: AsyncSession):
+    done = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.COMPLETED)
+
+    assert not await pipelines_svc.fail_abandoned_run(db_session, done.id, "late")
+    assert done.status == PipelineStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,6 @@ Business logic layer.  Services are async functions that take a DB session (and 
 - `llm/` — OpenRouter client, Langfuse tracing utilities, structured LLM output models.
 
 ## Coverage
-There is one service module per domain entity (journal, profile, quiz, reading, project, triage, onboarding, feedback, transfer). New domains follow the same pattern — one file, exported via `__init__.py`. `ProcessingLog` is written directly by pipelines, not wrapped in a service.
+There is one service module per domain entity (journal, profile, quiz, reading, project, triage, onboarding, feedback, transfer). New domains follow the same pattern — one file, exported via `__init__.py`. `ProcessingLog` outcomes (status, error, metadata) are written directly by pipelines, not wrapped in a service; creating the row goes through `pipelines.open_run_log` so a pipeline adopts the row its manual trigger reserved.
 
 `pipelines.py` is a special-purpose helper for the pipeline-trigger router (run-status queries, run-id minting) — not a domain entity service. It does not follow the standard CRUD pattern.

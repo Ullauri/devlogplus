@@ -1,7 +1,8 @@
 """Service helpers for the manual-pipeline-trigger router.
 
-Thin wrappers over ``ProcessingLog`` queries so the router can stay out
-of the ORM layer (see architecture tests).
+Thin wrappers over ``ProcessingLog`` so the router can stay out of the ORM
+layer (see architecture tests), plus the run-row lifecycle a manual trigger
+shares with the pipeline it launches: reserve, adopt, and fail if abandoned.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import uuid_utils
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.base import PipelineStatus, PipelineType
@@ -72,6 +73,95 @@ async def get_active_run(
     )
     result = await db.execute(stmt)
     return result.scalars().first()
+
+
+class PipelineAlreadyRunningError(Exception):
+    """Raised by :func:`reserve_run` when the pipeline already has a run in flight."""
+
+    def __init__(self, active: ProcessingLog) -> None:
+        super().__init__(f"{active.pipeline} has been running since {active.started_at}")
+        self.active = active
+
+
+async def reserve_run(db: AsyncSession, pipeline: PipelineType) -> ProcessingLog:
+    """Claim the next run of *pipeline*: check it is idle and write its ``started`` row.
+
+    Checking and writing in one step is what stops a duplicate trigger. When
+    the check lived in the HTTP handler and the row was only written later by
+    the background pipeline, two triggers ~100ms apart both saw an idle
+    pipeline and both ran. Reserving the row up front shrinks that window, and
+    the transaction-scoped advisory lock closes it: a second caller blocks
+    until the first commits, then sees its row.
+
+    A partial unique index on ``status='started'`` would be the declarative
+    alternative, but it cannot express :data:`STALE_RUN_AFTER`, so one crashed
+    run would wedge the pipeline for good.
+
+    The row is flushed, not committed, and the lock is held until the caller's
+    transaction ends. Commit before handing the run to anything that uses
+    another session.
+
+    Raises:
+        PipelineAlreadyRunningError: *pipeline* already has a run in flight.
+    """
+    lock_key = func.hashtext(f"devlogplus.pipeline:{pipeline.value}")
+    await db.execute(select(func.pg_advisory_xact_lock(lock_key)))
+    active = await get_active_run(db, pipeline)
+    if active is not None:
+        raise PipelineAlreadyRunningError(active)
+    run = ProcessingLog(id=new_run_id(), pipeline=pipeline, status=PipelineStatus.STARTED)
+    db.add(run)
+    await db.flush()
+    return run
+
+
+async def open_run_log(
+    db: AsyncSession,
+    pipeline: PipelineType,
+    run_id: uuid.UUID | None,
+) -> ProcessingLog:
+    """Return the ``ProcessingLog`` row a pipeline run records its outcome on.
+
+    A manual trigger has already reserved the row (:func:`reserve_run`), so
+    the pipeline adopts it. Runs nobody reserved — the evaluation endpoints,
+    the MCP server, direct calls — get a fresh ``started`` row, under
+    *run_id* when one was given.
+    """
+    if run_id is not None:
+        reserved = await db.get(ProcessingLog, run_id)
+        if reserved is not None:
+            return reserved
+    log_kwargs: dict = {"pipeline": pipeline, "status": PipelineStatus.STARTED}
+    if run_id is not None:
+        log_kwargs["id"] = run_id
+    log = ProcessingLog(**log_kwargs)
+    db.add(log)
+    await db.flush()
+    return log
+
+
+async def fail_abandoned_run(
+    db: AsyncSession,
+    run_id: uuid.UUID,
+    error: str,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Mark *run_id* failed if it is still ``started``; return whether it was.
+
+    A pipeline records its own failures, but only if its session survives to
+    commit them. When it does not, a reserved row would stay ``started`` and
+    keep refusing triggers until :data:`STALE_RUN_AFTER`. A row that already
+    has an outcome is left alone.
+    """
+    run = await db.get(ProcessingLog, run_id)
+    if run is None or run.status != PipelineStatus.STARTED:
+        return False
+    run.status = PipelineStatus.FAILED
+    run.error = error
+    run.completed_at = now or datetime.now(UTC)
+    await db.flush()
+    return True
 
 
 async def list_recent_runs(
