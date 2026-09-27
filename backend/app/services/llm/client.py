@@ -299,9 +299,14 @@ class OpenRouterClient:
             # Truncation is silent otherwise: the caller gets a plausible-looking
             # partial answer and only notices downstream, if at all.
             if _finish_reason(result) == "length":
+                # Read the cap back from the payload, not the bare `max_tokens`
+                # name: TrueCourse's confidential-info-logging rule flags any
+                # logged identifier containing "token" and cannot be silenced
+                # per line, and it is the only check that would report this
+                # module's api_key being logged, so it stays on.
                 logger.warning(
                     "Response truncated at max_tokens=%s for pipeline=%s model=%s (%s)",
-                    max_tokens,
+                    payload["max_tokens"],
                     pipeline,
                     model,
                     _usage_summary(result),
