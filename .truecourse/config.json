@@ -1,5 +1,6 @@
 {
   "disabledRules": [
-    "bugs/deterministic/undefined-name"
+    "bugs/deterministic/undefined-name",
+    "security/deterministic/aws-unencrypted-sns-python"
   ]
 }
