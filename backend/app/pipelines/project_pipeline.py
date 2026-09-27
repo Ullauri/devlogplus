@@ -33,11 +33,11 @@ from backend.app.models.project import (
     ProjectTask,
     WeeklyProject,
 )
-from backend.app.models.settings import ProcessingLog
 from backend.app.models.triage import TriageItem
 from backend.app.prompts import project_evaluation, project_generation
 from backend.app.services import feedback as feedback_svc
 from backend.app.services import onboarding as onboarding_svc
+from backend.app.services import pipelines as pipelines_svc
 from backend.app.services import profile as profile_svc
 from backend.app.services import project as project_svc
 from backend.app.services.llm.client import llm_client
@@ -304,15 +304,7 @@ async def generate_project(
     4. Write files to workspace/projects/<date>/
     5. Store project record with tasks
     """
-    log_kwargs: dict = {
-        "pipeline": PipelineType.PROJECT_GENERATION,
-        "status": PipelineStatus.STARTED,
-    }
-    if run_id is not None:
-        log_kwargs["id"] = run_id
-    log = ProcessingLog(**log_kwargs)
-    db.add(log)
-    await db.flush()
+    log = await pipelines_svc.open_run_log(db, PipelineType.PROJECT_GENERATION, run_id)
 
     try:
         # Determine difficulty level
@@ -625,15 +617,7 @@ async def evaluate_project(
     4. Store evaluation results
     5. Create triage items if needed
     """
-    log_kwargs: dict = {
-        "pipeline": PipelineType.PROJECT_EVALUATION,
-        "status": PipelineStatus.STARTED,
-    }
-    if run_id is not None:
-        log_kwargs["id"] = run_id
-    log = ProcessingLog(**log_kwargs)
-    db.add(log)
-    await db.flush()
+    log = await pipelines_svc.open_run_log(db, PipelineType.PROJECT_EVALUATION, run_id)
 
     try:
         project = await project_svc.get_project(db, project_id)

@@ -31,12 +31,12 @@ from backend.app.models.base import (
     TriageSource,
 )
 from backend.app.models.quiz import QuizEvaluation, QuizQuestion, QuizSession
-from backend.app.models.settings import ProcessingLog
 from backend.app.models.topic import Topic
 from backend.app.models.triage import TriageItem
 from backend.app.prompts import quiz_evaluation, quiz_generation
 from backend.app.services import feedback as feedback_svc
 from backend.app.services import onboarding as onboarding_svc
+from backend.app.services import pipelines as pipelines_svc
 from backend.app.services import profile as profile_svc
 from backend.app.services.llm.client import llm_client
 from backend.app.services.llm.models import QuizEvaluationResult, QuizGenerationResult
@@ -255,15 +255,7 @@ async def generate_quiz(
     Returns the new session, or ``None`` when no questions survived the
     filters (no session is created in that case) or the run failed.
     """
-    log_kwargs: dict = {
-        "pipeline": PipelineType.QUIZ_GENERATION,
-        "status": PipelineStatus.STARTED,
-    }
-    if run_id is not None:
-        log_kwargs["id"] = run_id
-    log = ProcessingLog(**log_kwargs)
-    db.add(log)
-    await db.flush()
+    log = await pipelines_svc.open_run_log(db, PipelineType.QUIZ_GENERATION, run_id)
 
     try:
         # Build profile context
@@ -552,15 +544,7 @@ async def evaluate_quiz(
     """
     from backend.app.services import quiz as quiz_svc
 
-    log_kwargs: dict = {
-        "pipeline": PipelineType.QUIZ_EVALUATION,
-        "status": PipelineStatus.STARTED,
-    }
-    if run_id is not None:
-        log_kwargs["id"] = run_id
-    log = ProcessingLog(**log_kwargs)
-    db.add(log)
-    await db.flush()
+    log = await pipelines_svc.open_run_log(db, PipelineType.QUIZ_EVALUATION, run_id)
 
     try:
         session = await quiz_svc.get_session(db, session_id)

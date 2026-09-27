@@ -23,10 +23,10 @@ from backend.app.models.base import (
     TriageSource,
 )
 from backend.app.models.journal import JournalEntry, JournalEntryVersion
-from backend.app.models.settings import ProcessingLog
 from backend.app.models.topic import Topic
 from backend.app.models.triage import TriageItem
 from backend.app.prompts import topic_extraction
+from backend.app.services import pipelines as pipelines_svc
 from backend.app.services import profile as profile_svc
 from backend.app.services import triage as triage_svc
 from backend.app.services.llm.client import llm_client
@@ -61,15 +61,7 @@ async def run_profile_update(
         Summary dict with counts and status.
     """
     # Start processing log
-    log_kwargs: dict = {
-        "pipeline": PipelineType.PROFILE_UPDATE,
-        "status": PipelineStatus.STARTED,
-    }
-    if run_id is not None:
-        log_kwargs["id"] = run_id
-    log = ProcessingLog(**log_kwargs)
-    db.add(log)
-    await db.flush()
+    log = await pipelines_svc.open_run_log(db, PipelineType.PROFILE_UPDATE, run_id)
 
     try:
         # Step 1: Check for blocking triage
