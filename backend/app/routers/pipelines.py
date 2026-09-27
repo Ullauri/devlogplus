@@ -61,6 +61,7 @@ async def _run_in_background(
     evaluation triggers, which reserve nothing.
     """
     logger.info("Starting manual pipeline run: %s (run_id=%s)", label, run_id)
+    pipeline = PipelineType(label)
     # Pipelines catch their own errors and record status=failed, so an
     # exception reaching here means that record never committed: the session
     # rolls back as it closes, taking the outcome with it. The cleanup runs
@@ -71,18 +72,36 @@ async def _run_in_background(
             await fn(session, run_id=run_id)
             await session.commit()
     except asyncio.CancelledError:
-        # A worker reload or shutdown cancels the task mid-run.
-        logger.warning("Manual pipeline run cancelled: %s (run_id=%s)", label, run_id)
-        await _fail_abandoned_run(run_id, "Run was cancelled before recording an outcome")
+        await _cancelled(pipeline, run_id)
         raise
     except Exception as exc:
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            # Cancelled mid-query, and closing the session then raised over
+            # the CancelledError. Whoever cancelled us must still see it.
+            await _cancelled(pipeline, run_id)
+            raise asyncio.CancelledError from exc
         logger.exception("Manual pipeline run failed: %s (run_id=%s)", label, run_id)
-        await _fail_abandoned_run(run_id, f"Run ended without recording an outcome: {exc!r}")
+        await _fail_abandoned_run(
+            pipeline, run_id, f"Run ended without recording an outcome: {exc!r}"
+        )
     else:
         logger.info("Manual pipeline run finished: %s (run_id=%s)", label, run_id)
 
 
-async def _fail_abandoned_run(run_id: uuid.UUID, error: str) -> None:
+async def _cancelled(pipeline: PipelineType, run_id: uuid.UUID) -> None:
+    """Fail a run a worker reload or shutdown cancelled mid-flight.
+
+    Shielded, so a second cancellation cannot interrupt the cleanup and
+    leave the reservation holding the guard shut.
+    """
+    logger.warning("Manual pipeline run cancelled: %s (run_id=%s)", pipeline, run_id)
+    await asyncio.shield(
+        _fail_abandoned_run(pipeline, run_id, "Run was cancelled before recording an outcome")
+    )
+
+
+async def _fail_abandoned_run(pipeline: PipelineType, run_id: uuid.UUID, error: str) -> None:
     """Record a failure the pipeline could not, so its reserved row stops blocking.
 
     Otherwise the row the trigger reserved stays ``started``, and the
@@ -91,7 +110,7 @@ async def _fail_abandoned_run(run_id: uuid.UUID, error: str) -> None:
     """
     try:
         async with session_scope() as session:
-            if await pipelines_svc.fail_abandoned_run(session, run_id, error):
+            if await pipelines_svc.fail_abandoned_run(session, run_id, pipeline, error):
                 await session.commit()
     except Exception:
         logger.exception("Could not mark abandoned run %s failed", run_id)

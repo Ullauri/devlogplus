@@ -11,7 +11,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import uuid_utils
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.base import PipelineStatus, PipelineType
@@ -153,25 +153,38 @@ async def open_run_log(
 async def fail_abandoned_run(
     db: AsyncSession,
     run_id: uuid.UUID,
+    pipeline: PipelineType,
     error: str,
     *,
     now: datetime | None = None,
 ) -> bool:
-    """Mark *run_id* failed if it is still ``started``; return whether it was.
+    """Mark *run_id* failed if it is still a ``started`` run of *pipeline*.
 
     A pipeline records its own failures, but only if its session survives to
     commit them. When it does not, a reserved row would stay ``started`` and
-    keep refusing triggers until :data:`STALE_RUN_AFTER`. A row that already
-    has an outcome is left alone.
+    keep refusing triggers until :data:`STALE_RUN_AFTER`.
+
+    One conditional UPDATE rather than read-then-write: if the run's own
+    commit lands while this waits on the row lock, Postgres re-checks the
+    predicate against the committed row and leaves the recorded outcome
+    alone. Matching *pipeline* too means an id that named some other run
+    cannot fail it. Returns whether a row was marked.
     """
-    run = await db.get(ProcessingLog, run_id)
-    if run is None or run.status != PipelineStatus.STARTED:
-        return False
-    run.status = PipelineStatus.FAILED
-    run.error = error
-    run.completed_at = now or datetime.now(UTC)
-    await db.flush()
-    return True
+    stmt = (
+        update(ProcessingLog)
+        .where(
+            ProcessingLog.id == run_id,
+            ProcessingLog.pipeline == pipeline,
+            ProcessingLog.status == PipelineStatus.STARTED,
+        )
+        .values(
+            status=PipelineStatus.FAILED,
+            error=error,
+            completed_at=now or datetime.now(UTC),
+        )
+    )
+    result = await db.execute(stmt)
+    return result.rowcount > 0
 
 
 async def list_recent_runs(

@@ -935,32 +935,72 @@ async def test_abandoned_reservation_is_marked_failed(db_session: AsyncSession):
 async def test_fail_abandoned_run_leaves_a_recorded_outcome_alone(db_session: AsyncSession):
     done = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.COMPLETED)
 
-    assert not await pipelines_svc.fail_abandoned_run(db_session, done.id, "late")
-    assert done.status == PipelineStatus.COMPLETED
+    marked = await pipelines_svc.fail_abandoned_run(
+        db_session, done.id, PipelineType.QUIZ_GENERATION, "late"
+    )
+
+    assert not marked
+    [run] = await _quiz_runs(db_session)
+    assert run.status == PipelineStatus.COMPLETED
 
 
-async def test_cancelled_reservation_is_marked_failed(db_session: AsyncSession):
-    """A worker reload cancels the task; the reservation must not outlive it."""
+async def test_fail_abandoned_run_leaves_another_pipelines_run_alone(db_session: AsyncSession):
+    """An id that names some other pipeline's live run must not fail it."""
+    live = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.STARTED)
+
+    marked = await pipelines_svc.fail_abandoned_run(
+        db_session, live.id, PipelineType.PROJECT_EVALUATION, "wrong run"
+    )
+
+    assert not marked
+    [run] = await _quiz_runs(db_session)
+    assert run.status == PipelineStatus.STARTED
+
+
+async def test_cancelled_run_fails_its_reservation_and_stays_cancelled(db_session: AsyncSession):
+    """A worker reload cancels the task mid-run; the reservation must not outlive it."""
     run = await pipelines_svc.reserve_run(db_session, PipelineType.QUIZ_GENERATION)
     await db_session.commit()
+    started = asyncio.Event()
 
-    async def cancelled(db: AsyncSession, *, run_id: uuid.UUID) -> None:
-        raise asyncio.CancelledError
+    async def long_run(db: AsyncSession, *, run_id: uuid.UUID) -> None:
+        await pipelines_svc.open_run_log(db, PipelineType.QUIZ_GENERATION, run_id)
+        started.set()
+        await asyncio.sleep(60)
 
+    task = asyncio.create_task(
+        pipelines_router._run_in_background(long_run, "quiz_generation", run.id)
+    )
+    await started.wait()
+    task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await pipelines_router._run_in_background(cancelled, "quiz_generation", run.id)
+        await task
 
+    assert task.cancelled()
     [failed] = await _quiz_runs(db_session)
     assert failed.status == PipelineStatus.FAILED
     assert "cancelled" in (failed.error or "")
 
 
-async def test_open_run_log_refuses_a_row_that_is_not_a_reservation(db_session: AsyncSession):
-    """Adopting a finished run would overwrite its recorded history."""
-    done = await _add_run(db_session, PipelineType.QUIZ_GENERATION, PipelineStatus.COMPLETED)
+@pytest.mark.parametrize(
+    ("pipeline", "status"),
+    [
+        (PipelineType.QUIZ_GENERATION, PipelineStatus.COMPLETED),
+        (PipelineType.PROFILE_UPDATE, PipelineStatus.STARTED),
+    ],
+    ids=["finished-run", "other-pipeline"],
+)
+async def test_open_run_log_refuses_a_row_that_is_not_its_reservation(
+    db_session: AsyncSession, pipeline: PipelineType, status: PipelineStatus
+):
+    """Adopting another run's row would overwrite its recorded history."""
+    other = await _add_run(db_session, pipeline, status)
 
     with pytest.raises(ValueError):
-        await pipelines_svc.open_run_log(db_session, PipelineType.QUIZ_GENERATION, done.id)
+        await pipelines_svc.open_run_log(db_session, PipelineType.QUIZ_GENERATION, other.id)
+
+    await db_session.refresh(other)
+    assert (other.pipeline, other.status) == (pipeline, status)
 
 
 # ---------------------------------------------------------------------------
