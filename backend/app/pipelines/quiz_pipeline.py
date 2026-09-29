@@ -329,6 +329,7 @@ class _QuizTally:
     duplicate_topic: int = 0
 
     def as_metadata(self) -> dict[str, int]:
+        """The skip counters under the run-metadata keys they have always used."""
         return {
             "skipped_disliked": self.disliked,
             "skipped_already_liked": self.already_liked,

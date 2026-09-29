@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
-from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -605,7 +604,7 @@ def _parse_feed_entry(node: ET.Element) -> FeedItem | None:
     The first element that yields a value for a field wins; a later element
     only fills a field that is still empty.
     """
-    fields: dict[str, Any] = {}
+    fields: dict[str, str | datetime | None] = {}
     for child in node:
         field_name = _FEED_ENTRY_FIELDS.get(child.tag.rpartition("}")[2])
         if field_name is None or fields.get(field_name) is not None:
@@ -621,7 +620,7 @@ def _parse_feed_entry(node: ET.Element) -> FeedItem | None:
     )
 
 
-def _read_feed_entry_field(field_name: str, child: ET.Element) -> Any:
+def _read_feed_entry_field(field_name: str, child: ET.Element) -> str | datetime | None:
     if field_name == "url":
         # Atom puts the URL in @href; RSS puts it in the element text.
         # An Atom <link rel="replies"> is not the article, so only

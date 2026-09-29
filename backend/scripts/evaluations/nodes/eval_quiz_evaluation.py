@@ -71,7 +71,7 @@ def score_quiz_evaluation(expected: dict, actual: dict) -> float:
     return sum(scores) / len(scores) if scores else 0.0
 
 
-def _find_evaluation(evaluations: list[dict], question_id: Any) -> dict | None:
+def _find_evaluation(evaluations: list[dict], question_id: object) -> dict | None:
     """The first evaluation for *question_id*, or None."""
     for act_ev in evaluations:
         if act_ev.get("question_id") == question_id:

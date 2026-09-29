@@ -115,7 +115,7 @@ export function usePipelineStatus(
  * Unparseable timestamps are skipped; on a tie the earliest listed wins.
  */
 function pickTimestamp(
-  timestamps: string[],
+  timestamps: readonly string[],
   beats: (candidate: number, best: number) => boolean,
 ): string | null {
   let best: string | null = null;

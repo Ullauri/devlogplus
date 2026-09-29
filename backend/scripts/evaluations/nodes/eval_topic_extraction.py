@@ -70,8 +70,7 @@ def score_topic_extraction(expected: dict, actual: dict) -> float:
         scores.append(max_t / len(topics))
 
     # 2–4. Per-expected-topic matching
-    for exp in exp_topics:
-        scores.append(_best_topic_match(exp, topics))
+    scores += [_best_topic_match(exp, topics) for exp in exp_topics]
 
     return sum(scores) / len(scores) if scores else 0.0
 
