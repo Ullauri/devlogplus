@@ -71,48 +71,54 @@ def score_topic_extraction(expected: dict, actual: dict) -> float:
 
     # 2–4. Per-expected-topic matching
     for exp in exp_topics:
-        exp_name_lower = exp["name"].lower()
-        # Find best match by name overlap
-        best_score = 0.0
-        for act_topic in topics:
-            act_name_lower = act_topic.get("name", "").lower()
-            # Check name similarity (word overlap)
-            exp_words = set(exp_name_lower.split())
-            act_words = set(act_name_lower.split())
-            name_sim = (
-                len(exp_words & act_words) / len(exp_words | act_words)
-                if (exp_words | act_words)
-                else 0.0
-            )
-            if name_sim < 0.2:
-                continue
-
-            topic_score = name_sim  # base
-
-            # Category match
-            if act_topic.get("category") == exp.get("category"):
-                topic_score = (topic_score + 1.0) / 2
-            else:
-                topic_score = (topic_score + 0.3) / 2
-
-            # Evidence strength match
-            if act_topic.get("evidence_strength") == exp.get("evidence_strength"):
-                topic_score = (topic_score + 1.0) / 2
-            else:
-                topic_score = (topic_score + 0.3) / 2
-
-            # Confidence threshold
-            conf_min = exp.get("confidence_min", 0.0)
-            if act_topic.get("confidence", 0) >= conf_min:
-                topic_score = (topic_score + 1.0) / 2
-            else:
-                topic_score = (topic_score + 0.4) / 2
-
-            best_score = max(best_score, topic_score)
-
-        scores.append(best_score)
+        scores.append(_best_topic_match(exp, topics))
 
     return sum(scores) / len(scores) if scores else 0.0
+
+
+def _best_topic_match(exp: dict, topics: list[dict]) -> float:
+    """Score of the best-matching extracted topic for one expected topic."""
+    exp_name_lower = exp["name"].lower()
+    # Find best match by name overlap
+    best_score = 0.0
+    for act_topic in topics:
+        topic_score = _topic_match_score(exp, exp_name_lower, act_topic)
+        if topic_score is not None:
+            best_score = max(best_score, topic_score)
+    return best_score
+
+
+def _topic_match_score(exp: dict, exp_name_lower: str, act_topic: dict) -> float | None:
+    """How well *act_topic* matches *exp*, or None if the names barely overlap.
+
+    Starts from the names' word overlap, then averages in category,
+    evidence-strength and confidence agreement one at a time.
+    """
+    act_name_lower = act_topic.get("name", "").lower()
+    # Check name similarity (word overlap)
+    exp_words = set(exp_name_lower.split())
+    act_words = set(act_name_lower.split())
+    name_sim = (
+        len(exp_words & act_words) / len(exp_words | act_words) if (exp_words | act_words) else 0.0
+    )
+    if name_sim < 0.2:
+        return None
+
+    topic_score = name_sim  # base
+    # Category match
+    topic_score = _blend(topic_score, act_topic.get("category") == exp.get("category"), 0.3)
+    # Evidence strength match
+    topic_score = _blend(
+        topic_score, act_topic.get("evidence_strength") == exp.get("evidence_strength"), 0.3
+    )
+    # Confidence threshold
+    conf_min = exp.get("confidence_min", 0.0)
+    return _blend(topic_score, act_topic.get("confidence", 0) >= conf_min, 0.4)
+
+
+def _blend(score: float, matched: bool, miss: float) -> float:
+    """Average *score* with 1.0 on a match, or with *miss* otherwise."""
+    return (score + (1.0 if matched else miss)) / 2
 
 
 # ---------------------------------------------------------------------------

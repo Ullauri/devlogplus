@@ -63,6 +63,28 @@ async def call_reading_generation(input_data: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Custom accuracy scorer
 # ---------------------------------------------------------------------------
+def _allowlist_compliance(rec: dict, allowed: set[str]) -> float:
+    """1 if the rec is on the allowlist, 0.5 for a subdomain match, else 0."""
+    url = rec.get("url", "")
+    source_domain = rec.get("source_domain", "")
+    # Check both the declared source_domain and the actual URL
+    url_domain = urlparse(url).netloc.replace("www.", "")
+    if source_domain in allowed or url_domain in allowed:
+        return 1
+    if any(d in url_domain for d in allowed):
+        return 0.5  # subdomain match
+    return 0
+
+
+def _required_fields_score(recs: list[dict], required: list[str]) -> float:
+    """Mean share of *required* fields that each rec fills in."""
+    field_score = 0.0
+    for rec in recs:
+        has = sum(1 for f in required if rec.get(f))
+        field_score += has / len(required)
+    return field_score / len(recs)
+
+
 def score_reading_generation(expected: dict, actual: dict) -> float:
     """Score reading generation accuracy.
 
@@ -88,16 +110,7 @@ def score_reading_generation(expected: dict, actual: dict) -> float:
 
     # 2. Domain allowlist compliance
     if expected.get("all_from_allowlist") and recs and allowed:
-        compliant = 0
-        for rec in recs:
-            url = rec.get("url", "")
-            source_domain = rec.get("source_domain", "")
-            # Check both the declared source_domain and the actual URL
-            url_domain = urlparse(url).netloc.replace("www.", "")
-            if source_domain in allowed or url_domain in allowed:
-                compliant += 1
-            elif any(d in url_domain for d in allowed):
-                compliant += 0.5  # subdomain match
+        compliant = sum(_allowlist_compliance(rec, allowed) for rec in recs)
         scores.append(compliant / len(recs))
     elif not recs:
         scores.append(0.0)
@@ -105,11 +118,7 @@ def score_reading_generation(expected: dict, actual: dict) -> float:
     # 3. Required fields
     required = expected.get("must_have_fields", [])
     if required and recs:
-        field_score = 0.0
-        for rec in recs:
-            has = sum(1 for f in required if rec.get(f))
-            field_score += has / len(required)
-        scores.append(field_score / len(recs))
+        scores.append(_required_fields_score(recs, required))
 
     # 4. Valid recommendation types
     valid_types = {"next_frontier", "weak_spot", "deep_dive"}
