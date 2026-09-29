@@ -10,6 +10,7 @@ There is no schedule and no CLI entrypoint.
 import logging
 import uuid
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
 from sqlalchemy import select
@@ -130,6 +131,368 @@ def _format_candidate(candidate: reading_svc.Candidate) -> str:
     return f"[{candidate.index}] {candidate.domain} — {candidate.title}{when}"
 
 
+@dataclass
+class _AvoidSignals:
+    """What the user already has or rejected, for filtering and prompting."""
+
+    disliked_urls: set[str]
+    liked_urls: set[str]
+    all_stored_urls: set[str]
+    avoid_urls: set[str]
+    downrank_text: str
+    liked_directions_text: str
+
+
+async def _gather_avoid_signals(db: AsyncSession) -> _AvoidSignals:
+    """Collect the URLs never to recommend again and the domains to downrank."""
+    # Engagement state — what the user did with past items without ever
+    # clicking a thumb. Dismissals count as rejections alongside
+    # thumbs-down; saves are the strongest positive available.
+    engagement = await reading_svc.get_engagement_signals(db)
+
+    # Gather thumbs-down readings: exclude their URLs, downrank their domains.
+    disliked_reading_ids = await feedback_svc.list_disliked_target_ids(
+        db, FeedbackTargetType.READING
+    )
+    disliked_lookup = await _load_reading_lookup(db, disliked_reading_ids)
+    disliked_urls = {reading_svc.normalize_url(r.url) for r in disliked_lookup.values()}
+    # A dismissal is a rejection the user could not be bothered to
+    # thumbs-down, so it carries the same weight for domain downranking.
+    # Counted per reading, so an item both dismissed and thumbs-downed
+    # does not register twice.
+    rejected_readings = {r.id: r for r in disliked_lookup.values()}
+    rejected_readings.update({r.id: r for r in engagement.dismissed})
+    domain_dislike_counts = Counter(r.source_domain for r in rejected_readings.values())
+    downranked_domains = {d for d, n in domain_dislike_counts.items() if n >= 2}
+
+    # Gather thumbs-up readings: positive *directional* signal.
+    # We hard-block the exact URLs (no point re-recommending what the user
+    # already liked + read) but surface theme/domain/type so the LLM can
+    # lean in the same direction with NEW material.
+    liked_reading_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.READING)
+    liked_lookup = await _load_reading_lookup(db, liked_reading_ids)
+    liked_readings = list(liked_lookup.values())
+    liked_urls = {reading_svc.normalize_url(r.url) for r in liked_readings}
+
+    # All URLs ever stored — regardless of feedback status.  A URL the
+    # user hasn't rated is still a duplicate if it already appeared in a
+    # previous batch; only the title/description would differ, not the
+    # content. Using the URL as the canonical identity prevents that.
+    all_stored_urls = await reading_svc.get_all_recommendation_urls(db)
+
+    downrank_lines = [
+        f"- {d} ({domain_dislike_counts[d]} rejected)" for d in sorted(downranked_domains)
+    ]
+    # A domain recommended repeatedly and never once opened is not landing,
+    # even though the user never said so explicitly.
+    downrank_lines += [
+        f"- {d} ({n} recommended, none ever opened)"
+        for d, n in sorted(engagement.ignored_domains.items())
+        if d not in downranked_domains
+    ]
+    return _AvoidSignals(
+        disliked_urls=disliked_urls,
+        liked_urls=liked_urls,
+        all_stored_urls=all_stored_urls,
+        # Combined hard-avoid set: any URL already stored + disliked + liked.
+        avoid_urls=all_stored_urls | disliked_urls | liked_urls,
+        downrank_text="\n".join(downrank_lines) or "None",
+        # Saved items lead: keeping something is a deliberate act, where a
+        # thumbs-up can be a passing reaction.
+        liked_directions_text=_format_liked_directions(engagement.saved, liked_readings),
+    )
+
+
+async def _gather_feedforward_text(db: AsyncSession) -> str:
+    """Feedforward signals — scoped to readings + general notes.
+
+    Each note is contextualised with the item it references.
+    """
+    relevant_feedback = await feedback_svc.list_feedback_by_target_types(
+        db, [FeedbackTargetType.READING], limit=50
+    )
+    # Also pull in recent cross-cutting notes from other target types that
+    # may carry useful steering (e.g. "more backend content").
+    other_feedback = await feedback_svc.list_all_feedback(db, limit=50)
+    seen_ids = {f.id for f in relevant_feedback}
+    relevant_feedback += [fb for fb in other_feedback if fb.id not in seen_ids and fb.note]
+    # Enrich with reading titles where possible
+    note_reading_ids = {
+        fb.target_id for fb in relevant_feedback if fb.target_type == FeedbackTargetType.READING
+    }
+    note_reading_lookup = await _load_reading_lookup(db, note_reading_ids)
+    return _format_feedforward(relevant_feedback, note_reading_lookup)
+
+
+async def _gather_candidates(
+    db: AsyncSession, allowed_domains: set[str], avoid_urls: set[str]
+) -> list[reading_svc.Candidate]:
+    """Build the candidate pool: real, currently-published articles.
+
+    They are read from the allowlisted domains' own feeds. The model selects
+    from this rather than recalling URLs, which it cannot do — see
+    `reading_svc.gather_candidates`.
+    """
+    if not settings.reading_use_feed_candidates:
+        return []
+    return await reading_svc.gather_candidates(
+        db,
+        allowed_domains=allowed_domains,
+        # Nothing already on file, disliked or liked can be chosen, so
+        # excluding them here spends the pool on genuinely new material
+        # instead of on options the storage loop would drop anyway.
+        exclude_urls=avoid_urls,
+        per_domain=settings.reading_feed_items_per_domain,
+        limit=settings.reading_candidate_pool_size,
+        timeout=settings.reading_feed_timeout,
+        recheck_days=settings.reading_feed_recheck_days,
+    )
+
+
+def _selection_prompt_parts(
+    candidates: list[reading_svc.Candidate], avoid_urls: set[str]
+) -> tuple[str, str, str]:
+    """Return ``(candidate_text, instructions, avoid_text)`` for the prompt."""
+    if candidates:
+        # Every avoided URL was already withheld from the pool, so the model
+        # cannot select one. Listing them again buys nothing and the list
+        # only grows — it is one line per recommendation ever stored, which
+        # would eventually dwarf the pool it is meant to constrain.
+        return (
+            "\n".join(_format_candidate(c) for c in candidates),
+            reading_generation.SELECT_INSTRUCTIONS,
+            f"{len(avoid_urls)} previously-seen URLs have already been "
+            "withheld from the candidate list below.",
+        )
+    # Every feed failed, or the operator turned sourcing off. Fall back
+    # to model recall and let link verification carry the weight.
+    logger.warning(
+        "No feed candidates available — falling back to model-recalled URLs, "
+        "which are frequently invented."
+    )
+    # In recall mode the model picks the URLs, so it needs the actual list.
+    return (
+        "None available",
+        reading_generation.RECALL_INSTRUCTIONS,
+        "\n".join(f"- {u}" for u in sorted(avoid_urls)) or "None",
+    )
+
+
+def _resolve_picks(
+    recommendations: list[GeneratedReading],
+    candidates_by_id: dict[int, reading_svc.Candidate],
+) -> tuple[list[tuple[GeneratedReading, str, str]], int]:
+    """Resolve each pick to a concrete article: ``(resolved, skipped_unresolved)``.
+
+    In selection mode the title and URL come from the candidate pool, so
+    the model's only contribution to identity is an integer it either
+    read off the list or did not.
+    """
+    resolved: list[tuple[GeneratedReading, str, str]] = []
+    skipped_unresolved = 0
+    for rec in recommendations:
+        if candidates_by_id:
+            candidate = candidates_by_id.get(rec.candidate_id or -1)
+            if candidate is None:
+                logger.warning(
+                    "Skipping recommendation with unknown candidate_id=%r (pool size %d)",
+                    rec.candidate_id,
+                    len(candidates_by_id),
+                )
+                skipped_unresolved += 1
+                continue
+            resolved.append((rec, candidate.title, candidate.url))
+        elif rec.url and rec.title:
+            resolved.append((rec, rec.title, rec.url))
+        else:
+            logger.warning("Skipping recall-mode recommendation with no url/title")
+            skipped_unresolved += 1
+    return resolved, skipped_unresolved
+
+
+@dataclass
+class _StoreTally:
+    """Why resolved picks were not stored, for the run's metadata."""
+
+    disliked: int = 0
+    already_liked: int = 0
+    duplicate_url: int = 0
+    duplicate_topic: int = 0
+    off_allowlist: int = 0
+    bad_link: list[dict[str, str]] = field(default_factory=list)
+
+
+def _screen_known_url(rec_url: str, signals: _AvoidSignals, tally: _StoreTally) -> bool:
+    """True if the URL was already seen, disliked or liked, and must be skipped."""
+    norm_url = reading_svc.normalize_url(rec_url)
+
+    # Hard filter: never re-recommend a URL the user has already
+    # reacted to. Thumbs-down → they rejected it; thumbs-up → they
+    # already read it, so the value of re-surfacing is zero.
+    if norm_url in signals.disliked_urls:
+        logger.info("Skipping previously-disliked recommendation: %s", rec_url)
+        tally.disliked += 1
+        return True
+    if norm_url in signals.liked_urls:
+        logger.info("Skipping already-liked recommendation: %s", rec_url)
+        tally.already_liked += 1
+        return True
+
+    # Hard filter: skip any URL that already exists in the database,
+    # even if the user hasn't reacted to it yet. The link is the same
+    # resource regardless of how the LLM labels it.
+    if norm_url in signals.all_stored_urls:
+        logger.info("Skipping already-recommended URL: %s", rec_url)
+        tally.duplicate_url += 1
+        return True
+    return False
+
+
+def _link_verdict(
+    rec_title: str,
+    rec_url: str,
+    link_checks: dict[str, reading_svc.LinkCheck],
+) -> tuple[bool, str | None]:
+    """Confirm the link is the article it claims to be, not an index page or an
+    unrelated one. Returns ``judge_link``'s ``(ok, reason)``.
+    """
+    if not settings.reading_validate_urls:
+        return True, None
+    # A missing entry means the URL was never fetched, which only
+    # happens when the check is stubbed out. Absence of evidence is
+    # not treated as a failure, matching the prior behaviour.
+    check = link_checks.get(rec_url)
+    if check is None:
+        return True, None
+    return reading_svc.judge_link(
+        rec_title,
+        check,
+        min_title_overlap=settings.reading_min_title_overlap,
+    )
+
+
+def _topic_key(target_topic: str | None) -> str:
+    """The batch-diversity key for a recommendation's target topic ("" if none)."""
+    return (target_topic or "").strip().lower()
+
+
+def _parse_recommendation_type(value: str) -> ReadingRecommendationType:
+    try:
+        return ReadingRecommendationType(value)
+    except ValueError:
+        return ReadingRecommendationType.DEEP_DIVE
+
+
+def _screen_pick(
+    rec: GeneratedReading,
+    rec_title: str,
+    rec_url: str,
+    *,
+    signals: _AvoidSignals,
+    allowed_domains: set[str],
+    link_checks: dict[str, reading_svc.LinkCheck],
+    seen_topics: set[str],
+    tally: _StoreTally,
+) -> str | None:
+    """Run every storage gate on one resolved pick, in order.
+
+    Returns the allowlist domain the URL belongs to, or None if the pick is
+    skipped (the reason is logged and counted on ``tally``).
+    """
+    if _screen_known_url(rec_url, signals, tally):
+        return None
+
+    # Validate the URL's real host against the allowlist. The model's
+    # own `source_domain` label is never trusted — it used to satisfy
+    # this check on its own, which let any URL through behind a
+    # correct-looking label. Candidates were filtered on the way into
+    # the pool, so in selection mode this only ever fires on recall.
+    matched_domain = reading_svc.allowlist_match(rec_url, allowed_domains)
+    if matched_domain is None:
+        logger.warning(
+            "Skipping recommendation whose URL is not on the allowlist: %s (labelled %s)",
+            rec_url,
+            rec.source_domain,
+        )
+        tally.off_allowlist += 1
+        return None
+
+    ok, reason = _link_verdict(rec_title, rec_url, link_checks)
+    if not ok:
+        logger.warning(
+            "Skipping recommendation '%s' (%s): %s",
+            rec_title,
+            reason,
+            rec_url,
+        )
+        tally.bad_link.append({"url": rec_url, "reason": reason or "unknown"})
+        return None
+
+    # Diversity guard (final gate): refuse a second otherwise-valid rec
+    # with the same target_topic in this batch. Prompt asks for distinct
+    # topics; this is the belt-and-braces enforcement so a single hot
+    # topic can't dominate the list even if the LLM ignores the
+    # instruction. Applied AFTER domain + reachability checks so that
+    # an invalid candidate doesn't "burn" a topic slot a valid candidate
+    # could have used.
+    topic_key = _topic_key(rec.target_topic)
+    if topic_key and topic_key in seen_topics:
+        logger.info(
+            "Skipping duplicate-topic recommendation '%s' (topic=%s)",
+            rec_title,
+            rec.target_topic,
+        )
+        tally.duplicate_topic += 1
+        return None
+    return matched_domain
+
+
+def _store_picks(
+    db: AsyncSession,
+    resolved: list[tuple[GeneratedReading, str, str]],
+    *,
+    signals: _AvoidSignals,
+    allowed_domains: set[str],
+    link_checks: dict[str, reading_svc.LinkCheck],
+    batch_date: date,
+    tally: _StoreTally,
+    seen_topics: set[str],
+) -> list[ReadingRecommendation]:
+    """Add every pick that passes the storage gates to the session."""
+    created: list[ReadingRecommendation] = []
+    for rec, rec_title, rec_url in resolved:
+        matched_domain = _screen_pick(
+            rec,
+            rec_title,
+            rec_url,
+            signals=signals,
+            allowed_domains=allowed_domains,
+            link_checks=link_checks,
+            seen_topics=seen_topics,
+            tally=tally,
+        )
+        if matched_domain is None:
+            continue
+
+        reading = ReadingRecommendation(
+            title=rec_title,
+            url=rec_url,
+            # The allowlist entry the URL actually belongs to, not the
+            # model's label for it. Domain-level dislike counts are derived
+            # from this column, so a wrong label mis-attributed rejections.
+            source_domain=matched_domain,
+            description=rec.description,
+            recommendation_type=_parse_recommendation_type(rec.recommendation_type),
+            batch_date=batch_date,
+        )
+        db.add(reading)
+        created.append(reading)
+        topic_key = _topic_key(rec.target_topic)
+        if topic_key:
+            seen_topics.add(topic_key)
+    return created
+
+
 async def generate_readings(
     db: AsyncSession,
     *,
@@ -161,78 +524,8 @@ async def generate_readings(
         allowlist_text = "\n".join(f"- {e.domain} ({e.name})" for e in allowlist)
         allowed_domains = {e.domain for e in allowlist}
 
-        # Engagement state — what the user did with past items without ever
-        # clicking a thumb. Dismissals count as rejections alongside
-        # thumbs-down; saves are the strongest positive available.
-        engagement = await reading_svc.get_engagement_signals(db)
-
-        # Gather thumbs-down readings: exclude their URLs, downrank their domains.
-        disliked_reading_ids = await feedback_svc.list_disliked_target_ids(
-            db, FeedbackTargetType.READING
-        )
-        disliked_lookup = await _load_reading_lookup(db, disliked_reading_ids)
-        disliked_urls = {reading_svc.normalize_url(r.url) for r in disliked_lookup.values()}
-        # A dismissal is a rejection the user could not be bothered to
-        # thumbs-down, so it carries the same weight for domain downranking.
-        # Counted per reading, so an item both dismissed and thumbs-downed
-        # does not register twice.
-        rejected_readings = {r.id: r for r in disliked_lookup.values()}
-        rejected_readings.update({r.id: r for r in engagement.dismissed})
-        domain_dislike_counts = Counter(r.source_domain for r in rejected_readings.values())
-        downranked_domains = {d for d, n in domain_dislike_counts.items() if n >= 2}
-
-        # Gather thumbs-up readings: positive *directional* signal.
-        # We hard-block the exact URLs (no point re-recommending what the user
-        # already liked + read) but surface theme/domain/type so the LLM can
-        # lean in the same direction with NEW material.
-        liked_reading_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.READING)
-        liked_lookup = await _load_reading_lookup(db, liked_reading_ids)
-        liked_readings = list(liked_lookup.values())
-        liked_urls = {reading_svc.normalize_url(r.url) for r in liked_readings}
-
-        # All URLs ever stored — regardless of feedback status.  A URL the
-        # user hasn't rated is still a duplicate if it already appeared in a
-        # previous batch; only the title/description would differ, not the
-        # content. Using the URL as the canonical identity prevents that.
-        all_stored_urls = await reading_svc.get_all_recommendation_urls(db)
-
-        # Combined hard-avoid set: any URL already stored + disliked + liked.
-        avoid_urls = all_stored_urls | disliked_urls | liked_urls
-
-        avoid_urls_text = "\n".join(f"- {u}" for u in sorted(avoid_urls)) or "None"
-        downrank_lines = [
-            f"- {d} ({domain_dislike_counts[d]} rejected)" for d in sorted(downranked_domains)
-        ]
-        # A domain recommended repeatedly and never once opened is not landing,
-        # even though the user never said so explicitly.
-        downrank_lines += [
-            f"- {d} ({n} recommended, none ever opened)"
-            for d, n in sorted(engagement.ignored_domains.items())
-            if d not in downranked_domains
-        ]
-        downrank_text = "\n".join(downrank_lines) or "None"
-        # Saved items lead: keeping something is a deliberate act, where a
-        # thumbs-up can be a passing reaction.
-        liked_directions_text = _format_liked_directions(engagement.saved, liked_readings)
-
-        # Feedforward signals — scoped to readings + general notes,
-        # and contextualised with the item they reference.
-        relevant_feedback = await feedback_svc.list_feedback_by_target_types(
-            db, [FeedbackTargetType.READING], limit=50
-        )
-        # Also pull in recent cross-cutting notes from other target types that
-        # may carry useful steering (e.g. "more backend content").
-        other_feedback = await feedback_svc.list_all_feedback(db, limit=50)
-        seen_ids = {f.id for f in relevant_feedback}
-        for fb in other_feedback:
-            if fb.id not in seen_ids and fb.note:
-                relevant_feedback.append(fb)
-        # Enrich with reading titles where possible
-        note_reading_ids = {
-            fb.target_id for fb in relevant_feedback if fb.target_type == FeedbackTargetType.READING
-        }
-        note_reading_lookup = await _load_reading_lookup(db, note_reading_ids)
-        feedforward_text = _format_feedforward(relevant_feedback, note_reading_lookup)
+        signals = await _gather_avoid_signals(db)
+        feedforward_text = await _gather_feedforward_text(db)
 
         recommendation_count = await onboarding_svc.get_int_setting(
             db,
@@ -242,48 +535,11 @@ async def generate_readings(
             maximum=READING_RECOMMENDATION_COUNT_MAX,
         )
 
-        # Build the candidate pool: real, currently-published articles read
-        # from the allowlisted domains' own feeds. The model selects from this
-        # rather than recalling URLs, which it cannot do — see
-        # `reading_svc.gather_candidates`.
-        candidates: list[reading_svc.Candidate] = []
-        if settings.reading_use_feed_candidates:
-            candidates = await reading_svc.gather_candidates(
-                db,
-                allowed_domains=allowed_domains,
-                # Nothing already on file, disliked or liked can be chosen, so
-                # excluding them here spends the pool on genuinely new material
-                # instead of on options the storage loop would drop anyway.
-                exclude_urls=avoid_urls,
-                per_domain=settings.reading_feed_items_per_domain,
-                limit=settings.reading_candidate_pool_size,
-                timeout=settings.reading_feed_timeout,
-                recheck_days=settings.reading_feed_recheck_days,
-            )
+        candidates = await _gather_candidates(db, allowed_domains, signals.avoid_urls)
         candidates_by_id = {c.index: c for c in candidates}
-
-        if candidates:
-            candidate_text = "\n".join(_format_candidate(c) for c in candidates)
-            instructions = reading_generation.SELECT_INSTRUCTIONS
-            # Every avoided URL was already withheld from the pool, so the model
-            # cannot select one. Listing them again buys nothing and the list
-            # only grows — it is one line per recommendation ever stored, which
-            # would eventually dwarf the pool it is meant to constrain.
-            avoid_text_for_prompt = (
-                f"{len(avoid_urls)} previously-seen URLs have already been "
-                "withheld from the candidate list below."
-            )
-        else:
-            # Every feed failed, or the operator turned sourcing off. Fall back
-            # to model recall and let link verification carry the weight.
-            logger.warning(
-                "No feed candidates available — falling back to model-recalled URLs, "
-                "which are frequently invented."
-            )
-            candidate_text = "None available"
-            instructions = reading_generation.RECALL_INSTRUCTIONS
-            # In recall mode the model picks the URLs, so it needs the actual list.
-            avoid_text_for_prompt = avoid_urls_text
+        candidate_text, instructions, avoid_text_for_prompt = _selection_prompt_parts(
+            candidates, signals.avoid_urls
+        )
 
         # Generate via LLM
         prompt = reading_generation.USER_PROMPT_TEMPLATE.format(
@@ -291,8 +547,8 @@ async def generate_readings(
             allowlist_domains=allowlist_text,
             feedforward_signals=feedforward_text,
             avoid_urls=avoid_text_for_prompt,
-            downranked_domains=downrank_text,
-            liked_directions=liked_directions_text,
+            downranked_domains=signals.downrank_text,
+            liked_directions=signals.liked_directions_text,
             candidate_articles=candidate_text,
             selection_instructions=instructions.format(recommendation_count=recommendation_count),
             recommendation_count=recommendation_count,
@@ -308,29 +564,7 @@ async def generate_readings(
 
         gen_result = ReadingGenerationResult.model_validate(raw_result)
 
-        # ── Resolve each pick to a concrete article ──────────────────
-        # In selection mode the title and URL come from the candidate pool, so
-        # the model's only contribution to identity is an integer it either
-        # read off the list or did not.
-        resolved: list[tuple[GeneratedReading, str, str]] = []
-        skipped_unresolved = 0
-        for rec in gen_result.recommendations:
-            if candidates_by_id:
-                candidate = candidates_by_id.get(rec.candidate_id or -1)
-                if candidate is None:
-                    logger.warning(
-                        "Skipping recommendation with unknown candidate_id=%r (pool size %d)",
-                        rec.candidate_id,
-                        len(candidates_by_id),
-                    )
-                    skipped_unresolved += 1
-                    continue
-                resolved.append((rec, candidate.title, candidate.url))
-            elif rec.url and rec.title:
-                resolved.append((rec, rec.title, rec.url))
-            else:
-                logger.warning("Skipping recall-mode recommendation with no url/title")
-                skipped_unresolved += 1
+        resolved, skipped_unresolved = _resolve_picks(gen_result.recommendations, candidates_by_id)
 
         # ── Link verification ────────────────────────────────────────
         # Still worth doing in selection mode: a feed can list an article that
@@ -345,113 +579,18 @@ async def generate_readings(
 
         # Validate and store
         batch_date = date.today()
-        created: list[ReadingRecommendation] = []
-        skipped_disliked = 0
-        skipped_already_liked = 0
-        skipped_duplicate_url = 0
-        skipped_duplicate_topic = 0
-        skipped_off_allowlist = 0
-        skipped_bad_link: list[dict[str, str]] = []
+        tally = _StoreTally()
         seen_topics: set[str] = set()
-
-        for rec, rec_title, rec_url in resolved:
-            norm_url = reading_svc.normalize_url(rec_url)
-
-            # Hard filter: never re-recommend a URL the user has already
-            # reacted to. Thumbs-down → they rejected it; thumbs-up → they
-            # already read it, so the value of re-surfacing is zero.
-            if norm_url in disliked_urls:
-                logger.info("Skipping previously-disliked recommendation: %s", rec_url)
-                skipped_disliked += 1
-                continue
-            if norm_url in liked_urls:
-                logger.info("Skipping already-liked recommendation: %s", rec_url)
-                skipped_already_liked += 1
-                continue
-
-            # Hard filter: skip any URL that already exists in the database,
-            # even if the user hasn't reacted to it yet. The link is the same
-            # resource regardless of how the LLM labels it.
-            if norm_url in all_stored_urls:
-                logger.info("Skipping already-recommended URL: %s", rec_url)
-                skipped_duplicate_url += 1
-                continue
-
-            # Validate the URL's real host against the allowlist. The model's
-            # own `source_domain` label is never trusted — it used to satisfy
-            # this check on its own, which let any URL through behind a
-            # correct-looking label. Candidates were filtered on the way into
-            # the pool, so in selection mode this only ever fires on recall.
-            matched_domain = reading_svc.allowlist_match(rec_url, allowed_domains)
-            if matched_domain is None:
-                logger.warning(
-                    "Skipping recommendation whose URL is not on the allowlist: %s (labelled %s)",
-                    rec_url,
-                    rec.source_domain,
-                )
-                skipped_off_allowlist += 1
-                continue
-
-            # Confirm the link is the article it claims to be, not an index
-            # page or an unrelated one.
-            if settings.reading_validate_urls:
-                # A missing entry means the URL was never fetched, which only
-                # happens when the check is stubbed out. Absence of evidence is
-                # not treated as a failure, matching the prior behaviour.
-                check = link_checks.get(rec_url)
-                if check is not None:
-                    ok, reason = reading_svc.judge_link(
-                        rec_title,
-                        check,
-                        min_title_overlap=settings.reading_min_title_overlap,
-                    )
-                    if not ok:
-                        logger.warning(
-                            "Skipping recommendation '%s' (%s): %s",
-                            rec_title,
-                            reason,
-                            rec_url,
-                        )
-                        skipped_bad_link.append({"url": rec_url, "reason": reason or "unknown"})
-                        continue
-
-            # Diversity guard (final gate): refuse a second otherwise-valid rec
-            # with the same target_topic in this batch. Prompt asks for distinct
-            # topics; this is the belt-and-braces enforcement so a single hot
-            # topic can't dominate the list even if the LLM ignores the
-            # instruction. Applied AFTER domain + reachability checks so that
-            # an invalid candidate doesn't "burn" a topic slot a valid candidate
-            # could have used.
-            topic_key = (rec.target_topic or "").strip().lower()
-            if topic_key and topic_key in seen_topics:
-                logger.info(
-                    "Skipping duplicate-topic recommendation '%s' (topic=%s)",
-                    rec_title,
-                    rec.target_topic,
-                )
-                skipped_duplicate_topic += 1
-                continue
-
-            try:
-                rec_type = ReadingRecommendationType(rec.recommendation_type)
-            except ValueError:
-                rec_type = ReadingRecommendationType.DEEP_DIVE
-
-            reading = ReadingRecommendation(
-                title=rec_title,
-                url=rec_url,
-                # The allowlist entry the URL actually belongs to, not the
-                # model's label for it. Domain-level dislike counts are derived
-                # from this column, so a wrong label mis-attributed rejections.
-                source_domain=matched_domain,
-                description=rec.description,
-                recommendation_type=rec_type,
-                batch_date=batch_date,
-            )
-            db.add(reading)
-            created.append(reading)
-            if topic_key:
-                seen_topics.add(topic_key)
+        created = _store_picks(
+            db,
+            resolved,
+            signals=signals,
+            allowed_domains=allowed_domains,
+            link_checks=link_checks,
+            batch_date=batch_date,
+            tally=tally,
+            seen_topics=seen_topics,
+        )
 
         await db.flush()
 
@@ -460,12 +599,12 @@ async def generate_readings(
         log.metadata_ = {
             "generated": len(gen_result.recommendations),
             "stored": len(created),
-            "skipped_disliked": skipped_disliked,
-            "skipped_already_liked": skipped_already_liked,
-            "skipped_duplicate_url": skipped_duplicate_url,
-            "skipped_duplicate_topic": skipped_duplicate_topic,
-            "skipped_off_allowlist": skipped_off_allowlist,
-            "skipped_bad_link": skipped_bad_link,
+            "skipped_disliked": tally.disliked,
+            "skipped_already_liked": tally.already_liked,
+            "skipped_duplicate_url": tally.duplicate_url,
+            "skipped_duplicate_topic": tally.duplicate_topic,
+            "skipped_off_allowlist": tally.off_allowlist,
+            "skipped_bad_link": tally.bad_link,
             "skipped_unresolved": skipped_unresolved,
             "batch_date": str(batch_date),
             "distinct_topics": len(seen_topics),

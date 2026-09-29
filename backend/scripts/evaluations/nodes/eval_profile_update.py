@@ -53,67 +53,68 @@ def score_profile_update(expected: dict, actual: dict) -> float:
     3. Triage items created when expected
     4. Number of updated topics meets minimum
     """
-    scores: list[float] = []
-
     # Flatten all actual topics from various possible output keys
     actual_text = _flatten_to_text(actual).lower()
 
-    # 1. Target topic present
+    checks = [
+        _target_topic_score(expected, actual_text),  # 1
+        _direction_score(expected, actual_text),  # 2
+        _triage_items_score(expected, actual),  # 3
+        _min_updated_topics_score(expected, actual),  # 4
+    ]
+    # A check that does not apply to this case returns None and is left out.
+    scores = [s for s in checks if s is not None]
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+# Words whose presence signals each expected direction of change.
+_DIRECTION_WORDS: dict[str, set[str]] = {
+    "strengthen": {"strong", "strengthen", "demonstrated", "improved", "upgraded"},
+    "weaken_or_triage": {"weak", "triage", "contradict", "conflict", "attention", "downgrade"},
+    "add_new": {"new", "added", "created", "discovered"},
+}
+
+
+def _target_topic_score(expected: dict, actual_text: str) -> float:
+    """1. Target topic present."""
     target = expected.get("should_contain_updated_topic", "").lower()
-    if target and target in actual_text:
-        scores.append(1.0)
-    elif target:
-        # Partial word match
-        target_words = set(target.split())
-        overlap = sum(1 for w in target_words if w in actual_text)
-        scores.append(overlap / len(target_words))
-    else:
-        scores.append(1.0)
+    if not target or target in actual_text:
+        return 1.0
+    # Partial word match
+    target_words = set(target.split())
+    overlap = sum(1 for w in target_words if w in actual_text)
+    return overlap / len(target_words)
 
-    # 2. Direction of change
+
+def _direction_score(expected: dict, actual_text: str) -> float:
+    """2. Direction of change."""
     direction = expected.get("expected_direction", "")
-    if direction == "strengthen":
-        # Look for signals of strengthening
-        strength_words = {"strong", "strengthen", "demonstrated", "improved", "upgraded"}
-        if any(w in actual_text for w in strength_words):
-            scores.append(1.0)
-        else:
-            scores.append(0.3)
-    elif direction == "weaken_or_triage":
-        weakness_words = {"weak", "triage", "contradict", "conflict", "attention", "downgrade"}
-        if any(w in actual_text for w in weakness_words):
-            scores.append(1.0)
-        else:
-            scores.append(0.3)
-    elif direction == "add_new":
-        new_words = {"new", "added", "created", "discovered"}
-        if any(w in actual_text for w in new_words):
-            scores.append(1.0)
-        else:
-            scores.append(0.3)
-    else:
-        scores.append(0.5)
+    # Only a string can name a direction; anything else scores as "no direction".
+    words = _DIRECTION_WORDS.get(direction) if isinstance(direction, str) else None
+    if words is None:
+        return 0.5
+    return 1.0 if any(w in actual_text for w in words) else 0.3
 
-    # 3. Triage items
+
+def _triage_items_score(expected: dict, actual: dict) -> float | None:
+    """3. Triage items."""
     triage_items = actual.get("triage_items", [])
     if expected.get("min_triage_items"):
-        if len(triage_items) >= expected["min_triage_items"]:
-            scores.append(1.0)
-        else:
-            scores.append(0.0)
-    elif expected.get("should_not_flag_triage"):
-        scores.append(1.0 if len(triage_items) == 0 else 0.5)
+        return 1.0 if len(triage_items) >= expected["min_triage_items"] else 0.0
+    if expected.get("should_not_flag_triage"):
+        return 1.0 if len(triage_items) == 0 else 0.5
+    return None
 
-    # 4. Minimum updated topics
+
+def _min_updated_topics_score(expected: dict, actual: dict) -> float | None:
+    """4. Minimum updated topics."""
     updated = actual.get("updated_topics", [])
     min_updates = expected.get("min_updated_topics", 0)
-    if min_updates > 0:
-        if len(updated) >= min_updates:
-            scores.append(1.0)
-        else:
-            scores.append(len(updated) / min_updates if min_updates else 0.0)
-
-    return sum(scores) / len(scores) if scores else 0.0
+    if not min_updates > 0:
+        return None
+    if len(updated) >= min_updates:
+        return 1.0
+    return len(updated) / min_updates if min_updates else 0.0
 
 
 def _flatten_to_text(d: Any, depth: int = 0) -> str:

@@ -123,54 +123,44 @@ def _describe_decode_failure(candidate: str, exc: json.JSONDecodeError) -> str:
     )
 
 
-def _parse_json_content(
-    content: str, result: dict[str, Any], *, model: str, pipeline: str
-) -> dict[str, Any]:
-    """Read a JSON object out of an assistant response, or say why we couldn't."""
+def _unique_candidates(content: str) -> list[str]:
+    """``_json_candidates`` in order, without empties or repeats."""
     candidates: list[str] = []
     seen: set[str] = set()
     for candidate in _json_candidates(content):
         if candidate and candidate not in seen:
             seen.add(candidate)
             candidates.append(candidate)
+    return candidates
 
-    # The furthest-reaching failure of any pass, kept for the error message.
-    # Position is the right ranking: the earliest candidates are deliberately
-    # loose readings that die at char 0 on the opening fence, and reporting
-    # that instead of the real defect is what makes these failures opaque.
-    #
-    # Both passes count. Ranking strict failures only meant that whenever the
-    # salvage pass got further — which is its whole purpose — the reported
-    # cause was the control character it had already forgiven, not the defect
-    # that actually sank the parse. One real case: a response reported as
-    # "invalid control character at char 12209" was in truth rejected at char
-    # 14509, where the model wrote `"reference_answer="` for `"reference_answer": "`.
-    deepest: tuple[str, json.JSONDecodeError] | None = None
 
-    # Strict first, so a well-formed response is parsed exactly as sent. The
-    # salvage pass only relaxes control characters inside strings — the shape
-    # a model produces when a prompt invites a multi-line answer (this one asks
-    # for "a short bulleted list when that's genuinely clearer") and it emits
-    # real newlines instead of \n escapes. Nothing else about JSON is loosened.
-    for strict in (True, False):
-        for candidate in candidates:
-            try:
-                parsed = json.loads(candidate, strict=strict)
-            except json.JSONDecodeError as exc:
-                if deepest is None or exc.pos > deepest[1].pos:
-                    deepest = (candidate, exc)
-                continue
-            if isinstance(parsed, dict):
-                if not strict:
-                    logger.warning(
-                        "Recovered JSON for pipeline=%s model=%s only by allowing raw control "
-                        "characters in strings — the model emitted literal newlines instead of "
-                        "escapes.",
-                        pipeline,
-                        model,
-                    )
-                return parsed
+_Deepest = tuple[str, json.JSONDecodeError] | None
 
+
+def _parse_pass(
+    candidates: list[str], *, strict: bool, deepest: _Deepest
+) -> tuple[dict[str, Any] | None, _Deepest]:
+    """Try each candidate in one decoder mode.
+
+    Returns the first object that parses, and the furthest-reaching failure so
+    far (*deepest* updated with this pass's failures).
+    """
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate, strict=strict)
+        except json.JSONDecodeError as exc:
+            if deepest is None or exc.pos > deepest[1].pos:
+                deepest = (candidate, exc)
+            continue
+        if isinstance(parsed, dict):
+            return parsed, deepest
+    return None, deepest
+
+
+def _json_failure_message(
+    content: str, result: dict[str, Any], deepest: _Deepest, *, model: str, pipeline: str
+) -> str:
+    """Explain why no JSON object could be read out of *content*."""
     finish_reason = _finish_reason(result)
     head = content[:_CONTENT_HEAD_LIMIT]
     tail = ""
@@ -191,11 +181,52 @@ def _parse_json_content(
             _describe_decode_failure(*deepest)
         }"
 
-    message = (
+    return (
         f"No JSON object found in the response for pipeline={pipeline} model={model} "
         f"(finish_reason={finish_reason}, {_usage_summary(result)}).{hint}\n"
         f"Assistant content was:\n{head}{tail}"
     )
+
+
+def _parse_json_content(
+    content: str, result: dict[str, Any], *, model: str, pipeline: str
+) -> dict[str, Any]:
+    """Read a JSON object out of an assistant response, or say why we couldn't."""
+    candidates = _unique_candidates(content)
+
+    # The furthest-reaching failure of any pass, kept for the error message.
+    # Position is the right ranking: the earliest candidates are deliberately
+    # loose readings that die at char 0 on the opening fence, and reporting
+    # that instead of the real defect is what makes these failures opaque.
+    #
+    # Both passes count. Ranking strict failures only meant that whenever the
+    # salvage pass got further — which is its whole purpose — the reported
+    # cause was the control character it had already forgiven, not the defect
+    # that actually sank the parse. One real case: a response reported as
+    # "invalid control character at char 12209" was in truth rejected at char
+    # 14509, where the model wrote `"reference_answer="` for `"reference_answer": "`.
+    deepest: _Deepest = None
+
+    # Strict first, so a well-formed response is parsed exactly as sent. The
+    # salvage pass only relaxes control characters inside strings — the shape
+    # a model produces when a prompt invites a multi-line answer (this one asks
+    # for "a short bulleted list when that's genuinely clearer") and it emits
+    # real newlines instead of \n escapes. Nothing else about JSON is loosened.
+    for strict in (True, False):
+        parsed, deepest = _parse_pass(candidates, strict=strict, deepest=deepest)
+        if parsed is None:
+            continue
+        if not strict:
+            logger.warning(
+                "Recovered JSON for pipeline=%s model=%s only by allowing raw control "
+                "characters in strings — the model emitted literal newlines instead of "
+                "escapes.",
+                pipeline,
+                model,
+            )
+        return parsed
+
+    message = _json_failure_message(content, result, deepest, model=model, pipeline=pipeline)
     logger.error("%s", message)
     raise LLMJSONError(message)
 

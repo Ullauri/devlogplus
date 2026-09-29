@@ -65,49 +65,51 @@ def score_quiz_evaluation(expected: dict, actual: dict) -> float:
 
     # 2–3. Per-evaluation matching
     for exp_ev in exp_evals:
-        # Find matching evaluation by question_id
-        match = None
-        for act_ev in evaluations:
-            if act_ev.get("question_id") == exp_ev.get("question_id"):
-                match = act_ev
-                break
-
-        if match is None:
-            scores.append(0.0)
-            continue
-
-        ev_scores: list[float] = []
-
-        # Correctness match
-        if match.get("correctness") == exp_ev.get("correctness"):
-            ev_scores.append(1.0)
-        else:
-            # Partial credit for adjacent ratings
-            order = ["full", "partial", "incorrect"]
-            try:
-                exp_idx = order.index(exp_ev["correctness"])
-                act_idx = order.index(match.get("correctness", ""))
-                distance = abs(exp_idx - act_idx)
-                ev_scores.append(1.0 - distance * 0.5)
-            except ValueError:
-                ev_scores.append(0.0)
-
-        # Confidence threshold
-        conf_min = exp_ev.get("confidence_min", 0.0)
-        if match.get("confidence", 0) >= conf_min:
-            ev_scores.append(1.0)
-        else:
-            ev_scores.append(match.get("confidence", 0) / conf_min if conf_min else 0.0)
-
-        # Has explanation
-        if match.get("explanation"):
-            ev_scores.append(1.0)
-        else:
-            ev_scores.append(0.0)
-
-        scores.append(sum(ev_scores) / len(ev_scores) if ev_scores else 0.0)
+        match = _find_evaluation(evaluations, exp_ev.get("question_id"))
+        scores.append(0.0 if match is None else _evaluation_score(exp_ev, match))
 
     return sum(scores) / len(scores) if scores else 0.0
+
+
+def _find_evaluation(evaluations: list[dict], question_id: object) -> dict | None:
+    """The first evaluation for *question_id*, or None."""
+    for act_ev in evaluations:
+        if act_ev.get("question_id") == question_id:
+            return act_ev
+    return None
+
+
+def _evaluation_score(exp_ev: dict, match: dict) -> float:
+    """Mean of correctness, confidence and has-an-explanation for one answer."""
+    ev_scores = [
+        _correctness_score(exp_ev, match),
+        _confidence_score(exp_ev, match),
+        # Has explanation
+        1.0 if match.get("explanation") else 0.0,
+    ]
+    return sum(ev_scores) / len(ev_scores)
+
+
+def _correctness_score(exp_ev: dict, match: dict) -> float:
+    """Correctness match, with partial credit for adjacent ratings."""
+    if match.get("correctness") == exp_ev.get("correctness"):
+        return 1.0
+    order = ["full", "partial", "incorrect"]
+    try:
+        exp_idx = order.index(exp_ev["correctness"])
+        act_idx = order.index(match.get("correctness", ""))
+    except ValueError:
+        return 0.0
+    distance = abs(exp_idx - act_idx)
+    return 1.0 - distance * 0.5
+
+
+def _confidence_score(exp_ev: dict, match: dict) -> float:
+    """Confidence threshold."""
+    conf_min = exp_ev.get("confidence_min", 0.0)
+    if match.get("confidence", 0) >= conf_min:
+        return 1.0
+    return match.get("confidence", 0) / conf_min if conf_min else 0.0
 
 
 # ---------------------------------------------------------------------------

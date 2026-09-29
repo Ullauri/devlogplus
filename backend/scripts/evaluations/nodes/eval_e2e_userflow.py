@@ -511,53 +511,55 @@ def _score_profile_update(exp: dict, act: dict) -> float:
     """Score profile update stage."""
     if not act:
         return 0.0
-    scores: list[float] = []
     actual_text = _flatten_to_text(act).lower()
 
-    # Target topic present
+    checks = [
+        _profile_target_topic_score(exp, actual_text),
+        _profile_direction_score(exp, actual_text),
+        _profile_min_updated_topics_score(exp, act),
+    ]
+    # A check that does not apply to this case returns None and is left out.
+    scores = [s for s in checks if s is not None]
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+# Words whose presence signals each expected direction of change.
+_PROFILE_DIRECTION_WORDS: dict[str, set[str]] = {
+    "strengthen": {"strong", "strengthen", "demonstrated", "improved", "upgraded"},
+    "add_new": {"new", "added", "created", "discovered"},
+    "weaken_or_triage": {"weak", "triage", "contradict", "conflict", "attention"},
+}
+
+
+def _profile_target_topic_score(exp: dict, actual_text: str) -> float:
+    """Target topic present, with partial credit for a word match."""
     target = exp.get("should_contain_updated_topic", "").lower()
-    if target and target in actual_text:
-        scores.append(1.0)
-    elif target:
-        target_words = set(target.split())
-        overlap = sum(1 for w in target_words if w in actual_text)
-        scores.append(overlap / len(target_words))
-    else:
-        scores.append(1.0)
+    if not target or target in actual_text:
+        return 1.0
+    target_words = set(target.split())
+    overlap = sum(1 for w in target_words if w in actual_text)
+    return overlap / len(target_words)
 
-    # Direction of change
+
+def _profile_direction_score(exp: dict, actual_text: str) -> float:
+    """Direction of change."""
     direction = exp.get("expected_direction", "")
-    if direction == "strengthen":
-        if any(
-            w in actual_text
-            for w in {"strong", "strengthen", "demonstrated", "improved", "upgraded"}
-        ):
-            scores.append(1.0)
-        else:
-            scores.append(0.3)
-    elif direction == "add_new":
-        if any(w in actual_text for w in {"new", "added", "created", "discovered"}):
-            scores.append(1.0)
-        else:
-            scores.append(0.3)
-    elif direction == "weaken_or_triage":
-        if any(w in actual_text for w in {"weak", "triage", "contradict", "conflict", "attention"}):
-            scores.append(1.0)
-        else:
-            scores.append(0.3)
-    else:
-        scores.append(0.5)
+    # Only a string can name a direction; anything else scores as "no direction".
+    words = _PROFILE_DIRECTION_WORDS.get(direction) if isinstance(direction, str) else None
+    if words is None:
+        return 0.5
+    return 1.0 if any(w in actual_text for w in words) else 0.3
 
-    # Minimum updated topics
+
+def _profile_min_updated_topics_score(exp: dict, act: dict) -> float | None:
+    """Minimum updated topics."""
     updated = act.get("updated_topics", [])
     min_updates = exp.get("min_updated_topics", 0)
-    if min_updates > 0:
-        if len(updated) >= min_updates:
-            scores.append(1.0)
-        else:
-            scores.append(len(updated) / min_updates if min_updates else 0.0)
-
-    return sum(scores) / len(scores) if scores else 0.0
+    if not min_updates > 0:
+        return None
+    if len(updated) >= min_updates:
+        return 1.0
+    return len(updated) / min_updates if min_updates else 0.0
 
 
 def _score_quiz_generation(exp: dict, act: dict) -> float:
@@ -599,6 +601,29 @@ def _score_quiz_generation(exp: dict, act: dict) -> float:
     return sum(scores) / len(scores) if scores else 0.0
 
 
+def _q1_correctness_score(q1_exp: str, evaluations: list[dict]) -> float:
+    """Q1's rating against the expected one, with partial credit for adjacent ratings."""
+    q1 = next((e for e in evaluations if e.get("question_id") == "q1"), None)
+    if not q1:
+        return 0.0
+    if q1.get("correctness") == q1_exp:
+        return 1.0
+    order = ["full", "partial", "incorrect"]
+    try:
+        dist = abs(order.index(q1_exp) - order.index(q1.get("correctness", "")))
+    except ValueError:
+        return 0.0
+    return max(0.0, 1.0 - dist * 0.5)
+
+
+def _q2_correctness_score(q2_options: list[str], evaluations: list[dict]) -> float:
+    """Q2's rating is any of the acceptable options (0.3 if present but off)."""
+    q2 = next((e for e in evaluations if e.get("question_id") == "q2"), None)
+    if not q2:
+        return 0.0
+    return 1.0 if q2.get("correctness") in q2_options else 0.3
+
+
 def _score_quiz_evaluation(exp: dict, act: dict) -> float:
     """Score quiz evaluation stage."""
     if not act:
@@ -616,30 +641,12 @@ def _score_quiz_evaluation(exp: dict, act: dict) -> float:
     # Q1 correctness
     q1_exp = exp.get("q1_correctness")
     if q1_exp:
-        q1 = next((e for e in evaluations if e.get("question_id") == "q1"), None)
-        if q1 and q1.get("correctness") == q1_exp:
-            scores.append(1.0)
-        elif q1:
-            # Partial credit for adjacent ratings
-            order = ["full", "partial", "incorrect"]
-            try:
-                dist = abs(order.index(q1_exp) - order.index(q1.get("correctness", "")))
-                scores.append(max(0.0, 1.0 - dist * 0.5))
-            except ValueError:
-                scores.append(0.0)
-        else:
-            scores.append(0.0)
+        scores.append(_q1_correctness_score(q1_exp, evaluations))
 
     # Q2 correctness (flexible — any of the acceptable options)
     q2_options = exp.get("q2_correctness_options", [])
     if q2_options:
-        q2 = next((e for e in evaluations if e.get("question_id") == "q2"), None)
-        if q2 and q2.get("correctness") in q2_options:
-            scores.append(1.0)
-        elif q2:
-            scores.append(0.3)
-        else:
-            scores.append(0.0)
+        scores.append(_q2_correctness_score(q2_options, evaluations))
 
     # Minimum confidence across all evaluations
     conf_min = exp.get("min_confidence", 0.0)
@@ -672,25 +679,13 @@ def _score_reading_generation(exp: dict, act: dict) -> float:
     if exp.get("all_from_allowlist") and recs:
         # Re-derive allowed domains from the fixture's input (already in expected)
         # We check that declared source_domain or URL netloc is in the allowlist
-        compliant = 0
-        for rec in recs:
-            url = rec.get("url", "")
-            source_domain = rec.get("source_domain", "")
-            url_domain = urlparse(url).netloc.replace("www.", "")
-            # Broad check: domain appears as substring
-            domain_text = f"{source_domain} {url_domain}".lower()
-            if domain_text.strip():
-                compliant += 1  # basic: URL is present
+        compliant = sum(1 for rec in recs if _names_a_domain(rec))
         scores.append(compliant / len(recs) if recs else 0.0)
 
     # Required fields
     required = exp.get("must_have_fields", [])
     if required and recs:
-        field_score = 0.0
-        for rec in recs:
-            has = sum(1 for f in required if rec.get(f))
-            field_score += has / len(required)
-        scores.append(field_score / len(recs))
+        scores.append(_reading_required_fields_score(recs, required))
 
     # Valid recommendation types
     valid_types = {"next_frontier", "weak_spot", "deep_dive"}
@@ -699,6 +694,29 @@ def _score_reading_generation(exp: dict, act: dict) -> float:
         scores.append(type_score / len(recs))
 
     return sum(scores) / len(scores) if scores else 0.0
+
+
+def _names_a_domain(rec: dict) -> bool:
+    """Whether the rec's source_domain and URL host, joined, are not blank.
+
+    Deliberately loose (a missing source_domain still reads as "None"): this
+    stage only checks that a recommendation names *something* domain-like.
+    """
+    url = rec.get("url", "")
+    source_domain = rec.get("source_domain", "")
+    url_domain = urlparse(url).netloc.replace("www.", "")
+    # Broad check: domain appears as substring
+    domain_text = f"{source_domain} {url_domain}".lower()
+    return bool(domain_text.strip())  # basic: URL is present
+
+
+def _reading_required_fields_score(recs: list[dict], required: list[str]) -> float:
+    """Mean share of *required* fields that each rec fills in."""
+    field_score = 0.0
+    for rec in recs:
+        has = sum(1 for f in required if rec.get(f))
+        field_score += has / len(required)
+    return field_score / len(recs)
 
 
 def _score_project_generation(exp: dict, act: dict) -> float:

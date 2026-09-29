@@ -88,37 +88,44 @@ export function usePipelineStatus(
     };
   }, [refresh]);
 
-  const running: PipelineType[] = [];
-  let runningSince: string | null = null;
-  let runningSinceTime: number | null = null;
-  let lastCompletedAt: string | null = null;
-  let lastCompletedAtTime: number | null = null;
+  const started = runs.filter((r) => r.status === "started");
+  const completedAt = runs
+    .filter((r) => r.status === "completed" && r.completed_at)
+    .map((r) => r.completed_at as string);
 
-  for (const r of runs) {
-    if (r.status === "started") {
-      if (!running.includes(r.pipeline)) running.push(r.pipeline);
-      const startedAtTime = Date.parse(r.started_at);
-      // Use the OLDEST in-flight start so the UI's elapsed time reflects
-      // how long the user has actually been waiting, not the newest
-      // sub-step fired during the same logical run.
-      if (
-        !Number.isNaN(startedAtTime) &&
-        (runningSinceTime === null || startedAtTime < runningSinceTime)
-      ) {
-        runningSince = r.started_at;
-        runningSinceTime = startedAtTime;
-      }
-    } else if (r.status === "completed" && r.completed_at) {
-      const completedAtTime = Date.parse(r.completed_at);
-      if (
-        !Number.isNaN(completedAtTime) &&
-        (lastCompletedAtTime === null || completedAtTime > lastCompletedAtTime)
-      ) {
-        lastCompletedAt = r.completed_at;
-        lastCompletedAtTime = completedAtTime;
-      }
-    }
-  }
+  // A Set keeps first-seen order, so each running type is listed once.
+  const running = [...new Set(started.map((r) => r.pipeline))];
+  // Use the OLDEST in-flight start so the UI's elapsed time reflects
+  // how long the user has actually been waiting, not the newest
+  // sub-step fired during the same logical run.
+  const runningSince = pickTimestamp(
+    started.map((r) => r.started_at),
+    (candidate, best) => candidate < best,
+  );
+  const lastCompletedAt = pickTimestamp(
+    completedAt,
+    (candidate, best) => candidate > best,
+  );
 
   return { running, runningSince, lastCompletedAt, loaded, refresh };
+}
+
+/**
+ * The timestamp `beats` prefers over every other one, or null if none parse.
+ * Unparseable timestamps are skipped; on a tie the earliest listed wins.
+ */
+function pickTimestamp(
+  timestamps: readonly string[],
+  beats: (candidate: number, best: number) => boolean,
+): string | null {
+  let best: string | null = null;
+  let bestTime: number | null = null;
+  for (const ts of timestamps) {
+    const time = Date.parse(ts);
+    if (!Number.isNaN(time) && (bestTime === null || beats(time, bestTime))) {
+      best = ts;
+      bestTime = time;
+    }
+  }
+  return best;
 }

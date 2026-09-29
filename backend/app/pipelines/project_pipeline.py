@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal, NamedTuple
@@ -97,6 +98,25 @@ def _truncate(text: str, n: int = 140) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
+def _project_feedback_descriptor(
+    fb,
+    project_titles: dict[uuid.UUID, str],
+    task_info: dict[uuid.UUID, tuple[str, uuid.UUID]],
+) -> str | None:
+    """Name the project or task a note is about, or None for a general note."""
+    if fb.target_type == FeedbackTargetType.PROJECT:
+        title = project_titles.get(fb.target_id)
+        return f'project "{title}"' if title else "project (removed)"
+    if fb.target_type == FeedbackTargetType.PROJECT_TASK:
+        info = task_info.get(fb.target_id)
+        if info is None:
+            return "task (removed)"
+        task_title, project_id = info
+        parent = project_titles.get(project_id, "?")
+        return f'task "{task_title}" in project "{parent}"'
+    return None
+
+
 def _format_project_feedforward(
     feedback_items,
     project_titles: dict[uuid.UUID, str],
@@ -107,18 +127,7 @@ def _format_project_feedforward(
     for fb in feedback_items:
         if not fb.note:
             continue
-        descriptor: str | None = None
-        if fb.target_type == FeedbackTargetType.PROJECT:
-            title = project_titles.get(fb.target_id)
-            descriptor = f'project "{title}"' if title else "project (removed)"
-        elif fb.target_type == FeedbackTargetType.PROJECT_TASK:
-            info = task_info.get(fb.target_id)
-            if info is not None:
-                task_title, project_id = info
-                parent = project_titles.get(project_id, "?")
-                descriptor = f'task "{task_title}" in project "{parent}"'
-            else:
-                descriptor = "task (removed)"
+        descriptor = _project_feedback_descriptor(fb, project_titles, task_info)
         if descriptor is not None:
             reaction = f", {fb.reaction.value}" if fb.reaction else ""
             lines.append(f"- ({descriptor}{reaction}) {fb.note}")
@@ -286,6 +295,238 @@ def _write_gen_files(project_dir: Path, gen_result: "ProjectGenerationResult") -
     (project_dir / "README.md").write_text(gen_result.readme_content)
 
 
+async def _gather_project_feedforward_text(db: AsyncSession) -> str:
+    """Feedforward — scoped to projects + project_tasks.
+
+    Each note carries an item descriptor so the LLM knows what it refers to.
+    """
+    relevant_feedback = await feedback_svc.list_feedback_by_target_types(
+        db,
+        [FeedbackTargetType.PROJECT, FeedbackTargetType.PROJECT_TASK],
+        limit=50,
+    )
+    other_feedback = await feedback_svc.list_all_feedback(db, limit=50)
+    seen_ids = {f.id for f in relevant_feedback}
+    relevant_feedback += [fb for fb in other_feedback if fb.id not in seen_ids and fb.note]
+    proj_ids = {
+        fb.target_id for fb in relevant_feedback if fb.target_type == FeedbackTargetType.PROJECT
+    }
+    task_ids = {
+        fb.target_id
+        for fb in relevant_feedback
+        if fb.target_type == FeedbackTargetType.PROJECT_TASK
+    }
+    task_info = await _load_task_lookup(db, task_ids)
+    # Tasks bring in their parent project IDs too
+    proj_ids.update({p for _, p in task_info.values()})
+    project_titles = await _load_project_title_lookup(db, proj_ids)
+    return _format_project_feedforward(relevant_feedback, project_titles, task_info)
+
+
+@dataclass
+class _ProjectAvoidSignals:
+    """Past projects and tasks the user reacted to, and the prompt blocks built from them."""
+
+    avoid_project_titles: set[str]
+    avoid_task_titles_set: set[str]
+    previous_themes: str
+    liked_project_directions_text: str
+    liked_task_flavours_text: str
+    avoid_task_titles_text: str
+
+
+async def _gather_project_avoid_signals(db: AsyncSession) -> _ProjectAvoidSignals:
+    """Collect reacted-to projects and tasks, for steering and hard avoids."""
+    # ── Reacted-to projects: thumbs-up (positive steering) and
+    # thumbs-down (hard avoid). Both flavours also contribute TITLES to
+    # a hard avoid list — re-issuing a literal past title is a waste
+    # whether the user loved or hated it.
+    liked_project_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.PROJECT)
+    disliked_project_ids = await feedback_svc.list_disliked_target_ids(
+        db, FeedbackTargetType.PROJECT
+    )
+    reacted_project_ids = liked_project_ids | disliked_project_ids
+    reacted_project_lookup = await _load_project_detail_lookup(db, reacted_project_ids)
+    liked_projects = [p for pid, p in reacted_project_lookup.items() if pid in liked_project_ids]
+    avoid_project_titles = {p.title.strip() for p in reacted_project_lookup.values() if p.title}
+
+    # Reacted-to tasks: same treatment. Titles go onto the per-task
+    # avoid list; liked tasks additionally steer the task MIX.
+    liked_task_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.PROJECT_TASK)
+    disliked_task_ids = await feedback_svc.list_disliked_target_ids(
+        db, FeedbackTargetType.PROJECT_TASK
+    )
+    reacted_task_ids = liked_task_ids | disliked_task_ids
+    reacted_task_lookup = await _load_task_detail_lookup(db, reacted_task_ids)
+    liked_tasks = [t for tid, t in reacted_task_lookup.items() if tid in liked_task_ids]
+    avoid_task_titles_set = {
+        t.title.strip().lower() for t in reacted_task_lookup.values() if t.title
+    }
+    # Parent-title lookup for liked-task flavour rendering.
+    liked_task_parent_ids = {t.project_id for t in liked_tasks}
+    liked_task_parent_titles = await _load_project_title_lookup(db, liked_task_parent_ids)
+
+    # Previous themes — annotated so the LLM can distinguish loved /
+    # hated / merely-seen past directions.
+    prev_projects = await project_svc.list_projects(db, limit=5)
+    return _ProjectAvoidSignals(
+        avoid_project_titles=avoid_project_titles,
+        avoid_task_titles_set=avoid_task_titles_set,
+        previous_themes=_format_previous_themes(
+            prev_projects, liked_project_ids, disliked_project_ids
+        ),
+        liked_project_directions_text=_format_liked_project_directions(liked_projects),
+        liked_task_flavours_text=_format_liked_task_flavours(liked_tasks, liked_task_parent_titles),
+        avoid_task_titles_text=_format_avoid_titles(
+            {t.title.strip() for t in reacted_task_lookup.values() if t.title}
+        ),
+    )
+
+
+class _CompileOutcome(NamedTuple):
+    """What the compile check (and its one retry) concluded, for the run's metadata."""
+
+    passed: bool
+    skipped: bool
+    retry_attempted: bool
+
+
+async def _compile_with_retry(
+    project_dir: Path,
+    prompt: str,
+    raw_result: dict,
+    gen_result: ProjectGenerationResult,
+) -> tuple[ProjectGenerationResult, _CompileOutcome]:
+    """Compile check — one LLM retry on failure.
+
+    Returns the project that ends up on disk (the regenerated one if the
+    retry ran) and the outcome.
+    """
+    compile_check = await _verify_go_build(project_dir)
+    compile_check_skipped = compile_check.status == "skipped"
+
+    if compile_check_skipped:
+        logger.warning(
+            "Compile check skipped — issuing an unverified project. %s",
+            compile_check.error,
+        )
+
+    if not compile_check.failed:
+        return gen_result, _CompileOutcome(
+            passed=compile_check.status == "passed",
+            skipped=compile_check_skipped,
+            retry_attempted=False,
+        )
+
+    logger.warning(
+        "Generated project does not compile — retrying with error context.\n%s",
+        compile_check.error,
+    )
+    messages = [
+        {"role": "system", "content": project_generation.SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+        {
+            "role": "assistant",
+            "content": json.dumps(raw_result),
+        },
+        {
+            "role": "user",
+            "content": (
+                "The files you generated do not compile. Here are the errors from "
+                "`go build ./...`:\n\n"
+                f"```\n{compile_check.error}\n```\n\n"
+                "Please fix ALL compilation errors and return the complete corrected "
+                "JSON object with all files included. Do not omit any files."
+            ),
+        },
+    ]
+    raw_result = await llm_client.chat_completion_json(
+        pipeline="project_generation",
+        messages=messages,
+        max_tokens=_PROJECT_GENERATION_MAX_TOKENS,
+    )
+    gen_result = ProjectGenerationResult.model_validate(raw_result)
+    _write_gen_files(project_dir, gen_result)
+
+    retry_check = await _verify_go_build(project_dir)
+    if retry_check.failed:
+        logger.error(
+            "Project still does not compile after retry — issuing anyway.\n%s",
+            retry_check.error,
+        )
+        compile_check_passed = False
+    else:
+        compile_check_passed = retry_check.status == "passed"
+        if compile_check_passed:
+            logger.info("Project compiles cleanly after retry.")
+    return gen_result, _CompileOutcome(
+        passed=compile_check_passed,
+        skipped=retry_check.status == "skipped",
+        retry_attempted=True,
+    )
+
+
+def _parse_task_type(value: str) -> ProjectTaskType:
+    try:
+        return ProjectTaskType(value)
+    except ValueError:
+        return ProjectTaskType.FEATURE
+
+
+class _TaskStoreResult(NamedTuple):
+    stored: int
+    skipped_avoid: int
+    skipped_duplicate: int
+
+
+def _store_tasks(
+    db: AsyncSession,
+    project_id: uuid.UUID,
+    tasks,
+    avoid_task_titles_set: set[str],
+) -> _TaskStoreResult:
+    """Store tasks, applying hard-avoid + diversity gates.
+
+    This is belt-and-braces enforcement on top of the prompt instructions.
+    """
+    skipped_avoid_tasks = 0
+    skipped_duplicate_tasks = 0
+    seen_task_titles: set[str] = set()
+    stored_task_count = 0
+
+    for t in tasks:
+        title_key = (t.title or "").strip().lower()
+
+        # Hard filter: never re-issue a task the user has already
+        # reacted to. Thumbs-down → they rejected it; thumbs-up → they
+        # already did it, so it has no learning value this week.
+        if title_key and title_key in avoid_task_titles_set:
+            logger.info("Skipping previously-reacted task: %s", t.title)
+            skipped_avoid_tasks += 1
+            continue
+
+        # Diversity guard: refuse duplicate task titles within this
+        # project. Projects should have a DISTINCT set of tasks.
+        if title_key and title_key in seen_task_titles:
+            logger.info("Skipping duplicate task title within project: %s", t.title)
+            skipped_duplicate_tasks += 1
+            continue
+
+        task = ProjectTask(
+            project_id=project_id,
+            title=t.title,
+            description=t.description,
+            task_type=_parse_task_type(t.task_type),
+            order_index=stored_task_count,
+        )
+        db.add(task)
+        stored_task_count += 1
+        if title_key:
+            seen_task_titles.add(title_key)
+
+    return _TaskStoreResult(stored_task_count, skipped_avoid_tasks, skipped_duplicate_tasks)
+
+
 async def generate_project(
     db: AsyncSession,
     *,
@@ -320,78 +561,8 @@ async def generate_project(
         if onboarding and onboarding.go_experience_level:
             go_experience = onboarding.go_experience_level
 
-        # Feedforward — scoped to projects + project_tasks, with item
-        # descriptors so the LLM knows what each note refers to.
-        relevant_feedback = await feedback_svc.list_feedback_by_target_types(
-            db,
-            [FeedbackTargetType.PROJECT, FeedbackTargetType.PROJECT_TASK],
-            limit=50,
-        )
-        other_feedback = await feedback_svc.list_all_feedback(db, limit=50)
-        seen_ids = {f.id for f in relevant_feedback}
-        for fb in other_feedback:
-            if fb.id not in seen_ids and fb.note:
-                relevant_feedback.append(fb)
-        proj_ids = {
-            fb.target_id for fb in relevant_feedback if fb.target_type == FeedbackTargetType.PROJECT
-        }
-        task_ids = {
-            fb.target_id
-            for fb in relevant_feedback
-            if fb.target_type == FeedbackTargetType.PROJECT_TASK
-        }
-        task_info = await _load_task_lookup(db, task_ids)
-        # Tasks bring in their parent project IDs too
-        proj_ids.update({p for _, p in task_info.values()})
-        project_titles = await _load_project_title_lookup(db, proj_ids)
-        feedforward_text = _format_project_feedforward(relevant_feedback, project_titles, task_info)
-
-        # ── Reacted-to projects: thumbs-up (positive steering) and
-        # thumbs-down (hard avoid). Both flavours also contribute TITLES to
-        # a hard avoid list — re-issuing a literal past title is a waste
-        # whether the user loved or hated it.
-        liked_project_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.PROJECT)
-        disliked_project_ids = await feedback_svc.list_disliked_target_ids(
-            db, FeedbackTargetType.PROJECT
-        )
-        reacted_project_ids = liked_project_ids | disliked_project_ids
-        reacted_project_lookup = await _load_project_detail_lookup(db, reacted_project_ids)
-        liked_projects = [
-            p for pid, p in reacted_project_lookup.items() if pid in liked_project_ids
-        ]
-        avoid_project_titles = {p.title.strip() for p in reacted_project_lookup.values() if p.title}
-
-        # Reacted-to tasks: same treatment. Titles go onto the per-task
-        # avoid list; liked tasks additionally steer the task MIX.
-        liked_task_ids = await feedback_svc.list_liked_target_ids(
-            db, FeedbackTargetType.PROJECT_TASK
-        )
-        disliked_task_ids = await feedback_svc.list_disliked_target_ids(
-            db, FeedbackTargetType.PROJECT_TASK
-        )
-        reacted_task_ids = liked_task_ids | disliked_task_ids
-        reacted_task_lookup = await _load_task_detail_lookup(db, reacted_task_ids)
-        liked_tasks = [t for tid, t in reacted_task_lookup.items() if tid in liked_task_ids]
-        avoid_task_titles_set = {
-            t.title.strip().lower() for t in reacted_task_lookup.values() if t.title
-        }
-        # Parent-title lookup for liked-task flavour rendering.
-        liked_task_parent_ids = {t.project_id for t in liked_tasks}
-        liked_task_parent_titles = await _load_project_title_lookup(db, liked_task_parent_ids)
-
-        # Previous themes — annotated so the LLM can distinguish loved /
-        # hated / merely-seen past directions.
-        prev_projects = await project_svc.list_projects(db, limit=5)
-        previous_themes = _format_previous_themes(
-            prev_projects, liked_project_ids, disliked_project_ids
-        )
-        liked_project_directions_text = _format_liked_project_directions(liked_projects)
-        liked_task_flavours_text = _format_liked_task_flavours(
-            liked_tasks, liked_task_parent_titles
-        )
-        avoid_task_titles_text = _format_avoid_titles(
-            {t.title.strip() for t in reacted_task_lookup.values() if t.title}
-        )
+        feedforward_text = await _gather_project_feedforward_text(db)
+        signals = await _gather_project_avoid_signals(db)
 
         # Generate via LLM
         prompt = project_generation.USER_PROMPT_TEMPLATE.format(
@@ -399,11 +570,11 @@ async def generate_project(
             go_experience=go_experience,
             profile_summary=profile_summary,
             feedforward_signals=feedforward_text,
-            previous_themes=previous_themes,
-            liked_project_directions=liked_project_directions_text,
-            liked_task_flavours=liked_task_flavours_text,
-            avoid_project_titles=_format_avoid_titles(avoid_project_titles),
-            avoid_task_titles=avoid_task_titles_text,
+            previous_themes=signals.previous_themes,
+            liked_project_directions=signals.liked_project_directions_text,
+            liked_task_flavours=signals.liked_task_flavours_text,
+            avoid_project_titles=_format_avoid_titles(signals.avoid_project_titles),
+            avoid_task_titles=signals.avoid_task_titles_text,
         )
 
         raw_result = await llm_client.chat_completion_json(
@@ -424,62 +595,9 @@ async def generate_project(
 
         _write_gen_files(project_dir, gen_result)
 
-        # ── Compile check — one LLM retry on failure ─────────────────────
-        compile_check = await _verify_go_build(project_dir)
-        compile_retry_attempted = False
-        compile_check_passed = compile_check.status == "passed"
-        compile_check_skipped = compile_check.status == "skipped"
-
-        if compile_check_skipped:
-            logger.warning(
-                "Compile check skipped — issuing an unverified project. %s",
-                compile_check.error,
-            )
-
-        if compile_check.failed:
-            logger.warning(
-                "Generated project does not compile — retrying with error context.\n%s",
-                compile_check.error,
-            )
-            compile_retry_attempted = True
-            messages = [
-                {"role": "system", "content": project_generation.SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-                {
-                    "role": "assistant",
-                    "content": json.dumps(raw_result),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "The files you generated do not compile. Here are the errors from "
-                        "`go build ./...`:\n\n"
-                        f"```\n{compile_check.error}\n```\n\n"
-                        "Please fix ALL compilation errors and return the complete corrected "
-                        "JSON object with all files included. Do not omit any files."
-                    ),
-                },
-            ]
-            raw_result = await llm_client.chat_completion_json(
-                pipeline="project_generation",
-                messages=messages,
-                max_tokens=_PROJECT_GENERATION_MAX_TOKENS,
-            )
-            gen_result = ProjectGenerationResult.model_validate(raw_result)
-            _write_gen_files(project_dir, gen_result)
-
-            retry_check = await _verify_go_build(project_dir)
-            compile_check_skipped = retry_check.status == "skipped"
-            if retry_check.failed:
-                logger.error(
-                    "Project still does not compile after retry — issuing anyway.\n%s",
-                    retry_check.error,
-                )
-                compile_check_passed = False
-            else:
-                compile_check_passed = retry_check.status == "passed"
-                if compile_check_passed:
-                    logger.info("Project compiles cleanly after retry.")
+        gen_result, compiled = await _compile_with_retry(
+            project_dir, prompt, raw_result, gen_result
+        )
 
         # ── Title-collision check on the generated project ──────────────
         # A single project is issued per run, so we can't drop-and-continue
@@ -488,7 +606,9 @@ async def generate_project(
         # so it's visible in the run metadata but proceed — dropping would
         # leave the user with no weekly project.
         gen_title = (gen_result.title or "").strip()
-        project_title_collision = gen_title.lower() in {t.lower() for t in avoid_project_titles}
+        project_title_collision = gen_title.lower() in {
+            t.lower() for t in signals.avoid_project_titles
+        }
 
         # Store project record
         project = WeeklyProject(
@@ -505,47 +625,7 @@ async def generate_project(
         db.add(project)
         await db.flush()
 
-        # Store tasks, applying hard-avoid + diversity gates as a
-        # belt-and-braces enforcement on top of the prompt instructions.
-        skipped_avoid_tasks = 0
-        skipped_duplicate_tasks = 0
-        seen_task_titles: set[str] = set()
-        stored_task_count = 0
-
-        for t in gen_result.tasks:
-            title_key = (t.title or "").strip().lower()
-
-            # Hard filter: never re-issue a task the user has already
-            # reacted to. Thumbs-down → they rejected it; thumbs-up → they
-            # already did it, so it has no learning value this week.
-            if title_key and title_key in avoid_task_titles_set:
-                logger.info("Skipping previously-reacted task: %s", t.title)
-                skipped_avoid_tasks += 1
-                continue
-
-            # Diversity guard: refuse duplicate task titles within this
-            # project. Projects should have a DISTINCT set of tasks.
-            if title_key and title_key in seen_task_titles:
-                logger.info("Skipping duplicate task title within project: %s", t.title)
-                skipped_duplicate_tasks += 1
-                continue
-
-            try:
-                task_type = ProjectTaskType(t.task_type)
-            except ValueError:
-                task_type = ProjectTaskType.FEATURE
-
-            task = ProjectTask(
-                project_id=project.id,
-                title=t.title,
-                description=t.description,
-                task_type=task_type,
-                order_index=stored_task_count,
-            )
-            db.add(task)
-            stored_task_count += 1
-            if title_key:
-                seen_task_titles.add(title_key)
+        stored = _store_tasks(db, project.id, gen_result.tasks, signals.avoid_task_titles_set)
 
         await db.flush()
 
@@ -556,18 +636,18 @@ async def generate_project(
             "difficulty": difficulty,
             "files": len(gen_result.files),
             "tasks_generated": len(gen_result.tasks),
-            "tasks_stored": stored_task_count,
-            "skipped_avoid_tasks": skipped_avoid_tasks,
-            "skipped_duplicate_tasks": skipped_duplicate_tasks,
+            "tasks_stored": stored.stored,
+            "skipped_avoid_tasks": stored.skipped_avoid,
+            "skipped_duplicate_tasks": stored.skipped_duplicate,
             "project_title_collision": project_title_collision,
-            "compile_check_passed": compile_check_passed,
+            "compile_check_passed": compiled.passed,
             # Distinguishes "verified good" from "never checked" — without it a
             # missing toolchain looks identical to a passing build in the run
             # history, and every project silently ships unverified.
-            "compile_check_skipped": compile_check_skipped,
-            "compile_retry_attempted": compile_retry_attempted,
+            "compile_check_skipped": compiled.skipped,
+            "compile_retry_attempted": compiled.retry_attempted,
             # Kept for backwards-compat with anything reading the old key.
-            "tasks": stored_task_count,
+            "tasks": stored.stored,
         }
         await db.flush()
 
@@ -581,7 +661,7 @@ async def generate_project(
             "Project generated: %s (difficulty=%d, tasks stored=%d of %d)",
             project.title,
             difficulty,
-            stored_task_count,
+            stored.stored,
             len(gen_result.tasks),
         )
         return project

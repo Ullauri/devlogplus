@@ -9,6 +9,7 @@ is no schedule and no CLI entrypoint.
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from difflib import get_close_matches
 
@@ -235,6 +236,200 @@ def _format_liked_question_directions(
     return "\n".join(lines)
 
 
+@dataclass
+class _QuizAvoidSignals:
+    """Questions not to re-ask, and the prompt blocks built from them."""
+
+    disliked_q_texts: set[str]
+    liked_q_texts: set[str]
+    recent_q_texts: set[str]
+    avoid_questions_text: str
+    recent_topics_text: str
+    liked_directions_text: str
+
+
+async def _gather_quiz_avoid_signals(db: AsyncSession) -> _QuizAvoidSignals:
+    """Collect the questions already rejected, liked or recently asked."""
+    # Gather thumbs-down questions — asked before and rejected. Surface
+    # their texts to the LLM so near-duplicates are avoided.
+    disliked_q_ids = await feedback_svc.list_disliked_target_ids(
+        db, FeedbackTargetType.QUIZ_QUESTION
+    )
+    disliked_q_lookup = await _load_question_lookup(db, disliked_q_ids)
+    disliked_q_texts = {q.question_text.strip() for q in disliked_q_lookup.values()}
+
+    # Gather thumbs-up questions — positive *directional* signal.
+    # We hard-block the exact question texts (re-asking a question the
+    # user already engaged with positively yields little new signal) but
+    # surface topic + question_type so the LLM can lean in the same
+    # direction with NEW questions.
+    liked_q_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.QUIZ_QUESTION)
+    liked_q_lookup = await _load_question_lookup(db, liked_q_ids)
+    liked_questions = list(liked_q_lookup.values())
+    liked_q_texts = {q.question_text.strip() for q in liked_questions}
+
+    # Questions from recent sessions — asked already, reacted to or not.
+    # Without these the avoid-list saw only rated questions, so a quiz the
+    # user answered in full and never rated taught the next run nothing.
+    recent_questions = await _load_recent_questions(db)
+
+    # Three hard-avoid sets — disliked, already-liked, recently asked — all
+    # dead-ends for re-asking, for different reasons. The filter below
+    # checks each in full; only this prompt listing is capped.
+    #
+    # Rated questions are listed first and never dropped by the cap:
+    # rating one is a deliberate act, the sets are small, and truncating a
+    # sorted union would have discarded them alphabetically. Recent
+    # questions fill whatever budget is left, newest session first.
+    rated_avoid = sorted(disliked_q_texts | liked_q_texts)
+    recent_avoid: list[str] = []
+    listed: set[str] = disliked_q_texts | liked_q_texts
+    for q in recent_questions:
+        text = q.question_text.strip()
+        if text not in listed:
+            listed.add(text)
+            recent_avoid.append(text)
+    budget = max(_MAX_AVOID_QUESTIONS_IN_PROMPT - len(rated_avoid), 0)
+    return _QuizAvoidSignals(
+        disliked_q_texts=disliked_q_texts,
+        liked_q_texts=liked_q_texts,
+        recent_q_texts={q.question_text.strip() for q in recent_questions},
+        avoid_questions_text=(
+            "\n".join(f"- {_truncate(t)}" for t in rated_avoid + recent_avoid[:budget]) or "None"
+        ),
+        recent_topics_text=_format_recent_topics(recent_questions),
+        liked_directions_text=_format_liked_question_directions(liked_questions),
+    )
+
+
+async def _gather_quiz_feedforward_text(db: AsyncSession) -> str:
+    """Contextualised feedforward, scoped to quiz questions + general notes."""
+    relevant_feedback = await feedback_svc.list_feedback_by_target_types(
+        db, [FeedbackTargetType.QUIZ_QUESTION], limit=50
+    )
+    other_feedback = await feedback_svc.list_all_feedback(db, limit=50)
+    seen_ids = {f.id for f in relevant_feedback}
+    relevant_feedback += [fb for fb in other_feedback if fb.id not in seen_ids and fb.note]
+    note_q_ids = {
+        fb.target_id
+        for fb in relevant_feedback
+        if fb.target_type == FeedbackTargetType.QUIZ_QUESTION
+    }
+    note_q_lookup = await _load_question_lookup(db, note_q_ids)
+    return _format_quiz_feedforward(relevant_feedback, note_q_lookup)
+
+
+@dataclass
+class _QuizTally:
+    """Why generated questions were not stored, for the run's metadata."""
+
+    disliked: int = 0
+    already_liked: int = 0
+    recently_asked: int = 0
+    duplicate_topic: int = 0
+
+    def as_metadata(self) -> dict[str, int]:
+        """The skip counters under the run-metadata keys they have always used."""
+        return {
+            "skipped_disliked": self.disliked,
+            "skipped_already_liked": self.already_liked,
+            "skipped_recently_asked": self.recently_asked,
+            "skipped_duplicate_topic": self.duplicate_topic,
+        }
+
+
+def _question_topic_key(target_topic: str | None) -> str:
+    """The per-session diversity key for a question's target topic ("" if none)."""
+    return (target_topic or "").strip().lower()
+
+
+def _skip_question(
+    text_key: str,
+    target_topic: str | None,
+    signals: _QuizAvoidSignals,
+    seen_topics: set[str],
+    tally: _QuizTally,
+) -> bool:
+    """True if a generated question fails a hard-avoid or diversity gate."""
+    # Hard filter: never re-ask a question the user has already
+    # reacted to. Thumbs-down → they rejected it; thumbs-up → they
+    # already engaged with it, so re-asking yields little new signal.
+    if text_key in signals.disliked_q_texts:
+        logger.info("Skipping previously-disliked question: %s", _truncate(text_key))
+        tally.disliked += 1
+        return True
+    if text_key in signals.liked_q_texts:
+        logger.info("Skipping already-liked question: %s", _truncate(text_key))
+        tally.already_liked += 1
+        return True
+
+    # Verbatim repeat of something a recent quiz already asked. Only
+    # catches exact text — the reworded case is the prompt's job.
+    if text_key in signals.recent_q_texts:
+        logger.info("Skipping recently-asked question: %s", _truncate(text_key))
+        tally.recently_asked += 1
+        return True
+
+    # Diversity guard: refuse a second question targeting the same
+    # topic in this session. The prompt asks for distinct topics;
+    # this enforces it so a single hot topic can't dominate the
+    # quiz even if the LLM ignores the instruction.
+    topic_key = _question_topic_key(target_topic)
+    if topic_key and topic_key in seen_topics:
+        logger.info(
+            "Skipping duplicate-topic question (topic=%s): %s",
+            target_topic,
+            _truncate(text_key),
+        )
+        tally.duplicate_topic += 1
+        return True
+    return False
+
+
+def _parse_question_type(value: str) -> QuizQuestionType:
+    try:
+        return QuizQuestionType(value)
+    except ValueError:
+        return QuizQuestionType.REINFORCEMENT
+
+
+def _question_kwargs(q, topic_lookup: dict[str, uuid.UUID], order_index: int) -> dict:
+    """The ``QuizQuestion`` fields for one accepted generated question."""
+    resolved_topic_id = _resolve_topic_id(q.target_topic, topic_lookup)
+    if q.target_topic and resolved_topic_id is None:
+        logger.info(
+            "Quiz question target_topic %r did not match any known topic",
+            q.target_topic,
+        )
+    return {
+        "question_text": q.question_text,
+        "question_type": _parse_question_type(q.question_type),
+        "reference_answer": (q.reference_answer.strip() or None) if q.reference_answer else None,
+        "topic_id": resolved_topic_id,
+        "order_index": order_index,
+    }
+
+
+def _screen_questions(
+    questions,
+    signals: _QuizAvoidSignals,
+    topic_lookup: dict[str, uuid.UUID],
+    tally: _QuizTally,
+    seen_topics: set[str],
+) -> list[dict]:
+    """Apply the hard-avoid + diversity gates; return the accepted questions' fields."""
+    accepted: list[dict] = []
+    for q in questions:
+        text_key = q.question_text.strip()
+        if _skip_question(text_key, q.target_topic, signals, seen_topics, tally):
+            continue
+        accepted.append(_question_kwargs(q, topic_lookup, len(accepted)))
+        topic_key = _question_topic_key(q.target_topic)
+        if topic_key:
+            seen_topics.add(topic_key)
+    return accepted
+
+
 async def generate_quiz(
     db: AsyncSession,
     *,
@@ -262,69 +457,8 @@ async def generate_quiz(
         profile = await profile_svc.get_knowledge_profile(db)
         profile_summary = profile.model_dump_json(indent=2)
 
-        # Gather thumbs-down questions — asked before and rejected. Surface
-        # their texts to the LLM so near-duplicates are avoided.
-        disliked_q_ids = await feedback_svc.list_disliked_target_ids(
-            db, FeedbackTargetType.QUIZ_QUESTION
-        )
-        disliked_q_lookup = await _load_question_lookup(db, disliked_q_ids)
-        disliked_q_texts = {q.question_text.strip() for q in disliked_q_lookup.values()}
-
-        # Gather thumbs-up questions — positive *directional* signal.
-        # We hard-block the exact question texts (re-asking a question the
-        # user already engaged with positively yields little new signal) but
-        # surface topic + question_type so the LLM can lean in the same
-        # direction with NEW questions.
-        liked_q_ids = await feedback_svc.list_liked_target_ids(db, FeedbackTargetType.QUIZ_QUESTION)
-        liked_q_lookup = await _load_question_lookup(db, liked_q_ids)
-        liked_questions = list(liked_q_lookup.values())
-        liked_q_texts = {q.question_text.strip() for q in liked_questions}
-
-        # Questions from recent sessions — asked already, reacted to or not.
-        # Without these the avoid-list saw only rated questions, so a quiz the
-        # user answered in full and never rated taught the next run nothing.
-        recent_questions = await _load_recent_questions(db)
-        recent_q_texts = {q.question_text.strip() for q in recent_questions}
-        recent_topics_text = _format_recent_topics(recent_questions)
-
-        # Three hard-avoid sets — disliked, already-liked, recently asked — all
-        # dead-ends for re-asking, for different reasons. The filter below
-        # checks each in full; only this prompt listing is capped.
-        #
-        # Rated questions are listed first and never dropped by the cap:
-        # rating one is a deliberate act, the sets are small, and truncating a
-        # sorted union would have discarded them alphabetically. Recent
-        # questions fill whatever budget is left, newest session first.
-        rated_avoid = sorted(disliked_q_texts | liked_q_texts)
-        recent_avoid: list[str] = []
-        listed: set[str] = disliked_q_texts | liked_q_texts
-        for q in recent_questions:
-            text = q.question_text.strip()
-            if text not in listed:
-                listed.add(text)
-                recent_avoid.append(text)
-        budget = max(_MAX_AVOID_QUESTIONS_IN_PROMPT - len(rated_avoid), 0)
-        avoid_questions_text = (
-            "\n".join(f"- {_truncate(t)}" for t in rated_avoid + recent_avoid[:budget]) or "None"
-        )
-        liked_directions_text = _format_liked_question_directions(liked_questions)
-
-        # Contextualised feedforward, scoped to quiz questions + general notes.
-        relevant_feedback = await feedback_svc.list_feedback_by_target_types(
-            db, [FeedbackTargetType.QUIZ_QUESTION], limit=50
-        )
-        other_feedback = await feedback_svc.list_all_feedback(db, limit=50)
-        seen_ids = {f.id for f in relevant_feedback}
-        for fb in other_feedback:
-            if fb.id not in seen_ids and fb.note:
-                relevant_feedback.append(fb)
-        note_q_ids = {
-            fb.target_id
-            for fb in relevant_feedback
-            if fb.target_type == FeedbackTargetType.QUIZ_QUESTION
-        }
-        note_q_lookup = await _load_question_lookup(db, note_q_ids)
-        feedforward_text = _format_quiz_feedforward(relevant_feedback, note_q_lookup)
+        signals = await _gather_quiz_avoid_signals(db)
+        feedforward_text = await _gather_quiz_feedforward_text(db)
 
         question_count = await onboarding_svc.get_int_setting(
             db,
@@ -338,9 +472,9 @@ async def generate_quiz(
         prompt = quiz_generation.USER_PROMPT_TEMPLATE.format(
             profile_summary=profile_summary,
             feedforward_signals=feedforward_text,
-            avoid_questions=avoid_questions_text,
-            recent_topics=recent_topics_text,
-            liked_directions=liked_directions_text,
+            avoid_questions=signals.avoid_questions_text,
+            recent_topics=signals.recent_topics_text,
+            liked_directions=signals.liked_directions_text,
             question_count=question_count,
         )
 
@@ -382,74 +516,11 @@ async def generate_quiz(
         # session behind. An empty session is not merely useless: it counts as
         # an unfinished quiz, which used to displace the real one the user was
         # part-way through.
-        skipped_disliked = 0
-        skipped_already_liked = 0
-        skipped_recently_asked = 0
-        skipped_duplicate_topic = 0
+        tally = _QuizTally()
         seen_topics: set[str] = set()
-        accepted: list[dict] = []
-
-        for q in gen_result.questions:
-            text_key = q.question_text.strip()
-
-            # Hard filter: never re-ask a question the user has already
-            # reacted to. Thumbs-down → they rejected it; thumbs-up → they
-            # already engaged with it, so re-asking yields little new signal.
-            if text_key in disliked_q_texts:
-                logger.info("Skipping previously-disliked question: %s", _truncate(text_key))
-                skipped_disliked += 1
-                continue
-            if text_key in liked_q_texts:
-                logger.info("Skipping already-liked question: %s", _truncate(text_key))
-                skipped_already_liked += 1
-                continue
-
-            # Verbatim repeat of something a recent quiz already asked. Only
-            # catches exact text — the reworded case is the prompt's job.
-            if text_key in recent_q_texts:
-                logger.info("Skipping recently-asked question: %s", _truncate(text_key))
-                skipped_recently_asked += 1
-                continue
-
-            # Diversity guard: refuse a second question targeting the same
-            # topic in this session. The prompt asks for distinct topics;
-            # this enforces it so a single hot topic can't dominate the
-            # quiz even if the LLM ignores the instruction.
-            topic_key = (q.target_topic or "").strip().lower()
-            if topic_key and topic_key in seen_topics:
-                logger.info(
-                    "Skipping duplicate-topic question (topic=%s): %s",
-                    q.target_topic,
-                    _truncate(text_key),
-                )
-                skipped_duplicate_topic += 1
-                continue
-
-            try:
-                q_type = QuizQuestionType(q.question_type)
-            except ValueError:
-                q_type = QuizQuestionType.REINFORCEMENT
-
-            resolved_topic_id = _resolve_topic_id(q.target_topic, topic_lookup)
-            if q.target_topic and resolved_topic_id is None:
-                logger.info(
-                    "Quiz question target_topic %r did not match any known topic",
-                    q.target_topic,
-                )
-
-            accepted.append(
-                {
-                    "question_text": q.question_text,
-                    "question_type": q_type,
-                    "reference_answer": (q.reference_answer.strip() or None)
-                    if q.reference_answer
-                    else None,
-                    "topic_id": resolved_topic_id,
-                    "order_index": len(accepted),
-                }
-            )
-            if topic_key:
-                seen_topics.add(topic_key)
+        accepted = _screen_questions(
+            gen_result.questions, signals, topic_lookup, tally, seen_topics
+        )
 
         stored_count = len(accepted)
 
@@ -464,10 +535,7 @@ async def generate_quiz(
                 "session_id": None,
                 "generated": len(gen_result.questions),
                 "stored": 0,
-                "skipped_disliked": skipped_disliked,
-                "skipped_already_liked": skipped_already_liked,
-                "skipped_recently_asked": skipped_recently_asked,
-                "skipped_duplicate_topic": skipped_duplicate_topic,
+                **tally.as_metadata(),
                 "distinct_topics": 0,
                 "question_count": 0,
             }
@@ -494,10 +562,7 @@ async def generate_quiz(
             "session_id": str(session.id),
             "generated": len(gen_result.questions),
             "stored": stored_count,
-            "skipped_disliked": skipped_disliked,
-            "skipped_already_liked": skipped_already_liked,
-            "skipped_recently_asked": skipped_recently_asked,
-            "skipped_duplicate_topic": skipped_duplicate_topic,
+            **tally.as_metadata(),
             "distinct_topics": len(seen_topics),
             # Kept for backwards-compat with anything reading the old key.
             "question_count": stored_count,
