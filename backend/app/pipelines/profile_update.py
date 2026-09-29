@@ -35,6 +35,125 @@ from backend.app.services.llm.models import ExtractedTopic, TopicExtractionResul
 logger = logging.getLogger(__name__)
 
 
+def _format_existing_topics(existing_topics: list[Topic]) -> str:
+    return (
+        "\n".join(
+            f"- {t.name} ({t.category.value}, {t.evidence_strength.value}, "
+            f"confidence={t.confidence})"
+            for t in existing_topics
+        )
+        or "No existing topics yet."
+    )
+
+
+async def _extract_topics(
+    db: AsyncSession, entries: list[JournalEntry], existing_topics_text: str
+) -> list[ExtractedTopic]:
+    """Extract topics from each entry, marking each one it read as processed."""
+    all_extracted: list[ExtractedTopic] = []
+    for entry in entries:
+        # Get current version content
+        version_stmt = select(JournalEntryVersion).where(
+            JournalEntryVersion.entry_id == entry.id,
+            JournalEntryVersion.is_current == True,  # noqa: E712
+        )
+        version_result = await db.execute(version_stmt)
+        current_version = version_result.scalar_one_or_none()
+        if current_version is None:
+            continue
+
+        prompt = topic_extraction.USER_PROMPT_TEMPLATE.format(
+            content=current_version.content,
+            existing_topics=existing_topics_text,
+        )
+
+        raw_result = await llm_client.chat_completion_json(
+            pipeline="topic_extraction",
+            messages=[
+                {"role": "system", "content": topic_extraction.SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+        )
+
+        extraction = TopicExtractionResult.model_validate(raw_result)
+        all_extracted.extend(extraction.topics)
+
+        # Mark entry as processed
+        entry.is_processed = True
+        entry.processed_at = datetime.now(UTC)
+    return all_extracted
+
+
+def _find_topic(topics: list[Topic], name: str) -> Topic | None:
+    """The first topic whose name matches *name*, case-insensitively."""
+    for t in topics:
+        if t.name.lower() == name.lower():
+            return t
+    return None
+
+
+def _update_topic(existing: Topic, et: ExtractedTopic) -> None:
+    """Update an existing topic with new evidence."""
+    try:
+        existing.evidence_strength = EvidenceStrength(et.evidence_strength)
+        existing.category = TopicCategory(et.category)
+    except ValueError:
+        pass
+    existing.confidence = max(existing.confidence, et.confidence)
+    if et.description:
+        existing.description = et.description
+
+
+def _create_topic(db: AsyncSession, et: ExtractedTopic, existing_topics: list[Topic]) -> bool:
+    """Create a new topic, or a triage item if its classification is invalid.
+
+    Returns True if a topic was created.
+    """
+    try:
+        new_topic = Topic(
+            name=et.name,
+            description=et.description,
+            category=TopicCategory(et.category),
+            evidence_strength=EvidenceStrength(et.evidence_strength),
+            confidence=et.confidence,
+            evidence_summary={"reasoning": et.reasoning},
+        )
+        db.add(new_topic)
+        # Must also join the reconciliation pool: when two entries
+        # in the same batch propose the same new topic, the second
+        # has to land in the update branch of _upsert_topics — a second insert
+        # violates topics_name_key and aborts the whole run.
+        existing_topics.append(new_topic)
+        return True
+    except ValueError:
+        logger.warning("Invalid enum value for topic %s — creating triage", et.name)
+        triage = TriageItem(
+            source=TriageSource.PROFILE_UPDATE,
+            title=f"Invalid topic classification: {et.name}",
+            description=f"LLM returned invalid classification for topic '{et.name}'",
+            context=et.model_dump(),
+            severity=TriageSeverity.LOW,
+        )
+        db.add(triage)
+        return False
+
+
+def _upsert_topics(
+    db: AsyncSession, all_extracted: list[ExtractedTopic], existing_topics: list[Topic]
+) -> tuple[int, int]:
+    """Upsert extracted topics into the database: ``(created, updated)``."""
+    topics_created = 0
+    topics_updated = 0
+    for et in all_extracted:
+        existing = _find_topic(existing_topics, et.name)
+        if existing:
+            _update_topic(existing, et)
+            topics_updated += 1
+        elif _create_topic(db, et, existing_topics):
+            topics_created += 1
+    return topics_created, topics_updated
+
+
 async def run_profile_update(
     db: AsyncSession,
     *,
@@ -94,97 +213,13 @@ async def run_profile_update(
         existing_stmt = select(Topic).order_by(Topic.name)
         existing_result = await db.execute(existing_stmt)
         existing_topics = list(existing_result.scalars().all())
-        existing_topics_text = (
-            "\n".join(
-                f"- {t.name} ({t.category.value}, {t.evidence_strength.value}, "
-                f"confidence={t.confidence})"
-                for t in existing_topics
-            )
-            or "No existing topics yet."
-        )
+        existing_topics_text = _format_existing_topics(existing_topics)
 
         # Step 4: Extract topics from each entry
-        all_extracted: list[ExtractedTopic] = []
-        for entry in entries:
-            # Get current version content
-            version_stmt = select(JournalEntryVersion).where(
-                JournalEntryVersion.entry_id == entry.id,
-                JournalEntryVersion.is_current == True,  # noqa: E712
-            )
-            version_result = await db.execute(version_stmt)
-            current_version = version_result.scalar_one_or_none()
-            if current_version is None:
-                continue
-
-            prompt = topic_extraction.USER_PROMPT_TEMPLATE.format(
-                content=current_version.content,
-                existing_topics=existing_topics_text,
-            )
-
-            raw_result = await llm_client.chat_completion_json(
-                pipeline="topic_extraction",
-                messages=[
-                    {"role": "system", "content": topic_extraction.SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-            )
-
-            extraction = TopicExtractionResult.model_validate(raw_result)
-            all_extracted.extend(extraction.topics)
-
-            # Mark entry as processed
-            entry.is_processed = True
-            entry.processed_at = datetime.now(UTC)
+        all_extracted = await _extract_topics(db, entries, existing_topics_text)
 
         # Step 5: Upsert topics into the database
-        topics_created = 0
-        topics_updated = 0
-        for et in all_extracted:
-            existing = None
-            for t in existing_topics:
-                if t.name.lower() == et.name.lower():
-                    existing = t
-                    break
-
-            if existing:
-                # Update existing topic with new evidence
-                try:
-                    existing.evidence_strength = EvidenceStrength(et.evidence_strength)
-                    existing.category = TopicCategory(et.category)
-                except ValueError:
-                    pass
-                existing.confidence = max(existing.confidence, et.confidence)
-                if et.description:
-                    existing.description = et.description
-                topics_updated += 1
-            else:
-                # Create new topic
-                try:
-                    new_topic = Topic(
-                        name=et.name,
-                        description=et.description,
-                        category=TopicCategory(et.category),
-                        evidence_strength=EvidenceStrength(et.evidence_strength),
-                        confidence=et.confidence,
-                        evidence_summary={"reasoning": et.reasoning},
-                    )
-                    db.add(new_topic)
-                    # Must also join the reconciliation pool: when two entries
-                    # in the same batch propose the same new topic, the second
-                    # has to land in the update branch above — a second insert
-                    # violates topics_name_key and aborts the whole run.
-                    existing_topics.append(new_topic)
-                    topics_created += 1
-                except ValueError:
-                    logger.warning("Invalid enum value for topic %s — creating triage", et.name)
-                    triage = TriageItem(
-                        source=TriageSource.PROFILE_UPDATE,
-                        title=f"Invalid topic classification: {et.name}",
-                        description=f"LLM returned invalid classification for topic '{et.name}'",
-                        context=et.model_dump(),
-                        severity=TriageSeverity.LOW,
-                    )
-                    db.add(triage)
+        topics_created, topics_updated = _upsert_topics(db, all_extracted, existing_topics)
 
         await db.flush()
 
