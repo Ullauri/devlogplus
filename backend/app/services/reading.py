@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -50,6 +51,19 @@ def normalize_url(url: str) -> str:
 # ---------------------------------------------------------------------------
 # Allowlist matching
 # ---------------------------------------------------------------------------
+def _allowlist_entry_matches(candidate: str, host: str, path: str) -> bool:
+    """Whether one normalised allowlist entry covers ``host`` + ``path``.
+
+    A bare-host entry must match the host exactly. An entry with a path
+    (``go.dev/blog``) must also be a whole-segment prefix of the URL path.
+    """
+    if "/" not in candidate:
+        return host == candidate
+    entry_host, entry_path = candidate.split("/", 1)
+    entry_path = "/" + entry_path
+    return host == entry_host and (path == entry_path or path.startswith(entry_path + "/"))
+
+
 def allowlist_match(url: str, allowed_domains: set[str]) -> str | None:
     """Return the allowlist entry a URL genuinely belongs to, else ``None``.
 
@@ -85,14 +99,7 @@ def allowlist_match(url: str, allowed_domains: set[str]) -> str | None:
         candidate = entry.strip().lower().removeprefix("www.").rstrip("/")
         if not candidate:
             continue
-        if "/" in candidate:
-            entry_host, entry_path = candidate.split("/", 1)
-            entry_path = "/" + entry_path
-            matched = host == entry_host and (
-                path == entry_path or path.startswith(entry_path + "/")
-            )
-        else:
-            matched = host == candidate
+        matched = _allowlist_entry_matches(candidate, host, path)
         # Longest wins; ties broken alphabetically so the answer never depends
         # on set ordering.
         if matched and (
@@ -574,28 +581,57 @@ def parse_feed(payload: bytes) -> list[FeedItem]:
     for node in root.iter():
         if node.tag.rpartition("}")[2] not in ("item", "entry"):
             continue
-        title: str | None = None
-        link: str | None = None
-        published: datetime | None = None
-        summary: str | None = None
-        for child in node:
-            name = child.tag.rpartition("}")[2]
-            if name == "title" and title is None:
-                title = " ".join("".join(child.itertext()).split()) or None
-            elif name == "link" and link is None:
-                # Atom puts the URL in @href; RSS puts it in the element text.
-                # An Atom <link rel="replies"> is not the article, so only
-                # alternate/unspecified rels count.
-                if child.get("rel") in (None, "alternate"):
-                    link = (child.get("href") or (child.text or "")).strip() or None
-            elif name in ("pubDate", "published", "updated") and published is None:
-                published = _parse_feed_datetime(child.text or "")
-            elif name in ("description", "summary") and summary is None:
-                text = " ".join("".join(child.itertext()).split())
-                summary = text or None
-        if title and link:
-            items.append(FeedItem(title=title, url=link, published=published, summary=summary))
+        item = _parse_feed_entry(node)
+        if item is not None:
+            items.append(item)
     return items
+
+
+# Namespace-stripped element name -> the FeedItem field it supplies.
+_FEED_ENTRY_FIELDS = {
+    "title": "title",
+    "link": "url",
+    "pubDate": "published",
+    "published": "published",
+    "updated": "published",
+    "description": "summary",
+    "summary": "summary",
+}
+
+
+def _parse_feed_entry(node: ET.Element) -> FeedItem | None:
+    """Read one ``<item>``/``<entry>``; ``None`` unless it has a title and a link.
+
+    The first element that yields a value for a field wins; a later element
+    only fills a field that is still empty.
+    """
+    fields: dict[str, Any] = {}
+    for child in node:
+        field_name = _FEED_ENTRY_FIELDS.get(child.tag.rpartition("}")[2])
+        if field_name is None or fields.get(field_name) is not None:
+            continue
+        fields[field_name] = _read_feed_entry_field(field_name, child)
+    if not (fields.get("title") and fields.get("url")):
+        return None
+    return FeedItem(
+        title=fields["title"],
+        url=fields["url"],
+        published=fields.get("published"),
+        summary=fields.get("summary"),
+    )
+
+
+def _read_feed_entry_field(field_name: str, child: ET.Element) -> Any:
+    if field_name == "url":
+        # Atom puts the URL in @href; RSS puts it in the element text.
+        # An Atom <link rel="replies"> is not the article, so only
+        # alternate/unspecified rels count.
+        if child.get("rel") not in (None, "alternate"):
+            return None
+        return (child.get("href") or (child.text or "")).strip() or None
+    if field_name == "published":
+        return _parse_feed_datetime(child.text or "")
+    return " ".join("".join(child.itertext()).split()) or None
 
 
 async def _fetch_feed(
@@ -641,18 +677,9 @@ async def discover_feed(
     pages = [scoped, root] if scoped != root else [root]
 
     for page in pages:
-        try:
-            resp = await client.get(
-                page, follow_redirects=True, timeout=timeout, headers={"User-Agent": _FEED_UA}
-            )
-        except httpx.HTTPError:
-            continue
-        if resp.status_code != 200:
-            continue
-        for href in find_feed_links(resp.text, str(resp.url)):
-            items = await _fetch_feed(client, href, timeout=timeout)
-            if items:
-                return href, items
+        found = await _advertised_feed(client, page, timeout=timeout)
+        if found is not None:
+            return found
 
     for stem in pages:
         for path in _FEED_PROBE_PATHS:
@@ -661,6 +688,83 @@ async def discover_feed(
             if items:
                 return candidate, items
     return None
+
+
+async def _advertised_feed(
+    client: httpx.AsyncClient,
+    page: str,
+    *,
+    timeout: float,  # noqa: ASYNC109 — passed to httpx, not asyncio.timeout
+) -> tuple[str, list[FeedItem]] | None:
+    """The first working feed a page advertises in its ``<head>``, if any."""
+    try:
+        resp = await client.get(
+            page, follow_redirects=True, timeout=timeout, headers={"User-Agent": _FEED_UA}
+        )
+    except httpx.HTTPError:
+        return None
+    if resp.status_code != 200:
+        return None
+    for href in find_feed_links(resp.text, str(resp.url)):
+        items = await _fetch_feed(client, href, timeout=timeout)
+        if items:
+            return href, items
+    return None
+
+
+def _rank_domain_items(
+    items: list[FeedItem],
+    *,
+    allowed_domains: set[str],
+    exclude_urls: set[str],
+    per_domain: int,
+) -> list[Candidate]:
+    """One domain's usable entries, newest first, capped at ``per_domain``.
+
+    Off-allowlist, index-page, excluded and repeated URLs are dropped.
+    The candidates are un-numbered (``index=0``).
+    """
+    rows: list[tuple[datetime, FeedItem, str]] = []
+    seen: set[str] = set()
+    for item in items:
+        matched = allowlist_match(item.url, allowed_domains)
+        if matched is None or is_index_url(item.url):
+            continue
+        norm = normalize_url(item.url)
+        if norm in exclude_urls or norm in seen:
+            continue
+        seen.add(norm)
+        # Undated entries sort last rather than being dropped: several
+        # publishers omit the field entirely and their articles are fine.
+        rows.append((item.published or datetime.min.replace(tzinfo=UTC), item, matched))
+    rows.sort(key=lambda r: r[0], reverse=True)
+    return [
+        Candidate(
+            index=0,
+            title=item.title,
+            url=item.url,
+            domain=matched,
+            published=item.published,
+            summary=item.summary,
+        )
+        for _, item, matched in rows[:per_domain]
+    ]
+
+
+def _fill_round_robin(
+    ranked: dict[str, list[Candidate]], *, per_domain: int, limit: int
+) -> list[Candidate]:
+    """Take one entry per domain per round, until ``limit`` or ``per_domain`` rounds."""
+    pool: list[Candidate] = []
+    for depth in range(per_domain):
+        if len(pool) >= limit:
+            break
+        for domain in sorted(ranked):
+            if depth < len(ranked[domain]):
+                pool.append(ranked[domain][depth])
+                if len(pool) >= limit:
+                    break
+    return pool
 
 
 def select_candidates(
@@ -690,43 +794,16 @@ def select_candidates(
     """
     ranked: dict[str, list[Candidate]] = {}
     for domain, items in sorted(per_domain_items.items()):
-        rows: list[tuple[datetime, FeedItem, str]] = []
-        seen: set[str] = set()
-        for item in items:
-            matched = allowlist_match(item.url, allowed_domains)
-            if matched is None or is_index_url(item.url):
-                continue
-            norm = normalize_url(item.url)
-            if norm in exclude_urls or norm in seen:
-                continue
-            seen.add(norm)
-            # Undated entries sort last rather than being dropped: several
-            # publishers omit the field entirely and their articles are fine.
-            rows.append((item.published or datetime.min.replace(tzinfo=UTC), item, matched))
-        rows.sort(key=lambda r: r[0], reverse=True)
-        picked = [
-            Candidate(
-                index=0,
-                title=item.title,
-                url=item.url,
-                domain=matched,
-                published=item.published,
-                summary=item.summary,
-            )
-            for _, item, matched in rows[:per_domain]
-        ]
+        picked = _rank_domain_items(
+            items,
+            allowed_domains=allowed_domains,
+            exclude_urls=exclude_urls,
+            per_domain=per_domain,
+        )
         if picked:
             ranked[domain] = picked
 
-    pool: list[Candidate] = []
-    for depth in range(per_domain):
-        if len(pool) >= limit:
-            break
-        for domain in sorted(ranked):
-            if depth < len(ranked[domain]):
-                pool.append(ranked[domain][depth])
-                if len(pool) >= limit:
-                    break
+    pool = _fill_round_robin(ranked, per_domain=per_domain, limit=limit)
 
     # Number only once the pool is final, so the index the model returns is an
     # offset into the list it was actually shown.
