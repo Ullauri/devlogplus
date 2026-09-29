@@ -338,6 +338,11 @@ class _QuizTally:
         }
 
 
+def _question_topic_key(target_topic: str | None) -> str:
+    """The per-session diversity key for a question's target topic ("" if none)."""
+    return (target_topic or "").strip().lower()
+
+
 def _skip_question(
     text_key: str,
     target_topic: str | None,
@@ -369,7 +374,7 @@ def _skip_question(
     # topic in this session. The prompt asks for distinct topics;
     # this enforces it so a single hot topic can't dominate the
     # quiz even if the LLM ignores the instruction.
-    topic_key = (target_topic or "").strip().lower()
+    topic_key = _question_topic_key(target_topic)
     if topic_key and topic_key in seen_topics:
         logger.info(
             "Skipping duplicate-topic question (topic=%s): %s",
@@ -419,7 +424,7 @@ def _screen_questions(
         if _skip_question(text_key, q.target_topic, signals, seen_topics, tally):
             continue
         accepted.append(_question_kwargs(q, topic_lookup, len(accepted)))
-        topic_key = (q.target_topic or "").strip().lower()
+        topic_key = _question_topic_key(q.target_topic)
         if topic_key:
             seen_topics.add(topic_key)
     return accepted

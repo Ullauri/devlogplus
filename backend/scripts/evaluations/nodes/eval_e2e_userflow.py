@@ -697,7 +697,11 @@ def _score_reading_generation(exp: dict, act: dict) -> float:
 
 
 def _names_a_domain(rec: dict) -> bool:
-    """Whether the rec carries a source_domain or a URL with a host."""
+    """Whether the rec's source_domain and URL host, joined, are not blank.
+
+    Deliberately loose (a missing source_domain still reads as "None"): this
+    stage only checks that a recommendation names *something* domain-like.
+    """
     url = rec.get("url", "")
     source_domain = rec.get("source_domain", "")
     url_domain = urlparse(url).netloc.replace("www.", "")

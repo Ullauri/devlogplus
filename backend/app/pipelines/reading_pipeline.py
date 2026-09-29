@@ -348,30 +348,32 @@ def _screen_known_url(rec_url: str, signals: _AvoidSignals, tally: _StoreTally) 
     return False
 
 
-def _link_rejection(
+def _link_verdict(
     rec_title: str,
     rec_url: str,
     link_checks: dict[str, reading_svc.LinkCheck],
-) -> str | None:
+) -> tuple[bool, str | None]:
     """Confirm the link is the article it claims to be, not an index page or an
-    unrelated one. Returns the rejection reason, or None if the link passes.
+    unrelated one. Returns ``judge_link``'s ``(ok, reason)``.
     """
     if not settings.reading_validate_urls:
-        return None
+        return True, None
     # A missing entry means the URL was never fetched, which only
     # happens when the check is stubbed out. Absence of evidence is
     # not treated as a failure, matching the prior behaviour.
     check = link_checks.get(rec_url)
     if check is None:
-        return None
-    ok, reason = reading_svc.judge_link(
+        return True, None
+    return reading_svc.judge_link(
         rec_title,
         check,
         min_title_overlap=settings.reading_min_title_overlap,
     )
-    if ok:
-        return None
-    return reason or "unknown"
+
+
+def _topic_key(target_topic: str | None) -> str:
+    """The batch-diversity key for a recommendation's target topic ("" if none)."""
+    return (target_topic or "").strip().lower()
 
 
 def _parse_recommendation_type(value: str) -> ReadingRecommendationType:
@@ -415,15 +417,15 @@ def _screen_pick(
         tally.off_allowlist += 1
         return None
 
-    reason = _link_rejection(rec_title, rec_url, link_checks)
-    if reason is not None:
+    ok, reason = _link_verdict(rec_title, rec_url, link_checks)
+    if not ok:
         logger.warning(
             "Skipping recommendation '%s' (%s): %s",
             rec_title,
             reason,
             rec_url,
         )
-        tally.bad_link.append({"url": rec_url, "reason": reason})
+        tally.bad_link.append({"url": rec_url, "reason": reason or "unknown"})
         return None
 
     # Diversity guard (final gate): refuse a second otherwise-valid rec
@@ -433,7 +435,7 @@ def _screen_pick(
     # instruction. Applied AFTER domain + reachability checks so that
     # an invalid candidate doesn't "burn" a topic slot a valid candidate
     # could have used.
-    topic_key = (rec.target_topic or "").strip().lower()
+    topic_key = _topic_key(rec.target_topic)
     if topic_key and topic_key in seen_topics:
         logger.info(
             "Skipping duplicate-topic recommendation '%s' (topic=%s)",
@@ -485,7 +487,7 @@ def _store_picks(
         )
         db.add(reading)
         created.append(reading)
-        topic_key = (rec.target_topic or "").strip().lower()
+        topic_key = _topic_key(rec.target_topic)
         if topic_key:
             seen_topics.add(topic_key)
     return created
