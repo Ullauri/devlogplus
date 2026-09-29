@@ -3,6 +3,7 @@
 import enum
 import uuid
 from datetime import datetime
+from types import MappingProxyType
 
 from sqlalchemy import DateTime, text
 from sqlalchemy import Enum as SAEnum
@@ -156,24 +157,29 @@ class Base(DeclarativeBase):
     runtime.
     """
 
-    type_annotation_map = {  # noqa: RUF012 — SQLAlchemy reads this as a ClassVar
-        EvidenceStrength: _string_enum(EvidenceStrength),
-        TopicCategory: _string_enum(TopicCategory),
-        TopicRelationshipType: _string_enum(TopicRelationshipType),
-        QuizSessionStatus: _string_enum(QuizSessionStatus),
-        QuizQuestionType: _string_enum(QuizQuestionType),
-        QuizCorrectness: _string_enum(QuizCorrectness),
-        ReadingRecommendationType: _string_enum(ReadingRecommendationType),
-        ProjectStatus: _string_enum(ProjectStatus),
-        ProjectTaskType: _string_enum(ProjectTaskType),
-        TriageSource: _string_enum(TriageSource),
-        TriageSeverity: _string_enum(TriageSeverity),
-        TriageStatus: _string_enum(TriageStatus),
-        FeedbackTargetType: _string_enum(FeedbackTargetType),
-        FeedbackReaction: _string_enum(FeedbackReaction),
-        PipelineType: _string_enum(PipelineType),
-        PipelineStatus: _string_enum(PipelineStatus),
-    }
+    # SQLAlchemy reads this once, when ``Base`` is created, and copies it into
+    # the registry's own dict; nothing should mutate it afterwards, so it is
+    # a read-only mapping rather than a shared mutable class-level dict.
+    type_annotation_map = MappingProxyType(
+        {
+            EvidenceStrength: _string_enum(EvidenceStrength),
+            TopicCategory: _string_enum(TopicCategory),
+            TopicRelationshipType: _string_enum(TopicRelationshipType),
+            QuizSessionStatus: _string_enum(QuizSessionStatus),
+            QuizQuestionType: _string_enum(QuizQuestionType),
+            QuizCorrectness: _string_enum(QuizCorrectness),
+            ReadingRecommendationType: _string_enum(ReadingRecommendationType),
+            ProjectStatus: _string_enum(ProjectStatus),
+            ProjectTaskType: _string_enum(ProjectTaskType),
+            TriageSource: _string_enum(TriageSource),
+            TriageSeverity: _string_enum(TriageSeverity),
+            TriageStatus: _string_enum(TriageStatus),
+            FeedbackTargetType: _string_enum(FeedbackTargetType),
+            FeedbackReaction: _string_enum(FeedbackReaction),
+            PipelineType: _string_enum(PipelineType),
+            PipelineStatus: _string_enum(PipelineStatus),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
