@@ -210,6 +210,37 @@ async def is_database_populated(db: AsyncSession) -> dict[str, int]:
     return counts
 
 
+def _add_all(db: AsyncSession, model_cls, items) -> int:
+    """Add one ORM row per exported item, in order. Returns how many were added."""
+    for item in items:
+        db.add(_to_model(model_cls, item.model_dump()))
+    return len(items)
+
+
+async def _import_topics(db: AsyncSession, topics) -> int:
+    """Insert topics, then restore their self-referential parent links.
+
+    Every topic is inserted with ``parent_topic_id=None`` first, so the
+    self-FK never points at a row that does not exist yet, then patched.
+    """
+    topic_dicts = [t.model_dump() for t in topics]
+    parent_map: dict[str, str | None] = {}
+    for td in topic_dicts:
+        parent_map[str(td["id"])] = td.get("parent_topic_id")
+        td["parent_topic_id"] = None  # break self-FK for initial insert
+    for td in topic_dicts:
+        db.add(_to_model(Topic, td))
+    await db.flush()
+    # Now set parent_topic_id in a second pass
+    for tid, pid in parent_map.items():
+        if pid is not None:
+            topic = await db.get(Topic, tid)
+            if topic:
+                topic.parent_topic_id = pid
+    await db.flush()
+    return len(topic_dicts)
+
+
 async def import_all(
     db: AsyncSession,
     bundle: DataExportBundle,
@@ -244,60 +275,32 @@ async def import_all(
     # 2. Insert in parent-first order so FK constraints are satisfied.
 
     # --- Topics (self-referential: insert with parent_topic_id=None first, patch after)
-    topic_dicts = [t.model_dump() for t in bundle.topics]
-    parent_map: dict[str, str | None] = {}
-    for td in topic_dicts:
-        parent_map[str(td["id"])] = td.get("parent_topic_id")
-        td["parent_topic_id"] = None  # break self-FK for initial insert
-    for td in topic_dicts:
-        db.add(_to_model(Topic, td))
-    await db.flush()
-    # Now set parent_topic_id in a second pass
-    for tid, pid in parent_map.items():
-        if pid is not None:
-            topic = await db.get(Topic, tid)
-            if topic:
-                topic.parent_topic_id = pid
-    await db.flush()
-    counts["topics"] = len(topic_dicts)
+    counts["topics"] = await _import_topics(db, bundle.topics)
 
     # --- Topic relationships
-    for item in bundle.topic_relationships:
-        db.add(_to_model(TopicRelationship, item.model_dump()))
-    counts["topic_relationships"] = len(bundle.topic_relationships)
+    counts["topic_relationships"] = _add_all(db, TopicRelationship, bundle.topic_relationships)
 
     # --- Journal entries + versions
-    for item in bundle.journal_entries:
-        db.add(_to_model(JournalEntry, item.model_dump()))
+    journal_entries = _add_all(db, JournalEntry, bundle.journal_entries)
     await db.flush()
-    for item in bundle.journal_entry_versions:
-        db.add(_to_model(JournalEntryVersion, item.model_dump()))
-    counts["journal_entries"] = len(bundle.journal_entries)
-    counts["journal_entry_versions"] = len(bundle.journal_entry_versions)
+    counts["journal_entries"] = journal_entries
+    counts["journal_entry_versions"] = _add_all(
+        db, JournalEntryVersion, bundle.journal_entry_versions
+    )
 
     # --- Quiz sessions → questions → answers / evaluations
-    for item in bundle.quiz_sessions:
-        db.add(_to_model(QuizSession, item.model_dump()))
+    counts["quiz_sessions"] = _add_all(db, QuizSession, bundle.quiz_sessions)
     await db.flush()
-    for item in bundle.quiz_questions:
-        db.add(_to_model(QuizQuestion, item.model_dump()))
+    counts["quiz_questions"] = _add_all(db, QuizQuestion, bundle.quiz_questions)
     await db.flush()
-    for item in bundle.quiz_answers:
-        db.add(_to_model(QuizAnswer, item.model_dump()))
-    for item in bundle.quiz_evaluations:
-        db.add(_to_model(QuizEvaluation, item.model_dump()))
-    counts["quiz_sessions"] = len(bundle.quiz_sessions)
-    counts["quiz_questions"] = len(bundle.quiz_questions)
-    counts["quiz_answers"] = len(bundle.quiz_answers)
-    counts["quiz_evaluations"] = len(bundle.quiz_evaluations)
+    counts["quiz_answers"] = _add_all(db, QuizAnswer, bundle.quiz_answers)
+    counts["quiz_evaluations"] = _add_all(db, QuizEvaluation, bundle.quiz_evaluations)
 
     # --- Readings
-    for item in bundle.reading_recommendations:
-        db.add(_to_model(ReadingRecommendation, item.model_dump()))
-    for item in bundle.reading_allowlist:
-        db.add(_to_model(ReadingAllowlist, item.model_dump()))
-    counts["reading_recommendations"] = len(bundle.reading_recommendations)
-    counts["reading_allowlist"] = len(bundle.reading_allowlist)
+    counts["reading_recommendations"] = _add_all(
+        db, ReadingRecommendation, bundle.reading_recommendations
+    )
+    counts["reading_allowlist"] = _add_all(db, ReadingAllowlist, bundle.reading_allowlist)
 
     # --- Projects are dropped, not restored.
     # Step 1 already deleted them, and nothing re-inserts them: the Go code a
@@ -325,26 +328,14 @@ async def import_all(
     # filters them: without the project they point at, a thumbs-down on a task
     # nobody can open is noise the new machine cannot act on.
     kept_feedback = [f for f in bundle.feedback if f.target_type not in _PROJECT_FEEDBACK_TARGETS]
-    for item in kept_feedback:
-        db.add(_to_model(Feedback, item.model_dump()))
-    counts["feedback"] = len(kept_feedback)
+    counts["feedback"] = _add_all(db, Feedback, kept_feedback)
 
     kept_triage = [t for t in bundle.triage_items if t.source != TriageSource.PROJECT_EVALUATION]
-    for item in kept_triage:
-        db.add(_to_model(TriageItem, item.model_dump()))
-    counts["triage_items"] = len(kept_triage)
+    counts["triage_items"] = _add_all(db, TriageItem, kept_triage)
 
-    for item in bundle.user_settings:
-        db.add(_to_model(UserSettings, item.model_dump()))
-    counts["user_settings"] = len(bundle.user_settings)
-
-    for item in bundle.onboarding_state:
-        db.add(_to_model(OnboardingState, item.model_dump()))
-    counts["onboarding_state"] = len(bundle.onboarding_state)
-
-    for item in bundle.profile_snapshots:
-        db.add(_to_model(ProfileSnapshot, item.model_dump()))
-    counts["profile_snapshots"] = len(bundle.profile_snapshots)
+    counts["user_settings"] = _add_all(db, UserSettings, bundle.user_settings)
+    counts["onboarding_state"] = _add_all(db, OnboardingState, bundle.onboarding_state)
+    counts["profile_snapshots"] = _add_all(db, ProfileSnapshot, bundle.profile_snapshots)
 
     await db.flush()
 
