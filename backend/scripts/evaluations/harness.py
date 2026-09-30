@@ -144,19 +144,21 @@ def default_accuracy_scorer(expected: dict, actual: dict) -> float:
         if act_val is None:
             scores.append(0.0)
             continue
-        if isinstance(exp_val, list) and isinstance(act_val, list):
-            scores.append(_list_similarity(exp_val, act_val))
-        elif isinstance(exp_val, dict) and isinstance(act_val, dict):
-            scores.append(default_accuracy_scorer(exp_val, act_val))
-        elif isinstance(exp_val, int | float) and isinstance(act_val, int | float):
-            scores.append(_numeric_closeness(exp_val, act_val))
-        elif isinstance(exp_val, str) and isinstance(act_val, str):
-            scores.append(_string_similarity(exp_val, act_val))
-        elif exp_val == act_val:
-            scores.append(1.0)
-        else:
-            scores.append(0.0)
+        scores.append(_value_similarity(exp_val, act_val))
     return statistics.mean(scores) if scores else 0.0
+
+
+def _value_similarity(exp_val: object, act_val: object) -> float:
+    """Score one expected value against its actual counterpart, by type."""
+    if isinstance(exp_val, list) and isinstance(act_val, list):
+        return _list_similarity(exp_val, act_val)
+    if isinstance(exp_val, dict) and isinstance(act_val, dict):
+        return default_accuracy_scorer(exp_val, act_val)
+    if isinstance(exp_val, int | float) and isinstance(act_val, int | float):
+        return _numeric_closeness(exp_val, act_val)
+    if isinstance(exp_val, str) and isinstance(act_val, str):
+        return _string_similarity(exp_val, act_val)
+    return 1.0 if exp_val == act_val else 0.0
 
 
 def _list_similarity(expected: list, actual: list) -> float:
