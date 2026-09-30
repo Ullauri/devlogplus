@@ -168,7 +168,7 @@ function isValidKeyName(key: string): boolean {
   return /^[a-z][a-z0-9_]{0,62}$/.test(key);
 }
 
-// Why a new key cannot be created, or null when it can.
+/** Why a new key cannot be created, or null when it can. */
 function newSettingKeyError(
   key: string,
   existing: readonly Setting[],
