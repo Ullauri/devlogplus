@@ -3,6 +3,7 @@
     "bugs/deterministic/undefined-name",
     "code-quality/deterministic/multiline-block-without-braces",
     "reliability/deterministic/uncaught-exception-no-handler",
+    "reliability/deterministic/unhandled-rejection-no-handler",
     "security/deterministic/aws-unencrypted-sns-python"
   ]
 }
