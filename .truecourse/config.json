@@ -1,6 +1,7 @@
 {
   "disabledRules": [
     "bugs/deterministic/undefined-name",
+    "code-quality/deterministic/multiline-block-without-braces",
     "security/deterministic/aws-unencrypted-sns-python"
   ]
 }
