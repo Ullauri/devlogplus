@@ -40,7 +40,7 @@ export default function JournalPage() {
     setContent("");
     setEditingId(null);
     setShowForm(false);
-    load();
+    await load();
   };
 
   const startEdit = (entry: JournalEntry) => {
@@ -53,7 +53,7 @@ export default function JournalPage() {
   const handleDelete = async (id: string) => {
     if (confirm("Delete this entry?")) {
       await api.journal.delete(id);
-      load();
+      await load();
     }
   };
 
