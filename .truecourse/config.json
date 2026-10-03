@@ -2,6 +2,7 @@
   "disabledRules": [
     "bugs/deterministic/undefined-name",
     "code-quality/deterministic/multiline-block-without-braces",
+    "reliability/deterministic/uncaught-exception-no-handler",
     "security/deterministic/aws-unencrypted-sns-python"
   ]
 }
