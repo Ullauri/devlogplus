@@ -43,8 +43,10 @@ export default function ProjectsPage() {
   const pipelines = useMemo(() => PROJECT_PIPELINES, []);
   const status = usePipelineStatus(pipelines);
 
+  // allSettled, not all: the two loads are independent, and neither one
+  // failing should reject the pair (each also handles its own error).
   const loadAll = useCallback(() => {
-    return Promise.all([
+    return Promise.allSettled([
       api.projects
         .list()
         .then(setProjects)
