@@ -80,12 +80,7 @@ def score_project_evaluation(expected: dict, actual: dict) -> float:
     actual_adj = actual.get("difficulty_adjustment", 0)
     expected_adj = expected.get("difficulty_adjustment")
     if expected_adj is not None:
-        if actual_adj == expected_adj:
-            scores.append(1.0)
-        elif abs(actual_adj - expected_adj) == 1:
-            scores.append(0.5)
-        else:
-            scores.append(0.0)
+        scores.append(_adjustment_closeness(expected_adj, actual_adj))
 
     # 4. Has overall assessment
     if expected.get("has_overall_assessment"):
@@ -99,6 +94,15 @@ def score_project_evaluation(expected: dict, actual: dict) -> float:
         scores.append(1.0 if actual_conf >= conf_min else actual_conf / conf_min)
 
     return sum(scores) / len(scores) if scores else 0.0
+
+
+def _adjustment_closeness(expected_adj: int, actual_adj: int) -> float:
+    """Full credit for the expected difficulty adjustment, half for one step off."""
+    if actual_adj == expected_adj:
+        return 1.0
+    if abs(actual_adj - expected_adj) == 1:
+        return 0.5
+    return 0.0
 
 
 # ---------------------------------------------------------------------------

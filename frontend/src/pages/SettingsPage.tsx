@@ -14,6 +14,22 @@ type PipelineKey =
   | "project_generation";
 
 /**
+ * The `skipped_*` counters that are non-zero, as `key=count` parts.
+ *
+ * Zero skips are the normal case and say nothing; listing them buries the one
+ * counter that is non-zero.
+ */
+function nonZeroSkipParts(metadata: Record<string, unknown>): string[] {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!key.startsWith("skipped_")) continue;
+    const count = Array.isArray(value) ? value.length : value;
+    if (typeof count === "number" && count > 0) parts.push(`${key}=${count}`);
+  }
+  return parts;
+}
+
+/**
  * Condense a run's metadata into the one line the Details column has room for.
  *
  * This used to be `Object.entries(...).slice(0, 3)`, which is how a reading run
@@ -37,13 +53,7 @@ export function summarizeRunMetadata(
 
   for (const key of ["stored", "generated"]) push(key);
 
-  // Zero skips are the normal case and say nothing; listing them buries the
-  // one counter that is non-zero.
-  for (const [key, value] of Object.entries(metadata)) {
-    if (!key.startsWith("skipped_")) continue;
-    const count = Array.isArray(value) ? value.length : value;
-    if (typeof count === "number" && count > 0) parts.push(`${key}=${count}`);
-  }
+  parts.push(...nonZeroSkipParts(metadata));
 
   // Distinguishes "no articles to choose from" (a feed problem) from "chose
   // nothing" (a selection problem) without opening the database.
@@ -156,6 +166,26 @@ function isReservedKey(key: string): boolean {
 function isValidKeyName(key: string): boolean {
   // Match typical snake_case config keys; keeps things predictable.
   return /^[a-z][a-z0-9_]{0,62}$/.test(key);
+}
+
+/** Why a new key cannot be created, or null when it can. */
+function newSettingKeyError(
+  key: string,
+  existing: readonly Setting[],
+): string | null {
+  if (!isValidKeyName(key)) {
+    return "Key must be snake_case (lowercase, digits, underscores; start with a letter; max 63 chars).";
+  }
+  if (isReservedKey(key)) {
+    return "That key is reserved for environment variables and cannot be created here.";
+  }
+  if (GENERAL_KEYS.has(key)) {
+    return "That key is already editable in the General section above.";
+  }
+  if (existing.some((s) => s.key === key)) {
+    return "A setting with that key already exists — edit it below.";
+  }
+  return null;
 }
 
 type RawStatus =
@@ -309,26 +339,9 @@ export default function SettingsPage() {
   const handleCreateNewSetting = useCallback(async () => {
     setNewKeyError(null);
     const trimmed = newKey.trim();
-    if (!isValidKeyName(trimmed)) {
-      setNewKeyError(
-        "Key must be snake_case (lowercase, digits, underscores; start with a letter; max 63 chars).",
-      );
-      return;
-    }
-    if (isReservedKey(trimmed)) {
-      setNewKeyError(
-        "That key is reserved for environment variables and cannot be created here.",
-      );
-      return;
-    }
-    if (GENERAL_KEYS.has(trimmed)) {
-      setNewKeyError(
-        "That key is already editable in the General section above.",
-      );
-      return;
-    }
-    if (rawSettings.some((s) => s.key === trimmed)) {
-      setNewKeyError("A setting with that key already exists — edit it below.");
+    const keyError = newSettingKeyError(trimmed, rawSettings);
+    if (keyError) {
+      setNewKeyError(keyError);
       return;
     }
     let parsed: unknown;

@@ -237,6 +237,15 @@ class LinkCheck:
     page_titles: tuple[str, ...] = ()
 
 
+def _meta_title(attrs: list[tuple[str, str | None]]) -> str | None:
+    """Return the headline an ``og:title``/``twitter:title`` meta tag carries, if any."""
+    attr = dict(attrs)
+    key = (attr.get("property") or attr.get("name") or "").lower()
+    if key in ("og:title", "twitter:title") and attr.get("content"):
+        return attr["content"]
+    return None
+
+
 class _TitleParser(HTMLParser):
     """Pull ``<title>``, ``og:title`` and the first ``<h1>`` out of a document.
 
@@ -255,10 +264,7 @@ class _TitleParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag == "meta" and self.og_title is None:
-            attr = dict(attrs)
-            key = (attr.get("property") or attr.get("name") or "").lower()
-            if key in ("og:title", "twitter:title") and attr.get("content"):
-                self.og_title = attr["content"]
+            self.og_title = _meta_title(attrs)
         elif tag == "title" and self.title is None:
             self._capturing, self._buffer = "title", []
         elif tag == "h1" and self.h1 is None:
@@ -1044,6 +1050,19 @@ async def get_recommendation(
     return result.scalar_one_or_none()
 
 
+def _stamp(flag: bool | None, current: datetime | None, now: datetime) -> datetime | None:
+    """Apply one flag of a partial state update to its ``*_at`` column's value.
+
+    ``True`` stamps ``now`` unless already stamped, ``False`` clears, ``None``
+    keeps ``current``.
+    """
+    if flag is True and current is None:
+        return now
+    if flag is False:
+        return None
+    return current
+
+
 async def update_recommendation_state(
     db: AsyncSession,
     recommendation_id: uuid.UUID,
@@ -1070,20 +1089,9 @@ async def update_recommendation_state(
 
     now = datetime.now(UTC)
 
-    if data.read is True and rec.read_at is None:
-        rec.read_at = now
-    elif data.read is False:
-        rec.read_at = None
-
-    if data.saved is True and rec.saved_at is None:
-        rec.saved_at = now
-    elif data.saved is False:
-        rec.saved_at = None
-
-    if data.dismissed is True and rec.dismissed_at is None:
-        rec.dismissed_at = now
-    elif data.dismissed is False:
-        rec.dismissed_at = None
+    rec.read_at = _stamp(data.read, rec.read_at, now)
+    rec.saved_at = _stamp(data.saved, rec.saved_at, now)
+    rec.dismissed_at = _stamp(data.dismissed, rec.dismissed_at, now)
 
     # Invariants
     if data.dismissed is True:

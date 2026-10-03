@@ -76,24 +76,7 @@ def score_quiz_generation(expected: dict, actual: dict) -> float:
 
     # 2. All free-text
     if expected.get("all_questions_free_text"):
-        mc_markers = {
-            "a)",
-            "b)",
-            "c)",
-            "d)",
-            "true/false",
-            "true or false",
-            "(a)",
-            "(b)",
-            "(c)",
-            "(d)",
-        }
-        free_text_count = 0
-        for q in questions:
-            text = q.get("question_text", "").lower()
-            if not any(m in text for m in mc_markers):
-                free_text_count += 1
-        scores.append(free_text_count / len(questions) if questions else 0.0)
+        scores.append(_free_text_fraction(questions))
 
     # 3. Required fields
     required = expected.get("questions_must_have_fields", [])
@@ -112,6 +95,28 @@ def score_quiz_generation(expected: dict, actual: dict) -> float:
         scores.append(matched / len(must_have))
 
     return sum(scores) / len(scores) if scores else 0.0
+
+
+def _free_text_fraction(questions: list[dict]) -> float:
+    """Fraction of questions whose text carries no multiple-choice marker."""
+    mc_markers = {
+        "a)",
+        "b)",
+        "c)",
+        "d)",
+        "true/false",
+        "true or false",
+        "(a)",
+        "(b)",
+        "(c)",
+        "(d)",
+    }
+    free_text_count = 0
+    for q in questions:
+        text = q.get("question_text", "").lower()
+        if not any(m in text for m in mc_markers):
+            free_text_count += 1
+    return free_text_count / len(questions) if questions else 0.0
 
 
 # ---------------------------------------------------------------------------
