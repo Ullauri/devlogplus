@@ -93,16 +93,15 @@ export default function ProfilePage() {
     unresolved: "Unresolved",
   };
 
-  const categories: [string, typeof profile.strengths][] = (
-    [
-      ["strengths", profile.strengths ?? []],
-      ["current_frontier", profile.current_frontier ?? []],
-      ["next_frontier", profile.next_frontier ?? []],
-      ["recurring_themes", profile.recurring_themes ?? []],
-      ["weak_spots", profile.weak_spots ?? []],
-      ["unresolved", profile.unresolved ?? []],
-    ] as [string, typeof profile.strengths][]
-  ).filter(([, topics]) => topics.length > 0);
+  const allCategories: [string, typeof profile.strengths][] = [
+    ["strengths", profile.strengths ?? []],
+    ["current_frontier", profile.current_frontier ?? []],
+    ["next_frontier", profile.next_frontier ?? []],
+    ["recurring_themes", profile.recurring_themes ?? []],
+    ["weak_spots", profile.weak_spots ?? []],
+    ["unresolved", profile.unresolved ?? []],
+  ];
+  const categories = allCategories.filter(([, topics]) => topics.length > 0);
 
   return (
     <div>
