@@ -108,7 +108,7 @@ export default function FeedbackControls({ targetType, targetId }: Props) {
           className="flex items-center gap-1"
           onSubmit={(e) => {
             e.preventDefault();
-            submit(reaction);
+            void submit(reaction);
           }}
         >
           <input

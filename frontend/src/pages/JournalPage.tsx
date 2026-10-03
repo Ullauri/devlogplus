@@ -23,7 +23,8 @@ export default function JournalPage() {
   const hasUnprocessed = entries.some((e) => !e.is_processed);
 
   useEffect(() => {
-    load();
+    // Best-effort, like the other pages' loaders: on failure the list stays empty.
+    load().catch(() => {});
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,7 +74,7 @@ export default function JournalPage() {
               onRun={() => api.pipelines.runProfileUpdate()}
               onQueued={async () => {
                 await pipelineStatus.refresh();
-                load();
+                await load();
               }}
               disabled={!pipelineStatus.loaded || isProcessing}
             />
