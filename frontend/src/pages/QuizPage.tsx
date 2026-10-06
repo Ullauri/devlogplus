@@ -90,7 +90,7 @@ export default function QuizPage() {
       .then(() => status.refresh())
       .catch(() => {}); // evaluation can be re-triggered manually from the review view
     // Show results immediately
-    openReview(sessionId);
+    await openReview(sessionId);
   };
 
   // Shared question card renderer
