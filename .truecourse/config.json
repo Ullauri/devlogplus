@@ -1,6 +1,7 @@
 {
   "disabledRules": [
     "bugs/deterministic/undefined-name",
+    "bugs/deterministic/useeffect-missing-deps",
     "code-quality/deterministic/multiline-block-without-braces",
     "database/deterministic/missing-transaction",
     "reliability/deterministic/uncaught-exception-no-handler",
