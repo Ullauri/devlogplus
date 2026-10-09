@@ -9,11 +9,13 @@ There is no schedule and no CLI entrypoint.
 
 import logging
 import uuid
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.app.config import settings
 from backend.app.models.base import (
     EvidenceStrength,
     PipelineStatus,
@@ -25,11 +27,12 @@ from backend.app.models.base import (
 from backend.app.models.journal import JournalEntry, JournalEntryVersion
 from backend.app.models.topic import Topic
 from backend.app.models.triage import TriageItem
-from backend.app.prompts import topic_extraction
+from backend.app.prompts import entry_gate, topic_extraction
 from backend.app.services import pipelines as pipelines_svc
 from backend.app.services import profile as profile_svc
 from backend.app.services import triage as triage_svc
 from backend.app.services.llm.client import llm_client
+from backend.app.services.llm.decisions import decisions_client
 from backend.app.services.llm.models import ExtractedTopic, TopicExtractionResult
 
 logger = logging.getLogger(__name__)
@@ -46,11 +49,46 @@ def _format_existing_topics(existing_topics: list[Topic]) -> str:
     )
 
 
+@dataclass
+class GateCounts:
+    """What the entry gate decided across one run."""
+
+    skipped_by_gate: int = 0
+    gate_no_opinion: int = 0
+    gate_passed: int = 0
+
+
+async def _gate_skips(entry: JournalEntry, content: str, counts: GateCounts) -> bool:
+    """Ask the entry gate about *content*; True when extraction should be skipped.
+
+    Records the probability on the entry. No opinion lets the entry through,
+    so the gate can only ever remove calls, never lose an entry to an outage.
+    """
+    decision = await decisions_client.ask_noul(
+        pipeline="entry_gate", state=content, question=entry_gate.QUESTION
+    )
+    if decision is None:
+        counts.gate_no_opinion += 1
+        entry.gate_p_yes = None
+        return False
+    entry.gate_p_yes = decision.p_yes
+    if decision.p_yes < settings.llm_entry_gate_threshold:
+        counts.skipped_by_gate += 1
+        return True
+    counts.gate_passed += 1
+    return False
+
+
 async def _extract_topics(
     db: AsyncSession, entries: list[JournalEntry], existing_topics_text: str
-) -> list[ExtractedTopic]:
-    """Extract topics from each entry, marking each one it read as processed."""
+) -> tuple[list[ExtractedTopic], GateCounts]:
+    """Extract topics from each entry, marking each one it read as processed.
+
+    With the entry gate on, an entry the gate judges trivial is marked
+    processed and ``gate_skipped`` without the extraction call.
+    """
     all_extracted: list[ExtractedTopic] = []
+    counts = GateCounts()
     for entry in entries:
         # Get current version content
         version_stmt = select(JournalEntryVersion).where(
@@ -60,6 +98,12 @@ async def _extract_topics(
         version_result = await db.execute(version_stmt)
         current_version = version_result.scalar_one_or_none()
         if current_version is None:
+            continue
+
+        if settings.llm_entry_gate and await _gate_skips(entry, current_version.content, counts):
+            entry.gate_skipped = True
+            entry.is_processed = True
+            entry.processed_at = datetime.now(UTC)
             continue
 
         prompt = topic_extraction.USER_PROMPT_TEMPLATE.format(
@@ -79,9 +123,10 @@ async def _extract_topics(
         all_extracted.extend(extraction.topics)
 
         # Mark entry as processed
+        entry.gate_skipped = False
         entry.is_processed = True
         entry.processed_at = datetime.now(UTC)
-    return all_extracted
+    return all_extracted, counts
 
 
 def _find_topic(topics: list[Topic], name: str) -> Topic | None:
@@ -216,7 +261,7 @@ async def run_profile_update(
         existing_topics_text = _format_existing_topics(existing_topics)
 
         # Step 4: Extract topics from each entry
-        all_extracted = await _extract_topics(db, entries, existing_topics_text)
+        all_extracted, gate_counts = await _extract_topics(db, entries, existing_topics_text)
 
         # Step 5: Upsert topics into the database
         topics_created, topics_updated = _upsert_topics(db, all_extracted, existing_topics)
@@ -235,6 +280,8 @@ async def run_profile_update(
             "topics_extracted": len(all_extracted),
             "topics_created": topics_created,
             "topics_updated": topics_updated,
+            "entry_gate": settings.llm_entry_gate,
+            **asdict(gate_counts),
         }
         await db.flush()
 
@@ -244,6 +291,7 @@ async def run_profile_update(
             "topics_extracted": len(all_extracted),
             "topics_created": topics_created,
             "topics_updated": topics_updated,
+            **asdict(gate_counts),
         }
         logger.info("Profile update complete: %s", summary)
         return summary

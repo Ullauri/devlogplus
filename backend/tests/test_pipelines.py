@@ -40,18 +40,21 @@ from backend.app.schemas.feedback import FeedbackCreate
 from backend.app.services import feedback as feedback_svc
 from backend.app.services import onboarding as onboarding_svc
 from backend.app.services import pipelines as pipelines_svc
+from backend.app.services.llm.decisions import JEV_MODEL, NoulDecision
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
 
-async def _create_unprocessed_entry(db: AsyncSession) -> JournalEntry:
+async def _create_unprocessed_entry(
+    db: AsyncSession, content: str = "Learned about Go channels today."
+) -> JournalEntry:
     entry = JournalEntry(title="Test entry", is_processed=False)
     db.add(entry)
     await db.flush()
 
     version = JournalEntryVersion(
         entry_id=entry.id,
-        content="Learned about Go channels today.",
+        content=content,
         version_number=1,
         is_current=True,
     )
@@ -68,9 +71,12 @@ async def test_pipeline_records_failed_status_on_llm_error(db_session: AsyncSess
     """
     await _create_unprocessed_entry(db_session)
 
-    with patch(
-        "backend.app.pipelines.profile_update.llm_client.chat_completion_json",
-        new=AsyncMock(side_effect=RuntimeError("simulated LLM failure")),
+    with (
+        _patch_gate(None),
+        patch(
+            "backend.app.pipelines.profile_update.llm_client.chat_completion_json",
+            new=AsyncMock(side_effect=RuntimeError("simulated LLM failure")),
+        ),
     ):
         # Pipeline must return normally — no exception should propagate
         await profile_update_pipeline.run_profile_update(db_session)
@@ -113,9 +119,12 @@ async def test_profile_update_reconciles_duplicate_new_topics_within_a_batch(
         "relationships": [],
     }
 
-    with patch(
-        "backend.app.pipelines.profile_update.llm_client.chat_completion_json",
-        new=AsyncMock(return_value=extraction),
+    with (
+        _patch_gate(None),
+        patch(
+            "backend.app.pipelines.profile_update.llm_client.chat_completion_json",
+            new=AsyncMock(return_value=extraction),
+        ),
     ):
         summary = await profile_update_pipeline.run_profile_update(db_session)
 
@@ -127,6 +136,140 @@ async def test_profile_update_reconciles_duplicate_new_topics_within_a_batch(
 
     topic_result = await db_session.execute(select(Topic).where(Topic.name == "API gateway design"))
     assert len(topic_result.scalars().all()) == 1
+
+
+# ---------------------------------------------------------------------------
+# The entry gate: a Jev yes/no before each topic-extraction call
+# ---------------------------------------------------------------------------
+_EMPTY_EXTRACTION = {"topics": [], "relationships": []}
+
+
+def _patch_gate(answer):
+    """Patch the entry gate's answer: a P(yes), ``None`` for no opinion, or a
+    function from the entry's text to either."""
+
+    async def _ask(*, pipeline: str, state: str, question: str) -> NoulDecision | None:
+        p_yes = answer(state) if callable(answer) else answer
+        if p_yes is None:
+            return None
+        return NoulDecision(
+            p_yes=p_yes, input_tokens=12, output_tokens=0, cost=0.0000005, model=JEV_MODEL
+        )
+
+    return patch(
+        "backend.app.pipelines.profile_update.decisions_client.ask_noul",
+        new=AsyncMock(side_effect=_ask),
+    )
+
+
+def _patch_extraction():
+    return patch(
+        "backend.app.pipelines.profile_update.llm_client.chat_completion_json",
+        new=AsyncMock(return_value=_EMPTY_EXTRACTION),
+    )
+
+
+@pytest.fixture
+def gate_on(monkeypatch):
+    monkeypatch.setattr(config.settings, "llm_entry_gate", True)
+    monkeypatch.setattr(config.settings, "llm_entry_gate_threshold", 0.2)
+
+
+async def _latest_log(db: AsyncSession) -> ProcessingLog:
+    result = await db.execute(
+        select(ProcessingLog).order_by(ProcessingLog.started_at.desc()).limit(1)
+    )
+    return result.scalar_one()
+
+
+async def test_entry_below_threshold_skips_extraction(db_session: AsyncSession, gate_on):
+    entry = await _create_unprocessed_entry(db_session, content="ok")
+
+    with _patch_gate(0.05), _patch_extraction() as extract:
+        summary = await profile_update_pipeline.run_profile_update(db_session)
+
+    extract.assert_not_awaited()
+    assert summary["skipped_by_gate"] == 1
+    await db_session.refresh(entry)
+    assert entry.is_processed is True
+    assert entry.processed_at is not None
+    assert entry.gate_skipped is True
+    assert entry.gate_p_yes == pytest.approx(0.05)
+
+
+async def test_entry_above_threshold_is_extracted(db_session: AsyncSession, gate_on):
+    entry = await _create_unprocessed_entry(db_session)
+
+    with _patch_gate(0.9), _patch_extraction() as extract:
+        summary = await profile_update_pipeline.run_profile_update(db_session)
+
+    extract.assert_awaited_once()
+    assert summary["gate_passed"] == 1
+    await db_session.refresh(entry)
+    assert entry.is_processed is True
+    assert entry.gate_skipped is False
+    assert entry.gate_p_yes == pytest.approx(0.9)
+
+
+async def test_gate_with_no_opinion_falls_through_to_extraction(db_session: AsyncSession, gate_on):
+    entry = await _create_unprocessed_entry(db_session)
+
+    with _patch_gate(None), _patch_extraction() as extract:
+        summary = await profile_update_pipeline.run_profile_update(db_session)
+
+    extract.assert_awaited_once()
+    assert summary["gate_no_opinion"] == 1
+    await db_session.refresh(entry)
+    assert entry.is_processed is True
+    assert entry.gate_skipped is False
+    assert entry.gate_p_yes is None
+
+
+async def test_gate_switched_off_makes_exactly_todays_calls(db_session: AsyncSession, monkeypatch):
+    """``LLM_ENTRY_GATE=off``: no gate request is even built, and every entry
+    gets the one extraction call it got before the gate existed."""
+    monkeypatch.setattr(config.settings, "llm_entry_gate", False)
+    await _create_unprocessed_entry(db_session, content="ok")
+    await _create_unprocessed_entry(db_session)
+
+    with (
+        _patch_gate(0.0) as ask,
+        patch("backend.app.services.llm.decisions.build_request") as build,
+        _patch_extraction() as extract,
+    ):
+        summary = await profile_update_pipeline.run_profile_update(db_session)
+
+    ask.assert_not_awaited()
+    build.assert_not_called()
+    assert extract.await_count == 2
+    assert all(c.kwargs["pipeline"] == "topic_extraction" for c in extract.await_args_list)
+    assert summary["skipped_by_gate"] == 0
+    log = await _latest_log(db_session)
+    assert log.metadata_["entry_gate"] is False
+
+
+async def test_mixed_batch_counts_each_gate_outcome(db_session: AsyncSession, gate_on):
+    answers = {"trivial": 0.05, "borderline": 0.2, "rich": 0.95, "outage": None}
+    for content in answers:
+        await _create_unprocessed_entry(db_session, content=content)
+
+    with _patch_gate(answers.get), _patch_extraction() as extract:
+        summary = await profile_update_pipeline.run_profile_update(db_session)
+
+    # 0.2 is not below a 0.2 threshold, so "borderline" is extracted too.
+    assert extract.await_count == 3
+    assert summary["status"] == "completed"
+    assert summary["entries_processed"] == 4
+    log = await _latest_log(db_session)
+    assert log.metadata_["entry_gate"] is True
+    assert log.metadata_["skipped_by_gate"] == 1
+    assert log.metadata_["gate_passed"] == 2
+    assert log.metadata_["gate_no_opinion"] == 1
+
+    skipped = await db_session.execute(
+        select(JournalEntry).where(JournalEntry.gate_skipped == True)  # noqa: E712
+    )
+    assert len(skipped.scalars().all()) == 1
 
 
 # ---------------------------------------------------------------------------
