@@ -150,6 +150,7 @@ def test_default_timeout_is_at_most_three_seconds() -> None:
     ("status", "body"),
     [
         (500, {"error": {"message": "upstream down"}}),
+        (502, "<html>Bad gateway</html>"),
         (401, {"unexpected": "shape"}),
         (200, {"error": {"message": "invalid model"}}),
         (200, {"answers": {"q": {"type": "score", "score": 1.0}}}),

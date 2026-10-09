@@ -51,7 +51,8 @@ async def _ask_raw(client: DecisionsClient, state: str) -> str:
     """One call, reported in full: unlike ``ask_noul`` this shows the failure."""
     start = time.monotonic()
     try:
-        status, body = await client._post(build_request(state, {"q": noul(entry_gate.QUESTION)}))
+        payload = build_request(state, {"q": noul(entry_gate.QUESTION)}, client.model)
+        status, body = await client._post(payload)
     except Exception as e:  # noqa: BLE001 — a probe reports, it does not recover
         return f"transport error: {type(e).__name__}: {e}"
     ms = int((time.monotonic() - start) * 1000)

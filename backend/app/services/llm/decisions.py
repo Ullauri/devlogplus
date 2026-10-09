@@ -42,6 +42,9 @@ JEV_MODEL = "typesafe/jev-1.13"
 # front of a call that takes seconds; it must never cost more than it saves.
 DECISIONS_TIMEOUT_SECONDS = 3.0
 
+# How much of a non-JSON error body to carry into the log line.
+_ERROR_BODY_LIMIT = 200
+
 
 class DecisionsError(Exception):
     """The API answered with an error body or a shape this module cannot read."""
@@ -125,20 +128,40 @@ class DecisionsClient:
         self.url = url
         self.model = model
         self.timeout = timeout
+        self._http: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        # One long-lived client, as llm_client keeps: a gate asked once per
+        # entry should not pay a TLS handshake per entry out of a 3 s budget.
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.AsyncClient(timeout=self.timeout)
+        return self._http
 
     async def _post(self, payload: dict) -> tuple[int, Any]:
         """Send *payload*; return the status and the decoded body.
 
-        The only network touch in this module. Raises on transport errors
-        and on a body that is not JSON; ``ask_noul`` turns both into ``None``.
+        The only network touch in this module. An error status comes back
+        with its body as JSON when it is JSON and as truncated text when it
+        is not (a gateway's HTML page), so the status always reaches the log.
+        Raises on transport errors and on a success body that is not JSON;
+        ``ask_noul`` turns both into ``None``.
         """
-        async with httpx.AsyncClient(timeout=self.timeout) as http:
-            response = await http.post(
-                self.url,
-                json=payload,
-                headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
-            )
+        http = await self._get_client()
+        response = await http.post(
+            self.url,
+            json=payload,
+            headers={"Authorization": f"Bearer {settings.openrouter_api_key}"},
+        )
+        if response.status_code >= 400:
+            try:
+                return response.status_code, response.json()
+            except ValueError:
+                return response.status_code, response.text[:_ERROR_BODY_LIMIT]
         return response.status_code, response.json()
+
+    async def close(self) -> None:
+        if self._http is not None and not self._http.is_closed:
+            await self._http.aclose()
 
     async def ask_noul(self, *, pipeline: str, state: str, question: str) -> NoulDecision | None:
         """P(yes) for *question* about *state*, or ``None`` for no opinion.
@@ -163,10 +186,8 @@ class DecisionsClient:
                 async with asyncio.timeout(self.timeout):
                     status, body = await self._post(payload)
                 if status >= 400:
-                    detail = ""
-                    if isinstance(body, dict) and "error" in body:
-                        detail = f": {body['error']}"
-                    raise DecisionsError(f"http {status}{detail}")
+                    detail = body.get("error", body) if isinstance(body, dict) else body
+                    raise DecisionsError(f"http {status}: {str(detail)[:_ERROR_BODY_LIMIT]}")
                 decision = parse_noul_response(body, self._QUESTION_KEY)
                 # Reshaped into the chat-completion fields LLMTrace reads, so
                 # the trace carries real usage instead of "?".
