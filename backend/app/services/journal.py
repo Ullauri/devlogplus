@@ -92,6 +92,8 @@ async def update_entry(
     # Reset processing flag since content changed
     entry.is_processed = False
     entry.processed_at = None
+    entry.gate_skipped = False
+    entry.gate_p_yes = None
 
     await db.flush()
     await db.refresh(entry)

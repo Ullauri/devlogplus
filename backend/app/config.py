@@ -66,6 +66,27 @@ class Settings(BaseSettings):
     # Valid: none | minimal | low | medium | high | xhigh | max
     llm_reasoning_effort: str = Field(default="none")
 
+    # --- Entry gate (Jev, via OpenRouter's Decisions API) ---
+    # Before topic extraction, one yes/no question per journal entry: is there
+    # anything here worth adding to a knowledge profile? An entry below the
+    # threshold is marked processed without the extraction call. A gate with
+    # no opinion (no key, timeout, error) lets the entry through.
+    llm_entry_gate: bool = Field(
+        default=True,
+        description="Ask the entry gate before topic extraction. Accepts on/off.",
+    )
+    # Provisional, not measured. The errors are not symmetric: a wrong skip
+    # drops an entry's learning from the profile, a wrong pass costs one
+    # extraction call exactly as before the gate existed. So the gate skips
+    # only an entry it is confident is trivial — P(no) >= 0.8, the same
+    # confidence homechan asks of Jev before acting on a command.
+    llm_entry_gate_threshold: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=1.0,
+        description="Skip extraction when the entry gate's P(yes) is below this.",
+    )
+
     # --- Application ---
     # Defaults only. A `quiz_question_count` / `reading_recommendation_count`
     # row in `user_settings` (written by the Settings page) takes precedence —
