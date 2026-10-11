@@ -27,6 +27,7 @@ from backend.app.routers import (
     settings as settings_router,
 )
 from backend.app.services.llm.client import llm_client
+from backend.app.services.llm.decisions import decisions_client
 from backend.app.services.llm.tracing import verify_tracing
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
 
     logger.info("DevLog+ shutting down")
     await llm_client.close()
+    await decisions_client.close()
 
 
 app = FastAPI(

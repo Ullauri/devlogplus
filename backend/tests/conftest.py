@@ -36,6 +36,7 @@ from backend.app.database import get_db
 from backend.app.main import app
 from backend.app.models import Base
 from backend.app.services.llm.client import llm_client
+from backend.app.services.llm.decisions import DecisionsClient
 
 # ---------------------------------------------------------------------------
 # All async tests in this directory use a single session-scoped event loop
@@ -181,6 +182,37 @@ def _no_real_llm_calls():
         )
 
     with patch.object(llm_client, "chat_completion", new=_refuse):
+        yield
+
+
+class RealDecisionsCallRefusedError(BaseException):
+    """A test reached the real Decisions API.
+
+    A ``BaseException`` on purpose: ``DecisionsClient.ask_noul`` fails soft on
+    every ``Exception``, so an ordinary error raised here would come back as
+    "no opinion" and the test that leaked would stay green.
+    """
+
+
+@pytest.fixture(autouse=True)
+def _no_real_decisions_calls():
+    """Refuse to reach OpenRouter's Decisions API from anywhere in the suite.
+
+    The Decisions client has its own HTTP path, so ``_no_real_llm_calls``
+    does not cover it, and a developer's ``.env`` key would otherwise be
+    billed by any pipeline test that runs the entry gate. ``_post`` is the
+    client's only network touch; it is patched on the class so every
+    instance is covered. Tests that want an answer patch ``ask_noul`` (or an
+    instance's ``_post``) themselves, and those patches still win.
+    """
+
+    async def _refuse(*args, **kwargs):
+        raise RealDecisionsCallRefusedError(
+            "A test reached the real Decisions API. Patch decisions_client.ask_noul "
+            "in the test itself."
+        )
+
+    with patch.object(DecisionsClient, "_post", new=_refuse):
         yield
 
 

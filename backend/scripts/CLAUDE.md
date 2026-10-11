@@ -12,6 +12,8 @@ backend/scripts/
     reports/            — Generated charts (PNG) + JSON reports (gitignored)
     nodes/              — One eval script per pipeline node
       fixtures/         — Curated test data (JSON) per node
+  entry_gate_probe.py   — Live measurements of the Jev entry gate (billed;
+                          `--survey` reads the database, writes nothing)
 ```
 
 ## Conventions

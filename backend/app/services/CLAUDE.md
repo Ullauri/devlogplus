@@ -8,7 +8,7 @@ Business logic layer.  Services are async functions that take a DB session (and 
 - Functions accept `AsyncSession` as the first parameter (no global state).
 - Keep functions focused — one concern per function.
 - Services never import from `routers/` — the dependency flows routers → services → models.
-- LLM calls go through `services/llm/client.py`, never directly via httpx.
+- LLM calls go through `services/llm/client.py`, never directly via httpx. The one other door is `services/llm/decisions.py` — OpenRouter's Decisions API (Jev), a different endpoint with a different response shape, which fails soft to `None` instead of raising.
 - Prompt text is imported from `prompts/`, never hardcoded here.
 
 ## Sub-packages

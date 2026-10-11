@@ -2,6 +2,10 @@
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.app.schemas.journal import JournalEntryCreate, JournalEntryUpdate
+from backend.app.services import journal as journal_svc
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -92,6 +96,29 @@ async def test_update_nonexistent_entry(client: AsyncClient):
         json={"content": "nope"},
     )
     assert resp.status_code == 404
+
+
+async def test_edit_clears_the_entry_gate_marker(db_session: AsyncSession):
+    """An edit re-queues the entry, so the gate's verdict on the old text goes.
+
+    Left set, an entry the gate skipped and the user then rewrote would still
+    read as gate-skipped after extraction, and a later re-queue of skipped
+    entries would extract it a second time.
+    """
+    entry = await journal_svc.create_entry(db_session, JournalEntryCreate(content="ok"))
+    entry.is_processed = True
+    entry.gate_skipped = True
+    entry.gate_p_yes = 0.04
+    await db_session.flush()
+
+    edited = await journal_svc.update_entry(
+        db_session, entry.id, JournalEntryUpdate(content="Debugged a Go data race today.")
+    )
+
+    assert edited is not None
+    assert edited.is_processed is False
+    assert edited.gate_skipped is False
+    assert edited.gate_p_yes is None
 
 
 # ---------------------------------------------------------------------------

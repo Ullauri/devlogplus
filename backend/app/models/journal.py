@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, Text, false, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +19,13 @@ class JournalEntry(Base, UUIDMixin, TimestampMixin):
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_processed: Mapped[bool] = mapped_column(default=False)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set when the entry gate judged the current version not worth extracting:
+    # the entry is processed, but no topics were read from it. Kept apart from
+    # is_processed so a later threshold change can re-queue exactly these.
+    gate_skipped: Mapped[bool] = mapped_column(default=False, server_default=false())
+    # The gate's P(yes) for the current version; None when it was not asked
+    # or had no opinion.
+    gate_p_yes: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Relationships
     versions: Mapped[list["JournalEntryVersion"]] = relationship(
